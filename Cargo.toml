@@ -11,4 +11,12 @@ repository = "https://github.com/haydnv/densor.git"
 keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["concurrency", "data-structures", "hardware-support", "mathematics"]
 
+[features]
+opencl = ["custos/opencl", "custos-math/opencl"]
+
+[build-dependencies]
+pkg-config = "0.3"
+
 [dependencies]
+custos-math = { version = "0.5", default-features = false }
+custos = { version="0.5", default-features = false }
