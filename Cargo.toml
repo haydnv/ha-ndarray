@@ -1,0 +1,14 @@
+[package]
+name = "densor"
+version = "0.1.0"
+edition = "2021"
+authors = ["code@tinychain.net"]
+description = "A hardware-accelerated dense tensor with automatic memory management"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/haydnv/densor.git"
+
+keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
+categories = ["concurrency", "data-structures", "hardware-support", "mathematics"]
+
+[dependencies]
