@@ -12,6 +12,7 @@ keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["concurrency", "data-structures", "hardware-support", "mathematics"]
 
 [features]
+cuda = ["custos/cuda", "custos-math/cuda"]
 opencl = ["custos/opencl", "custos-math/opencl"]
 
 [build-dependencies]
