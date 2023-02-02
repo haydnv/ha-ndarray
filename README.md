@@ -1,5 +1,5 @@
-# densor
-A hardware-accelerated dense tensor (n-dimensional array) for Rust
+# ha-ndarray
+A hardware-accelerated n-dimensional array for Rust
 with automatic memory management powered by [freqfs](https://github.com/haydnv/freqfs).
 
 Hardware acceleration is provided by the [custos-math](https://github.com/elftausend/custos-math) library
