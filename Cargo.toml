@@ -3,21 +3,19 @@ name = "ha-ndarray"
 version = "0.1.0"
 edition = "2021"
 authors = ["code@tinychain.net"]
-description = "A hardware-accelerated dense tensor with automatic memory management"
+description = "A hardware-accelerated n-dimensional array"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/haydnv/ha-ndarray.git"
 
 keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
-categories = ["concurrency", "data-structures", "hardware-support", "mathematics"]
+categories = ["data-structures", "hardware-support", "mathematics"]
 
 [features]
-cuda = ["custos/cuda", "custos-math/cuda"]
-opencl = ["custos/opencl", "custos-math/opencl"]
+opencl = ["ocl"]
 
 [build-dependencies]
 pkg-config = "0.3"
 
 [dependencies]
-custos-math = { version = "0.5", default-features = false }
-custos = { version="0.5", default-features = false }
+ocl = { version = "0.19", optional = true }
