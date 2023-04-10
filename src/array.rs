@@ -1,7 +1,9 @@
 use std::fmt;
+use std::ops::Add;
 
 use ocl::{Buffer, OclPrm};
 
+use super::ops::ArrayAdd;
 use super::{AxisBound, NDArray, Shape};
 
 pub enum Error {
@@ -66,6 +68,16 @@ impl<T: OclPrm> NDArray for ArrayBase<T> {
     }
 }
 
+impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
+    type Output = ArrayOp<ArrayAdd<Self, Self>>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let shape = broadcast_shape(self.shape(), rhs.shape()).expect("add");
+        let op = ArrayAdd::new(self, rhs);
+        ArrayOp { op, shape }
+    }
+}
+
 pub struct ArrayOp<Op> {
     op: Op,
     shape: Shape,
@@ -117,4 +129,33 @@ impl<T: OclPrm> NDArray for Array<T> {
             Self::Op(op) => op.shape(),
         }
     }
+}
+
+fn broadcast_shape(left: &[u64], right: &[u64]) -> Result<Shape, Error> {
+    if left.len() < right.len() {
+        return broadcast_shape(right, left);
+    }
+
+    let mut shape = Vec::with_capacity(left.len());
+    let offset = left.len() - right.len();
+
+    for x in 0..offset {
+        shape[x] = left[x];
+    }
+
+    for x in 0..right.len() {
+        if right[x] == 1 || right[x] == left[x + offset] {
+            shape[x + offset] = left[x + offset];
+        } else if left[x + offset] == 1 {
+            shape[x + offset] = right[x];
+        } else {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast dimensions {} and {}",
+                left[x + offset],
+                right[x]
+            )));
+        }
+    }
+
+    Ok(shape)
 }

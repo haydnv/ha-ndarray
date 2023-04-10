@@ -31,6 +31,12 @@ pub struct ArrayAdd<L, R> {
     right: R,
 }
 
+impl<L, R> ArrayAdd<L, R> {
+    pub fn new(left: L, right: R) -> Self {
+        Self { left, right }
+    }
+}
+
 pub struct ArrayDiv<L, R> {
     left: L,
     right: R,
