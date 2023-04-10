@@ -1,10 +1,27 @@
-use ocl::{Buffer, Error, OclPrm, Queue};
 use std::marker::PhantomData;
+
+use ocl::{Buffer, Error, OclPrm, Queue};
 
 use super::CDatatype;
 
 pub trait Op<Out: OclPrm> {
     fn enqueue(&self, queue: Queue, output: Option<Buffer<Out>>) -> Result<Buffer<Out>, Error>;
+}
+
+// constructors
+
+pub struct ArrayConstant<T> {
+    value: T,
+    size: u64,
+}
+
+pub struct ArrayRandom {
+    size: u64,
+}
+
+pub struct MatEye {
+    count: u64,
+    size: u64,
 }
 
 // arithmetic
@@ -30,6 +47,17 @@ pub struct ArrayMod<L, R> {
 }
 
 pub struct ArraySub<L, R> {
+    left: L,
+    right: R,
+}
+
+// linear algebra
+
+pub struct MatDiag<A> {
+    source: A,
+}
+
+pub struct MatMul<L, R> {
     left: L,
     right: R,
 }

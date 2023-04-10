@@ -1,6 +1,33 @@
+use std::fmt;
+
 use ocl::{Buffer, OclPrm};
 
 use super::{AxisBound, NDArray, Shape};
+
+pub enum Error {
+    Bounds(String),
+    Platform(ocl::Error),
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Platform(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Platform(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 pub struct ArrayBase<T: OclPrm> {
     buffer: Buffer<T>,
@@ -8,11 +35,27 @@ pub struct ArrayBase<T: OclPrm> {
 }
 
 impl<T: OclPrm> ArrayBase<T> {
-    pub fn concatenate(arrays: Vec<Array<T>>, axis: usize) -> Self {
+    pub fn concatenate(arrays: Vec<Array<T>>, axis: usize) -> Result<Self, Error> {
         todo!()
     }
 
-    pub fn constant(value: T, shape: Shape) -> Self {
+    pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
+        todo!()
+    }
+
+    pub fn eye(shape: Shape) -> Result<Self, Error> {
+        let ndim = shape.len();
+        if shape.len() < 2 || shape[ndim - 1] != shape[ndim - 2] {
+            Err(Error::Bounds(format!(
+                "invalid shape for identity matrix: {:?}",
+                shape
+            )))
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn random(shape: Shape) -> Result<Self, Error> {
         todo!()
     }
 }

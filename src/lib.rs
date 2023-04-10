@@ -1,3 +1,5 @@
+extern crate core;
+
 pub use ocl::{Buffer, Device, DeviceType, Error, OclPrm, Platform, Queue};
 
 pub use array::*;
@@ -52,6 +54,10 @@ pub trait ArrayCompare<T, O>: NDArray {
     fn lte(&self, other: &O) -> Result<ArrayOp<ArrayLTE<Self, O>>, Error>;
 
     fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
+}
+
+pub trait ArrayMath<T, O>: NDArray {
+    fn matmul(&self, other: &O) -> Result<ArrayOp<MatMul<Self, O>>, Error>;
 }
 
 pub trait NDArrayReduce<T>: NDArray {
