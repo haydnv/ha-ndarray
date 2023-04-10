@@ -1,168 +1,99 @@
-use std::fmt;
+pub use ocl::{Buffer, Device, DeviceType, Error, OclPrm, Platform, Queue};
 
-pub enum Error {
-    NotFound(String),
-    #[cfg(feature = "opencl")]
-    OclError(ocl::error::Error),
+pub use array::*;
+use ops::*;
+
+mod array;
+mod ops;
+
+pub type Shape = Vec<u64>;
+
+pub trait CDatatype {
+    const TYPE_STR: &'static str;
 }
 
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::NotFound(id) => write!(f, "not found: {}", id),
-            #[cfg(feature = "opencl")]
-            Self::OclError(cause) => cause.fmt(f),
-        }
-    }
+impl CDatatype for f32 {
+    const TYPE_STR: &'static str = "float";
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::NotFound(id) => write!(f, "not found: {}", id),
-            #[cfg(feature = "opencl")]
-            Self::OclError(cause) => cause.fmt(f),
-        }
+pub trait NDArray: Sized {
+    fn ndim(&self) -> usize {
+        self.shape().len()
     }
+
+    fn size(&self) -> u64 {
+        self.shape().iter().product()
+    }
+
+    fn shape(&self) -> &[u64];
 }
 
-impl std::error::Error for Error {}
-
-#[cfg(feature = "opencl")]
-impl From<ocl::error::Error> for Error {
-    fn from(cause: ocl::Error) -> Self {
-        Self::OclError(cause)
-    }
+pub trait ArrayRead<T: OclPrm>: NDArray {
+    fn read(&self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
 }
 
-pub enum Device {
-    Main,
-    #[cfg(feature = "opencl")]
-    CPUCL(ocl::Device),
-    #[cfg(feature = "opencl")]
-    GPU(ocl::Device),
+pub trait ArrayWrite<O>: NDArray {
+    fn write(&self, other: &O) -> Result<(), Error>;
 }
 
-impl Device {
-    pub fn all() -> Result<Vec<Device>, Error> {
-        let mut devices = Vec::with_capacity(3);
-
-        devices.push(Device::Main);
-
-        #[cfg(feature = "opencl")]
-        {
-            for platform in ocl::Platform::list() {
-                let host_type = ocl::DeviceType::CPU;
-                for device in ocl::Device::list(platform, Some(host_type))? {
-                    if device.is_available()? {
-                        devices.push(Device::CPUCL(device));
-                    }
-                }
-
-                let gpu_type = ocl::DeviceType::GPU | ocl::DeviceType::ACCELERATOR;
-                for device in ocl::Device::list(platform, Some(gpu_type))? {
-                    if device.is_available()? {
-                        devices.push(Device::GPU(device));
-                    }
-                }
-            }
-        }
-
-        Ok(devices)
-    }
-
-    #[cfg(feature = "opencl")]
-    pub fn gpu(i: usize) -> Result<ocl::Device, Error> {
-        let mut count = 0;
-        for platform in ocl::Platform::list() {
-            let gpu_type = ocl::DeviceType::GPU | ocl::DeviceType::ACCELERATOR;
-            for device in ocl::Device::list(platform, Some(gpu_type))? {
-                if device.is_available()? {
-                    if count == i {
-                        return Ok(device);
-                    } else {
-                        count += 1;
-                    }
-                }
-            }
-        }
-
-        Err(Error::NotFound(format!("OpenCL device {}", i)))
-    }
+pub trait ArrayCast<O>: NDArray {
+    fn cast(&self) -> Result<ArrayOp<ops::ArrayCast<Self, O>>, Error>;
 }
 
-impl fmt::Debug for Device {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Main => f.write_str("CPU (main device)"),
-            #[cfg(feature = "opencl")]
-            Self::CPUCL(device) => write!(f, "OpenCL CPU: {:?}", device),
-            #[cfg(feature = "opencl")]
-            Self::GPU(device) => write!(f, "OpenCL GPU: {:?}", device),
-        }
-    }
+pub trait ArrayCompare<T, O>: NDArray {
+    fn eq(&self, other: &O) -> Result<ArrayOp<ArrayEq<Self, O>>, Error>;
+
+    fn gt(&self, other: &O) -> Result<ArrayOp<ArrayGT<Self, O>>, Error>;
+
+    fn gte(&self, other: &O) -> Result<ArrayOp<ArrayGTE<Self, O>>, Error>;
+
+    fn lt(&self, other: &O) -> Result<ArrayOp<ArrayLT<Self, O>>, Error>;
+
+    fn lte(&self, other: &O) -> Result<ArrayOp<ArrayLTE<Self, O>>, Error>;
+
+    fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
+}
+
+pub trait NDArrayReduce<T>: NDArray {
+    fn max(&self, axis: usize) -> Result<T, Error>;
+
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error>;
+
+    fn min(&self, axis: usize) -> Result<T, Error>;
+
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error>;
+
+    fn product(&self, axis: usize) -> Result<T, Error>;
+
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error>;
+
+    fn sum(&self, axis: usize) -> Result<T, Error>;
+
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error>;
+}
+
+pub trait NDArrayTransform<T>: NDArray {
+    fn broadcast(shape: Shape) -> Result<ArrayView<Self>, Error>;
+
+    fn transpose(axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error>;
+
+    fn reshape(shape: Shape) -> Result<ArrayView<Self>, Error>;
+
+    fn slice(bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error>;
+}
+
+pub enum AxisBound {
+    At(u64),
+    In(u64, u64, u64),
+    Of(Vec<u64>),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(feature = "opencl")]
     #[test]
-    fn test_buffer_and_kernel() -> Result<(), Error> {
-        use ocl::{Buffer, Context, EventList, Program, Kernel};
-
-        static SRC: &'static str = r#"
-    __kernel void multiply(__global float* left, __global float* right, __global float* output) {
-        int id = get_global_id(0);
-        output[id] = left[id] * right[id];
-    }
-"#;
-
-        for device in Device::all().expect("device list") {
-            println!("found device: {:?}", device);
-        }
-
-        let context = Context::builder().build().expect("context");
-        let gpu = Device::gpu(0).expect("GPU");
-        let queue = ocl::Queue::new(&context, gpu, None).expect("queue");
-
-        let dims = 8;
-
-        let left = Buffer::<f32>::builder()
-            .queue(queue.clone())
-            .len(dims)
-            .build()?;
-
-        let right = Buffer::<f32>::builder()
-            .queue(queue.clone())
-            .len(dims)
-            .build()?;
-
-        let output = Buffer::<f32>::builder()
-            .queue(queue.clone())
-            .len(dims)
-            .build()?;
-
-        let program = Program::builder()
-            .src(SRC)
-            .devices(gpu)
-            .build(&context)?;
-
-        let kernel = Kernel::builder()
-            .name("multiply")
-            .program(&program)
-            .queue(queue.clone())
-            .global_work_size(dims)
-            .arg(&left)
-            .arg(&right)
-            .arg(&output)
-            .build()?;
-
-        let mut event_list = EventList::new();
-        unsafe {
-            kernel.cmd().enew(&mut event_list).enq()?;
-        }
-        event_list.wait_for().map_err(Error::from)
+    fn test_constant_array() {
+        let _array = ArrayBase::constant(1, vec![2, 3]);
     }
 }

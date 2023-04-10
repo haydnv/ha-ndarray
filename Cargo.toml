@@ -12,10 +12,10 @@ keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["data-structures", "hardware-support", "mathematics"]
 
 [features]
-opencl = ["ocl"]
+# TODO: support destream & serde
 
 [build-dependencies]
 pkg-config = "0.3"
 
 [dependencies]
-ocl = { version = "0.19", optional = true }
+ocl = "0.19"
