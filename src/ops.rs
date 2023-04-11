@@ -10,64 +10,6 @@ pub trait Op<Out: OclPrm> {
 
 // constructors
 
-pub struct ArrayConstant<T> {
-    value: T,
-    size: u64,
-}
-
-impl<T> ArrayConstant<T> {
-    pub fn new(value: T, size: u64) -> Self {
-        Self { value, size }
-    }
-}
-
-impl<T: OclPrm + CDatatype> Op<T> for ArrayConstant<T> {
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
-        let src = format!(
-            r#"
-            __kernel void constant(
-                __private {dtype} const value,
-                __global float* const output)
-            {{
-                output[get_global_id(0)] = value;
-            }}
-        "#,
-            dtype = T::TYPE_STR
-        );
-
-        let output = if let Some(output) = output {
-            output
-        } else {
-            Buffer::builder()
-                .queue(queue.clone())
-                .len((self.size,))
-                .build()?
-        };
-
-        let program = Program::builder()
-            .source(src)
-            .devices(queue.device())
-            .build(&queue.context())?;
-
-        let kernel = Kernel::builder()
-            .program(&program)
-            .name("constant")
-            .queue(queue)
-            .global_work_size((self.size,))
-            .arg(self.value)
-            .arg(&output)
-            .build()?;
-
-        let mut event = Event::empty();
-
-        unsafe {
-            kernel.cmd().enew(&mut event).enq()?;
-        }
-
-        Ok(output)
-    }
-}
-
 pub struct ArrayRandom {
     size: u64,
 }
@@ -154,6 +96,14 @@ pub struct ArrayNE<L, R> {
 }
 
 // reduction
+
+pub struct ArrayAll<A> {
+    source: A,
+}
+
+pub struct ArrayAny<A> {
+    source: A,
+}
 
 pub struct ArrayMax<A> {
     source: A,

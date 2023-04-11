@@ -1,6 +1,6 @@
-extern crate core;
+use std::fmt;
 
-pub use ocl::{Buffer, Device, DeviceType, Error, OclPrm, Platform, Queue};
+pub use ocl::{Buffer, Device, DeviceType, OclPrm, Platform, Queue};
 
 pub use array::*;
 use ops::*;
@@ -8,7 +8,38 @@ use ops::*;
 mod array;
 mod ops;
 
-pub type Shape = Vec<u64>;
+pub enum Error {
+    Bounds(String),
+    Platform(ocl::Error),
+}
+
+impl From<ocl::Error> for Error {
+    fn from(cause: ocl::Error) -> Self {
+        Self::Platform(cause)
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Platform(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Platform(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+pub type Shape = Vec<usize>;
 
 pub trait CDatatype {
     const TYPE_STR: &'static str;
@@ -23,11 +54,11 @@ pub trait NDArray: Sized {
         self.shape().len()
     }
 
-    fn size(&self) -> u64 {
+    fn size(&self) -> usize {
         self.shape().iter().product()
     }
 
-    fn shape(&self) -> &[u64];
+    fn shape(&self) -> &[usize];
 }
 
 pub trait ArrayRead<T: OclPrm>: NDArray {
@@ -61,19 +92,27 @@ pub trait ArrayMath<T, O>: NDArray {
 }
 
 pub trait NDArrayReduce<T>: NDArray {
-    fn max(&self, axis: usize) -> Result<T, Error>;
+    fn all(&self) -> Result<bool, Error>;
+
+    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error>;
+
+    fn any(&self) -> Result<bool, Error>;
+
+    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error>;
+
+    fn max(&self) -> Result<T, Error>;
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error>;
 
-    fn min(&self, axis: usize) -> Result<T, Error>;
+    fn min(&self) -> Result<T, Error>;
 
     fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error>;
 
-    fn product(&self, axis: usize) -> Result<T, Error>;
+    fn product(&self) -> Result<T, Error>;
 
     fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error>;
 
-    fn sum(&self, axis: usize) -> Result<T, Error>;
+    fn sum(&self) -> Result<T, Error>;
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error>;
 }
@@ -99,7 +138,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_constant_array() {
-        let _array = ArrayBase::constant(1., vec![2, 3]);
+    fn test_constant_array() -> Result<(), Error> {
+        let array = ArrayBase::constant(0., vec![2, 3])?;
+        assert!(!array.any()?);
+
+        let array = ArrayBase::constant(1., vec![2, 3])?;
+        assert!(array.all()?);
+
+        Ok(())
     }
 }
