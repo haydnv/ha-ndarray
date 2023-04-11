@@ -1,14 +1,20 @@
 use std::fmt;
 use std::ops::Add;
 
-use ocl::{Buffer, OclPrm};
+use ocl::{Buffer, OclPrm, ProQue};
 
-use super::ops::ArrayAdd;
-use super::{AxisBound, NDArray, Shape};
+use super::ops::{ArrayAdd, ArrayConstant, Op};
+use super::{AxisBound, CDatatype, NDArray, Shape};
 
 pub enum Error {
     Bounds(String),
     Platform(ocl::Error),
+}
+
+impl From<ocl::Error> for Error {
+    fn from(cause: ocl::Error) -> Self {
+        Self::Platform(cause)
+    }
 }
 
 impl fmt::Debug for Error {
@@ -36,13 +42,17 @@ pub struct ArrayBase<T: OclPrm> {
     shape: Shape,
 }
 
-impl<T: OclPrm> ArrayBase<T> {
+impl<T: OclPrm + CDatatype> ArrayBase<T> {
     pub fn concatenate(arrays: Vec<Array<T>>, axis: usize) -> Result<Self, Error> {
         todo!()
     }
 
     pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
-        todo!()
+        let pro_que = ProQue::builder().build()?;
+        let op = ArrayConstant::new(value, shape.iter().product());
+        let buffer = op.enqueue(pro_que.queue().clone(), None)?;
+
+        Ok(Self { buffer, shape })
     }
 
     pub fn eye(shape: Shape) -> Result<Self, Error> {
@@ -131,6 +141,7 @@ impl<T: OclPrm> NDArray for Array<T> {
     }
 }
 
+#[inline]
 fn broadcast_shape(left: &[u64], right: &[u64]) -> Result<Shape, Error> {
     if left.len() < right.len() {
         return broadcast_shape(right, left);

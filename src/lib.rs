@@ -100,6 +100,6 @@ mod tests {
 
     #[test]
     fn test_constant_array() {
-        let _array = ArrayBase::constant(1, vec![2, 3]);
+        let _array = ArrayBase::constant(1., vec![2, 3]);
     }
 }
