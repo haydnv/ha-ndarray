@@ -61,19 +61,19 @@ pub trait NDArray: Sized {
     fn shape(&self) -> &[usize];
 }
 
-pub trait ArrayRead<T: OclPrm>: NDArray {
+pub trait NDArrayRead<T: OclPrm>: NDArray {
     fn read(&self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
 }
 
-pub trait ArrayWrite<O>: NDArray {
+pub trait NDArrayWrite<O>: NDArray {
     fn write(&self, other: &O) -> Result<(), Error>;
 }
 
-pub trait ArrayCast<O>: NDArray {
+pub trait NDArrayCast<O>: NDArray {
     fn cast(&self) -> Result<ArrayOp<ops::ArrayCast<Self, O>>, Error>;
 }
 
-pub trait ArrayCompare<T, O>: NDArray {
+pub trait NDArrayCompare<T, O>: NDArray {
     fn eq(&self, other: &O) -> Result<ArrayOp<ArrayEq<Self, O>>, Error>;
 
     fn gt(&self, other: &O) -> Result<ArrayOp<ArrayGT<Self, O>>, Error>;
@@ -87,7 +87,7 @@ pub trait ArrayCompare<T, O>: NDArray {
     fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
 }
 
-pub trait ArrayMath<T, O>: NDArray {
+pub trait NDArrayMath<T, O>: NDArray {
     fn matmul(&self, other: &O) -> Result<ArrayOp<MatMul<Self, O>>, Error>;
 }
 
