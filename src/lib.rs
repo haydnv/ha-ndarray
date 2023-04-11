@@ -41,7 +41,7 @@ impl std::error::Error for Error {}
 
 pub type Shape = Vec<usize>;
 
-pub trait CDatatype {
+pub trait CDatatype: OclPrm {
     const TYPE_STR: &'static str;
 }
 
@@ -62,7 +62,7 @@ pub trait NDArray: Sized {
 }
 
 pub trait NDArrayRead<T: OclPrm>: NDArray {
-    fn read(&self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
+    fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
 }
 
 pub trait NDArrayWrite<O>: NDArray {
@@ -70,21 +70,24 @@ pub trait NDArrayWrite<O>: NDArray {
 }
 
 pub trait NDArrayCast<O>: NDArray {
-    fn cast(&self) -> Result<ArrayOp<ops::ArrayCast<Self, O>>, Error>;
+    fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error>;
 }
 
-pub trait NDArrayCompare<T, O>: NDArray {
-    fn eq(&self, other: &O) -> Result<ArrayOp<ArrayEq<Self, O>>, Error>;
+pub trait NDArrayCompare<O: NDArray>: NDArray {
+    fn eq(self, other: O) -> Result<ArrayOp<ArrayEq<Self, O>>, Error> {
+        let shape = broadcast_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayEq::new(self, other), shape))
+    }
 
-    fn gt(&self, other: &O) -> Result<ArrayOp<ArrayGT<Self, O>>, Error>;
-
-    fn gte(&self, other: &O) -> Result<ArrayOp<ArrayGTE<Self, O>>, Error>;
-
-    fn lt(&self, other: &O) -> Result<ArrayOp<ArrayLT<Self, O>>, Error>;
-
-    fn lte(&self, other: &O) -> Result<ArrayOp<ArrayLTE<Self, O>>, Error>;
-
-    fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
+    // fn gt(&self, other: &O) -> Result<ArrayOp<ArrayGT<Self, O>>, Error>;
+    //
+    // fn gte(&self, other: &O) -> Result<ArrayOp<ArrayGTE<Self, O>>, Error>;
+    //
+    // fn lt(&self, other: &O) -> Result<ArrayOp<ArrayLT<Self, O>>, Error>;
+    //
+    // fn lte(&self, other: &O) -> Result<ArrayOp<ArrayLTE<Self, O>>, Error>;
+    //
+    // fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
 }
 
 pub trait NDArrayMath<T, O>: NDArray {
@@ -131,6 +134,36 @@ pub enum AxisBound {
     At(u64),
     In(u64, u64, u64),
     Of(Vec<u64>),
+}
+
+#[inline]
+fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
+    if left.len() < right.len() {
+        return broadcast_shape(right, left);
+    }
+
+    let mut shape = Vec::with_capacity(left.len());
+    let offset = left.len() - right.len();
+
+    for x in 0..offset {
+        shape[x] = left[x];
+    }
+
+    for x in 0..right.len() {
+        if right[x] == 1 || right[x] == left[x + offset] {
+            shape[x + offset] = left[x + offset];
+        } else if left[x + offset] == 1 {
+            shape[x + offset] = right[x];
+        } else {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast dimensions {} and {}",
+                left[x + offset],
+                right[x]
+            )));
+        }
+    }
+
+    Ok(shape)
 }
 
 #[cfg(test)]

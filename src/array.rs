@@ -1,9 +1,13 @@
+use std::fmt;
 use std::ops::Add;
 
-use ocl::{Buffer, OclPrm, ProQue, Queue};
+use ocl::{Buffer, Context, Device, OclPrm, Platform, ProQue, Queue};
 
 use super::ops::*;
-use super::{AxisBound, CDatatype, Error, NDArray, NDArrayReduce, Shape};
+use super::{
+    broadcast_shape, AxisBound, CDatatype, Error, NDArray, NDArrayCompare, NDArrayRead,
+    NDArrayReduce, Shape,
+};
 
 pub struct ArrayBase<T> {
     data: Vec<T>,
@@ -46,6 +50,12 @@ impl<T: OclPrm> NDArray for ArrayBase<T> {
     }
 }
 
+impl<'a, T: OclPrm> NDArray for &'a ArrayBase<T> {
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+}
+
 impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
     type Output = ArrayOp<ArrayAdd<Self, Self>>;
 
@@ -56,42 +66,55 @@ impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
     }
 }
 
-impl<T: OclPrm + CDatatype> NDArrayReduce<T> for ArrayBase<T> {
+impl<T: CDatatype> NDArrayCompare<Self> for ArrayBase<T> {}
+
+impl<'a, T: CDatatype> NDArrayCompare<Self> for &'a ArrayBase<T> {}
+
+impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
+    fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
+        (&self).read(queue, output)
+    }
+}
+
+impl<'a, T: CDatatype> NDArrayRead<T> for &'a ArrayBase<T> {
+    fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
+        let buffer = if let Some(output) = output {
+            if output.len() == self.size() {
+                Ok(output)
+            } else {
+                Err(Error::Bounds(format!(
+                    "cannot buffer {:?} into {} elements",
+                    self,
+                    output.len()
+                )))
+            }
+        } else {
+            Buffer::<T>::builder()
+                .queue(queue)
+                .len(self.size())
+                .build()
+                .map_err(Error::from)
+        }?;
+
+        buffer.write(&self.data).enq()?;
+
+        Ok(buffer)
+    }
+}
+
+impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn all(&self) -> Result<bool, Error> {
-        let src = format!(
-            r#"
-        __kernel void reduce_all(
-                __global uint* flag,
-                __global {dtype}* input)
-        {{
-            if (input[get_global_id(0)] == 0) {{
-                flag[0] = 1;
-            }}
-        }}
-        "#,
-            dtype = T::TYPE_STR
-        );
-
-        let pro_que = ProQue::builder().src(src).dims((self.size(),)).build()?;
-
-        let input = pro_que.create_buffer()?;
-        input.write(&self.data).enq()?;
-
-        let mut result = vec![0u8];
-        let flag: Buffer<u8> = pro_que.create_buffer()?;
-        flag.write(&result).enq()?;
-
-        let kernel = pro_que
-            .kernel_builder("reduce_all")
-            .arg(&flag)
-            .arg(&input)
+        let platform = Platform::first()?;
+        let device = Device::first(platform)?;
+        let context = Context::builder()
+            .platform(platform)
+            .devices(device)
             .build()?;
 
-        unsafe { kernel.enq()? }
+        let queue = Queue::new(&context, device, None)?;
+        let input = self.read(queue.clone(), None)?;
 
-        flag.read(&mut result).enq()?;
-
-        Ok(result == [0])
+        kernels::reduce_all(queue, input).map_err(Error::from)
     }
 
     fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error> {
@@ -99,40 +122,17 @@ impl<T: OclPrm + CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let src = format!(
-            r#"
-        __kernel void reduce_any(
-                __global uint* flag,
-                __global {dtype}* input)
-        {{
-            if (input[get_global_id(0)] != 0) {{
-                flag[0] = 1;
-            }}
-        }}
-        "#,
-            dtype = T::TYPE_STR
-        );
-
-        let pro_que = ProQue::builder().src(src).dims((self.size(),)).build()?;
-
-        let input = pro_que.create_buffer()?;
-        input.write(&self.data).enq()?;
-
-        let mut result = vec![0u8];
-        let flag: Buffer<u8> = pro_que.create_buffer()?;
-        flag.write(&result).enq()?;
-
-        let kernel = pro_que
-            .kernel_builder("reduce_any")
-            .arg(&flag)
-            .arg(&input)
+        let platform = Platform::first()?;
+        let device = Device::first(platform)?;
+        let context = Context::builder()
+            .platform(platform)
+            .devices(device)
             .build()?;
 
-        unsafe { kernel.enq()? }
+        let queue = Queue::new(&context, device, None)?;
+        let input = self.read(queue.clone(), None)?;
 
-        flag.read(&mut result).enq()?;
-
-        Ok(result == [1])
+        kernels::reduce_any(queue, input).map_err(Error::from)
     }
 
     fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error> {
@@ -172,9 +172,21 @@ impl<T: OclPrm + CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     }
 }
 
+impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "array of {}s with shape {:?}", T::TYPE_STR, self.shape)
+    }
+}
+
 pub struct ArrayOp<Op> {
     op: Op,
     shape: Shape,
+}
+
+impl<Op> ArrayOp<Op> {
+    pub fn new(op: Op, shape: Shape) -> Self {
+        Self { op, shape }
+    }
 }
 
 impl<Op> NDArray for ArrayOp<Op> {
@@ -223,34 +235,4 @@ impl<T: OclPrm> NDArray for Array<T> {
             Self::Op(op) => op.shape(),
         }
     }
-}
-
-#[inline]
-fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
-    if left.len() < right.len() {
-        return broadcast_shape(right, left);
-    }
-
-    let mut shape = Vec::with_capacity(left.len());
-    let offset = left.len() - right.len();
-
-    for x in 0..offset {
-        shape[x] = left[x];
-    }
-
-    for x in 0..right.len() {
-        if right[x] == 1 || right[x] == left[x + offset] {
-            shape[x + offset] = left[x + offset];
-        } else if left[x + offset] == 1 {
-            shape[x + offset] = right[x];
-        } else {
-            return Err(Error::Bounds(format!(
-                "cannot broadcast dimensions {} and {}",
-                left[x + offset],
-                right[x]
-            )));
-        }
-    }
-
-    Ok(shape)
 }

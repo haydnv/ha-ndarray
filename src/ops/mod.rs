@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Error, Event, Kernel, OclPrm, Program, Queue};
 
+pub mod kernels;
+
 use super::CDatatype;
 
 pub trait Op<Out: OclPrm> {
@@ -68,6 +70,12 @@ pub struct MatMul<L, R> {
 pub struct ArrayEq<L, R> {
     left: L,
     right: R,
+}
+
+impl<L, R> ArrayEq<L, R> {
+    pub fn new(left: L, right: R) -> Self {
+        Self { left, right }
+    }
 }
 
 pub struct ArrayGT<L, R> {
