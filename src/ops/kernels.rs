@@ -44,6 +44,43 @@ pub fn elementwise<T: CDatatype, O: CDatatype>(
     Ok(output)
 }
 
+pub fn elementwise_inplace<T: CDatatype>(
+    op: &'static str,
+    queue: Queue,
+    left: Buffer<T>,
+    right: &Buffer<T>,
+) -> Result<Buffer<T>, Error> {
+    assert_eq!(left.len(), right.len());
+
+    let src = format!(
+        r#"
+        __kernel void elementwise_inplace(
+            __global {dtype}* left,
+            __global {dtype}* right)
+        {{
+            uint const idx = get_global_id(0);
+            left[idx] {op} right[idx];
+        }}
+    "#,
+        dtype = T::TYPE_STR,
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let kernel = Kernel::builder()
+        .name("elementwise_inplace")
+        .program(&program)
+        .queue(queue)
+        .global_work_size(left.len())
+        .arg(&left)
+        .arg(right)
+        .build()?;
+
+    unsafe { kernel.enq()? }
+
+    Ok(left)
+}
+
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
     let src = format!(
         r#"

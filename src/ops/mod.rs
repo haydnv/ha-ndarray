@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use ocl::{Buffer, Queue};
+use ocl::{Buffer, OclPrm, Queue};
 
 pub mod kernels;
 
-use super::array::ArrayBase;
+use super::array::{ArrayBase, ArrayOp};
 use super::{CDatatype, Error, NDArray, NDArrayRead};
 
 pub trait Op {
@@ -38,6 +38,34 @@ pub struct ArrayAdd<L, R> {
 impl<L, R> ArrayAdd<L, R> {
     pub fn new(left: L, right: R) -> Self {
         Self { left, right }
+    }
+
+    fn enqueue<T, LA, RA>(
+        left: LA,
+        right: RA,
+        queue: Queue,
+        output: Option<Buffer<T>>,
+    ) -> Result<Buffer<T>, Error>
+    where
+        T: CDatatype,
+        LA: NDArrayRead<T>,
+        RA: NDArrayRead<T>,
+    {
+        let left = left.read(queue.clone(), output)?;
+        let right = right.read(queue.clone(), None)?;
+        kernels::elementwise_inplace("+=", queue, left, &right).map_err(Error::from)
+    }
+}
+
+impl<T: CDatatype> Op for ArrayAdd<ArrayBase<T>, ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(
+        &self,
+        queue: Queue,
+        output: Option<Buffer<Self::Out>>,
+    ) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue, output)
     }
 }
 
@@ -145,6 +173,38 @@ impl<'a, T: CDatatype> Op for ArrayEq<&'a ArrayBase<T>, &'a ArrayBase<T>> {
     }
 }
 
+impl<T: CDatatype, O: Op<Out = T>> Op for ArrayEq<ArrayBase<T>, ArrayOp<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, &self.left, &self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<ArrayBase<T>, &'a ArrayOp<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, &self.left, self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<&'a ArrayBase<T>, ArrayOp<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, self.left, &self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<&'a ArrayBase<T>, &'a ArrayOp<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, self.left, self.right, output)
+    }
+}
+
 pub struct ArrayGT<L, R> {
     left: L,
     right: R,
@@ -201,4 +261,17 @@ pub struct ArraySum<A> {
 pub struct ArrayCast<A, O> {
     source: A,
     dtype: PhantomData<O>,
+}
+
+#[inline]
+fn buffer_or_new<T: OclPrm>(
+    queue: Queue,
+    size: usize,
+    buffer: Option<Buffer<T>>,
+) -> Result<Buffer<T>, ocl::Error> {
+    if let Some(buffer) = buffer {
+        Ok(buffer)
+    } else {
+        Buffer::builder().queue(queue).len(size).build()
+    }
 }

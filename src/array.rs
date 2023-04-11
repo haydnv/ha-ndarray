@@ -19,12 +19,12 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
         todo!()
     }
 
-    pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
+    pub fn constant(shape: Shape, value: T) -> Self {
         let size = shape.iter().product();
-        Ok(Self {
+        Self {
             data: vec![value; size],
             shape,
-        })
+        }
     }
 
     pub fn eye(shape: Shape) -> Result<Self, Error> {
@@ -37,6 +37,10 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
         } else {
             todo!()
         }
+    }
+
+    pub fn from_vec(shape: Shape, data: Vec<T>) -> Self {
+        Self { shape, data }
     }
 
     pub fn random(shape: Shape) -> Result<Self, Error> {
@@ -56,6 +60,16 @@ impl<'a, T: OclPrm> NDArray for &'a ArrayBase<T> {
     }
 }
 
+impl<'a, T: OclPrm> Add for ArrayBase<T> {
+    type Output = ArrayOp<ArrayAdd<Self, Self>>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let shape = broadcast_shape(self.shape(), rhs.shape()).expect("add");
+        let op = ArrayAdd::new(self, rhs);
+        ArrayOp { op, shape }
+    }
+}
+
 impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
     type Output = ArrayOp<ArrayAdd<Self, Self>>;
 
@@ -69,6 +83,15 @@ impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
 impl<T: CDatatype> NDArrayCompare<Self> for ArrayBase<T> {}
 
 impl<'a, T: CDatatype> NDArrayCompare<&'a Self> for ArrayBase<T> {}
+
+impl<T: CDatatype, Op: super::ops::Op<Out = T>> NDArrayCompare<ArrayOp<Op>> for ArrayBase<T> {}
+
+impl<'a, T, Op> NDArrayCompare<&'a ArrayOp<Op>> for ArrayBase<T>
+where
+    T: CDatatype,
+    Op: super::ops::Op<Out = T>,
+{
+}
 
 impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
     fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
@@ -160,7 +183,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
 
 impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "array of {}s with shape {:?}", T::TYPE_STR, self.shape)
+        write!(f, "{} array with shape {:?}", T::TYPE_STR, self.shape)
     }
 }
 
@@ -178,6 +201,24 @@ impl<Op> ArrayOp<Op> {
 impl<Op> NDArray for ArrayOp<Op> {
     fn shape(&self) -> &[usize] {
         &self.shape
+    }
+}
+
+impl<'a, Op> NDArray for &'a ArrayOp<Op> {
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+}
+
+impl<Op: super::ops::Op> NDArrayRead<Op::Out> for ArrayOp<Op> {
+    fn read(self, queue: Queue, output: Option<Buffer<Op::Out>>) -> Result<Buffer<Op::Out>, Error> {
+        self.op.enqueue(queue, output)
+    }
+}
+
+impl<'a, Op: super::ops::Op> NDArrayRead<Op::Out> for &'a ArrayOp<Op> {
+    fn read(self, queue: Queue, output: Option<Buffer<Op::Out>>) -> Result<Buffer<Op::Out>, Error> {
+        self.op.enqueue(queue, output)
     }
 }
 
@@ -234,6 +275,17 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error> {
         todo!()
+    }
+}
+
+impl<Op: super::ops::Op> fmt::Debug for ArrayOp<Op> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} array result with shape {:?}",
+            Op::Out::TYPE_STR,
+            self.shape
+        )
     }
 }
 

@@ -191,19 +191,30 @@ mod tests {
 
     #[test]
     fn test_constant_array() -> Result<(), Error> {
-        let array = ArrayBase::constant(0., vec![2, 3])?;
+        let array = ArrayBase::constant(vec![2, 3], 0.);
         assert!(!array.any()?);
 
-        let array = ArrayBase::constant(1., vec![2, 3])?;
+        let array = ArrayBase::constant(vec![2, 3], 1.);
         assert!(array.all()?);
 
         Ok(())
     }
 
     #[test]
+    fn test_add() -> Result<(), Error> {
+        let shape = vec![5, 2];
+        let left = ArrayBase::from_vec(shape.to_vec(), (0..10).into_iter().collect());
+        let right = ArrayBase::from_vec(shape.to_vec(), (0..10).into_iter().rev().collect());
+        let actual = left + right;
+        let expected = ArrayBase::constant(shape, 9);
+        assert!(expected.eq(actual)?.all()?);
+        Ok(())
+    }
+
+    #[test]
     fn test_eq() -> Result<(), Error> {
-        let zeros = ArrayBase::constant(0., vec![2, 3])?;
-        let ones = ArrayBase::constant(1., vec![2, 3])?;
+        let zeros = ArrayBase::constant(vec![2, 3], 0.);
+        let ones = ArrayBase::constant(vec![2, 3], 1.);
 
         assert!(zeros.eq(&zeros)?.all()?);
         assert!(ones.eq(&ones)?.all()?);
