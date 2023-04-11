@@ -1,11 +1,11 @@
 use std::fmt;
 use std::ops::Add;
 
-use ocl::{Buffer, Context, Device, OclPrm, Platform, ProQue, Queue};
+use ocl::{Buffer, OclPrm, Queue};
 
 use super::ops::*;
 use super::{
-    broadcast_shape, AxisBound, CDatatype, Error, NDArray, NDArrayCompare, NDArrayRead,
+    autoqueue, broadcast_shape, AxisBound, CDatatype, Error, NDArray, NDArrayCompare, NDArrayRead,
     NDArrayReduce, Shape,
 };
 
@@ -68,7 +68,7 @@ impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
 
 impl<T: CDatatype> NDArrayCompare<Self> for ArrayBase<T> {}
 
-impl<'a, T: CDatatype> NDArrayCompare<Self> for &'a ArrayBase<T> {}
+impl<'a, T: CDatatype> NDArrayCompare<&'a Self> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
     fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
@@ -104,14 +104,7 @@ impl<'a, T: CDatatype> NDArrayRead<T> for &'a ArrayBase<T> {
 
 impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn all(&self) -> Result<bool, Error> {
-        let platform = Platform::first()?;
-        let device = Device::first(platform)?;
-        let context = Context::builder()
-            .platform(platform)
-            .devices(device)
-            .build()?;
-
-        let queue = Queue::new(&context, device, None)?;
+        let queue = autoqueue()?;
         let input = self.read(queue.clone(), None)?;
 
         kernels::reduce_all(queue, input).map_err(Error::from)
@@ -122,14 +115,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let platform = Platform::first()?;
-        let device = Device::first(platform)?;
-        let context = Context::builder()
-            .platform(platform)
-            .devices(device)
-            .build()?;
-
-        let queue = Queue::new(&context, device, None)?;
+        let queue = autoqueue()?;
         let input = self.read(queue.clone(), None)?;
 
         kernels::reduce_any(queue, input).map_err(Error::from)
@@ -195,6 +181,62 @@ impl<Op> NDArray for ArrayOp<Op> {
     }
 }
 
+impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
+    fn all(&self) -> Result<bool, Error> {
+        let queue = autoqueue()?;
+        let input = self.op.enqueue(queue.clone(), None)?;
+
+        kernels::reduce_all(queue, input).map_err(Error::from)
+    }
+
+    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error> {
+        todo!()
+    }
+
+    fn any(&self) -> Result<bool, Error> {
+        let queue = autoqueue()?;
+        let input = self.op.enqueue(queue.clone(), None)?;
+
+        kernels::reduce_any(queue, input).map_err(Error::from)
+    }
+
+    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error> {
+        todo!()
+    }
+
+    fn max(&self) -> Result<Op::Out, Error> {
+        todo!()
+    }
+
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error> {
+        todo!()
+    }
+
+    fn min(&self) -> Result<Op::Out, Error> {
+        todo!()
+    }
+
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error> {
+        todo!()
+    }
+
+    fn product(&self) -> Result<Op::Out, Error> {
+        todo!()
+    }
+
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error> {
+        todo!()
+    }
+
+    fn sum(&self) -> Result<Op::Out, Error> {
+        todo!()
+    }
+
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error> {
+        todo!()
+    }
+}
+
 pub struct ArraySlice<A> {
     source: A,
     bounds: Vec<AxisBound>,
@@ -223,7 +265,7 @@ pub enum Array<T: OclPrm> {
     Base(ArrayBase<T>),
     Slice(ArraySlice<Box<Self>>),
     View(ArrayView<Box<Self>>),
-    Op(ArrayOp<Box<dyn super::ops::Op<T>>>),
+    Op(ArrayOp<Box<dyn super::ops::Op<Out = T>>>),
 }
 
 impl<T: OclPrm> NDArray for Array<T> {

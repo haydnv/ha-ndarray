@@ -1,13 +1,20 @@
 use std::marker::PhantomData;
 
-use ocl::{Buffer, Error, Event, Kernel, OclPrm, Program, Queue};
+use ocl::{Buffer, Queue};
 
 pub mod kernels;
 
-use super::CDatatype;
+use super::array::ArrayBase;
+use super::{CDatatype, Error, NDArray, NDArrayRead};
 
-pub trait Op<Out: OclPrm> {
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<Out>>) -> Result<Buffer<Out>, Error>;
+pub trait Op {
+    type Out: CDatatype;
+
+    fn enqueue(
+        &self,
+        queue: Queue,
+        output: Option<Buffer<Self::Out>>,
+    ) -> Result<Buffer<Self::Out>, Error>;
 }
 
 // constructors
@@ -75,6 +82,66 @@ pub struct ArrayEq<L, R> {
 impl<L, R> ArrayEq<L, R> {
     pub fn new(left: L, right: R) -> Self {
         Self { left, right }
+    }
+
+    fn enqueue<T, LA, RA>(
+        queue: Queue,
+        left: LA,
+        right: RA,
+        output: Option<Buffer<u8>>,
+    ) -> Result<Buffer<u8>, Error>
+    where
+        T: CDatatype,
+        LA: NDArrayRead<T>,
+        RA: NDArrayRead<T>,
+    {
+        assert_eq!(left.shape(), right.shape());
+
+        let output = if let Some(output) = output {
+            output
+        } else {
+            Buffer::builder()
+                .queue(queue.clone())
+                .len(left.size())
+                .build()?
+        };
+
+        let left = left.read(queue.clone(), None)?;
+        let right = right.read(queue.clone(), None)?;
+
+        kernels::elementwise("==", queue, &left, &right, output).map_err(Error::from)
+    }
+}
+
+impl<T: CDatatype> Op for ArrayEq<ArrayBase<T>, ArrayBase<T>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, &self.left, &self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayEq<ArrayBase<T>, &'a ArrayBase<T>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, &self.left, self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayEq<&'a ArrayBase<T>, ArrayBase<T>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, self.left, &self.right, output)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayEq<&'a ArrayBase<T>, &'a ArrayBase<T>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(queue, self.left, self.right, output)
     }
 }
 

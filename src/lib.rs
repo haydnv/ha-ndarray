@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub use ocl::{Buffer, Device, DeviceType, OclPrm, Platform, Queue};
+pub use ocl::{Buffer, Context, Device, DeviceType, OclPrm, Platform, Queue};
 
 pub use array::*;
 use ops::*;
@@ -49,6 +49,10 @@ impl CDatatype for f32 {
     const TYPE_STR: &'static str = "float";
 }
 
+impl CDatatype for u8 {
+    const TYPE_STR: &'static str = "uint";
+}
+
 pub trait NDArray: Sized {
     fn ndim(&self) -> usize {
         self.shape().len()
@@ -74,7 +78,7 @@ pub trait NDArrayCast<O>: NDArray {
 }
 
 pub trait NDArrayCompare<O: NDArray>: NDArray {
-    fn eq(self, other: O) -> Result<ArrayOp<ArrayEq<Self, O>>, Error> {
+    fn eq(&self, other: O) -> Result<ArrayOp<ArrayEq<&Self, O>>, Error> {
         let shape = broadcast_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayEq::new(self, other), shape))
     }
@@ -136,13 +140,26 @@ pub enum AxisBound {
     Of(Vec<u64>),
 }
 
+pub fn autoqueue() -> Result<Queue, ocl::Error> {
+    let platform = Platform::first()?;
+    let device = Device::first(platform)?;
+    let context = Context::builder()
+        .platform(platform)
+        .devices(device)
+        .build()?;
+
+    Queue::new(&context, device, None)
+}
+
 #[inline]
 fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
-    if left.len() < right.len() {
+    if left.is_empty() || right.is_empty() {
+        return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
+    } else if left.len() < right.len() {
         return broadcast_shape(right, left);
     }
 
-    let mut shape = Vec::with_capacity(left.len());
+    let mut shape = vec![0; left.len()];
     let offset = left.len() - right.len();
 
     for x in 0..offset {
@@ -163,6 +180,8 @@ fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
         }
     }
 
+    debug_assert!(!shape.iter().any(|dim| *dim == 0));
+
     Ok(shape)
 }
 
@@ -177,6 +196,19 @@ mod tests {
 
         let array = ArrayBase::constant(1., vec![2, 3])?;
         assert!(array.all()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_eq() -> Result<(), Error> {
+        let zeros = ArrayBase::constant(0., vec![2, 3])?;
+        let ones = ArrayBase::constant(1., vec![2, 3])?;
+
+        assert!(zeros.eq(&zeros)?.all()?);
+        assert!(ones.eq(&ones)?.all()?);
+        assert!(!zeros.eq(&ones)?.any()?);
+        assert!(!ones.eq(zeros)?.any()?);
 
         Ok(())
     }
