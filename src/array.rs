@@ -131,9 +131,8 @@ impl<'a, T: CDatatype> NDArrayRead<T> for &'a ArrayBase<T> {
 
 impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn all(&self) -> Result<bool, Error> {
-        let queue = autoqueue()?;
+        let queue = autoqueue(None)?;
         let input = self.read(queue.clone(), None)?;
-
         kernels::reduce_all(queue, input).map_err(Error::from)
     }
 
@@ -142,9 +141,8 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let queue = autoqueue()?;
+        let queue = autoqueue(None)?;
         let input = self.read(queue.clone(), None)?;
-
         kernels::reduce_any(queue, input).map_err(Error::from)
     }
 
@@ -228,9 +226,8 @@ impl<'a, Op: super::ops::Op> NDArrayRead<Op::Out> for &'a ArrayOp<Op> {
 
 impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
     fn all(&self) -> Result<bool, Error> {
-        let queue = autoqueue()?;
+        let queue = autoqueue(None)?;
         let input = self.op.enqueue(queue.clone(), None)?;
-
         kernels::reduce_all(queue, input).map_err(Error::from)
     }
 
@@ -239,9 +236,8 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let queue = autoqueue()?;
+        let queue = autoqueue(None)?;
         let input = self.op.enqueue(queue.clone(), None)?;
-
         kernels::reduce_any(queue, input).map_err(Error::from)
     }
 

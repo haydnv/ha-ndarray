@@ -1,4 +1,4 @@
-use ocl::{Buffer, Error, Kernel, Program, Queue};
+use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
@@ -8,6 +8,7 @@ pub fn elementwise_cmp<T: CDatatype>(
     left: &Buffer<T>,
     right: &Buffer<T>,
     output: Buffer<u8>,
+    ewait: &Event,
 ) -> Result<Buffer<u8>, Error> {
     assert_eq!(left.len(), right.len());
     assert_eq!(left.len(), output.len());
@@ -42,7 +43,7 @@ pub fn elementwise_cmp<T: CDatatype>(
         .arg(&output)
         .build()?;
 
-    unsafe { kernel.enq()? }
+    unsafe { kernel.cmd().ewait(ewait).enq()? }
 
     Ok(output)
 }
@@ -52,6 +53,7 @@ pub fn elementwise_inplace<T: CDatatype>(
     queue: Queue,
     left: Buffer<T>,
     right: &Buffer<T>,
+    ewait: &Event,
 ) -> Result<Buffer<T>, Error> {
     assert_eq!(left.len(), right.len());
 
@@ -79,7 +81,7 @@ pub fn elementwise_inplace<T: CDatatype>(
         .arg(right)
         .build()?;
 
-    unsafe { kernel.enq()? }
+    unsafe { kernel.cmd().ewait(ewait).enq()? }
 
     Ok(left)
 }

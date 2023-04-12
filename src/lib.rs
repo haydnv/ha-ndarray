@@ -1,6 +1,8 @@
+extern crate ocl;
+
 use std::fmt;
 
-pub use ocl::{Buffer, Context, Device, DeviceType, OclPrm, Platform, Queue};
+use ocl::{Buffer, Context, Device, DeviceType, Event, OclPrm, Platform, Queue};
 
 pub use array::*;
 use ops::*;
@@ -79,7 +81,7 @@ pub trait NDArrayRead<T: CDatatype>: NDArray {
     fn copy(self) -> Result<ArrayBase<T>, Error> {
         let shape = self.shape().to_vec();
 
-        let queue = autoqueue()?;
+        let queue = autoqueue(None)?;
         let mut data = vec![T::zero(); self.size()];
         let buffer = self.read(queue, None)?;
         buffer.read(&mut data).enq()?;
@@ -176,13 +178,28 @@ pub enum AxisBound {
     Of(Vec<u64>),
 }
 
-pub fn autoqueue() -> Result<Queue, ocl::Error> {
-    let platform = Platform::first()?;
-    let device = Device::first(platform)?;
-    let context = Context::builder()
-        .platform(platform)
-        .devices(device)
-        .build()?;
+pub fn autoqueue(context: Option<Context>) -> Result<Queue, ocl::Error> {
+    // TODO: select CPUs for small data, GPUs for medium data, accelerators for large data
+    // TODO: rotate the device selection
+
+    let (context, device) = if let Some(context) = context {
+        let device = if let Some(platform) = context.platform()? {
+            Device::first(platform)?
+        } else {
+            context.devices()[0]
+        };
+
+        (context, device)
+    } else {
+        let platform = Platform::default();
+        let device = Device::first(platform)?;
+        let context = Context::builder()
+            .platform(platform)
+            .devices(device)
+            .build()?;
+
+        (context, device)
+    };
 
     Queue::new(&context, device, None)
 }

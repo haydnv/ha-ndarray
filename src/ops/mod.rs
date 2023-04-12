@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use ocl::{Buffer, OclPrm, Queue};
+use ocl::{Buffer, Event, OclPrm, Queue};
+
+use crate::autoqueue;
 
 pub mod kernels;
 
@@ -51,9 +53,13 @@ impl<L, R> ArrayAdd<L, R> {
         LA: NDArrayRead<T>,
         RA: NDArrayRead<T>,
     {
-        let left = left.read(queue.clone(), output)?;
+        let right_queue = autoqueue(Some(queue.context()))?;
         let right = right.read(queue.clone(), None)?;
-        kernels::elementwise_inplace("+=", queue, left, &right).map_err(Error::from)
+        let event = right_queue.enqueue_marker::<Event>(None)?;
+
+        let left = left.read(queue.clone(), output)?;
+
+        kernels::elementwise_inplace("+=", queue, left, &right, &event).map_err(Error::from)
     }
 }
 
@@ -172,11 +178,13 @@ impl<L, R> ArrayCompare<L, R> {
                 .build()?
         };
 
-        // TODO: use two separate queues in the same context to read the arguments
-        let left = left.read(queue.clone(), None)?;
-        let right = right.read(queue.clone(), None)?;
+        let right_queue = autoqueue(Some(queue.context()))?;
+        let right = right.read(right_queue.clone(), None)?;
+        let event = right_queue.enqueue_marker::<Event>(None)?;
 
-        kernels::elementwise_cmp(cmp, queue, &left, &right, output).map_err(Error::from)
+        let left = left.read(queue.clone(), None)?;
+
+        kernels::elementwise_cmp(cmp, queue, &left, &right, output, &event).map_err(Error::from)
     }
 }
 
