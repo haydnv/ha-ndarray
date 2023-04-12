@@ -65,6 +65,14 @@ impl CDatatype for u8 {
     }
 }
 
+impl CDatatype for i32 {
+    const TYPE_STR: &'static str = "int";
+
+    fn zero() -> Self {
+        0
+    }
+}
+
 pub trait NDArray: Sized {
     fn ndim(&self) -> usize {
         self.shape().len()
@@ -86,7 +94,7 @@ pub trait NDArrayRead<T: CDatatype>: NDArray {
         let buffer = self.read(queue, None)?;
         buffer.read(&mut data).enq()?;
 
-        Ok(ArrayBase::from_vec(shape, data))
+        ArrayBase::from_vec(shape, data)
     }
 
     fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;

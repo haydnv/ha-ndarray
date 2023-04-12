@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::Sum;
 use std::ops::Add;
 
 use ocl::{Buffer, OclPrm, Queue};
@@ -39,8 +40,17 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
         }
     }
 
-    pub fn from_vec(shape: Shape, data: Vec<T>) -> Self {
-        Self { shape, data }
+    pub fn from_vec(shape: Shape, data: Vec<T>) -> Result<Self, Error> {
+        let size = shape.iter().product();
+        if data.len() == size {
+            Ok(Self { shape, data })
+        } else {
+            Err(Error::Bounds(format!(
+                "{} data were provided for an array of size {}",
+                data.len(),
+                size
+            )))
+        }
     }
 
     pub fn random(shape: Shape) -> Result<Self, Error> {
@@ -129,7 +139,7 @@ impl<'a, T: CDatatype> NDArrayRead<T> for &'a ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
+impl<T: CDatatype + Sum> NDArrayReduce<T> for ArrayBase<T> {
     fn all(&self) -> Result<bool, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone(), None)?;
@@ -175,7 +185,9 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     }
 
     fn sum(&self) -> Result<T, Error> {
-        todo!()
+        let queue = autoqueue(None)?;
+        let input = self.read(queue.clone(), None)?;
+        kernels::reduce_sum(queue, input).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error> {

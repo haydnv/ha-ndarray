@@ -1,6 +1,16 @@
+use std::iter::Sum;
+use std::ops::{Div, Rem};
+
+use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
+
+// TODO: move to a custom Platform struct
+const MIN_SIZE: usize = 64;
+
+// TODO: is there a good way to determine this at runtime?
+const WG_SIZE: usize = 64;
 
 pub fn elementwise_cmp<T: CDatatype>(
     cmp: &'static str,
@@ -158,4 +168,93 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     flag.read(&mut result).enq()?;
 
     Ok(result == [1])
+}
+
+pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Result<T, Error> {
+    if buffer.len() < MIN_SIZE {
+        let mut result = vec![T::zero(); buffer.len()];
+        buffer.read(&mut result).enq()?;
+        return Ok(Sum::sum(result.into_iter()));
+    }
+
+    let src = format!(
+        r#"
+        __kernel void reduce_sum(
+                __global {dtype}* input,
+                __global {dtype}* output,
+                __local {dtype}* partial_sums)
+        {{
+            uint global_size = get_global_size(0);
+            uint idx = get_global_id(0);
+            uint group_idx = idx / {WG_SIZE};
+
+            uint local_idx;
+            if (group_idx == 0) {{ local_idx = idx; }} else {{ local_idx = idx % {WG_SIZE}; }}
+
+            uint group_size;
+            if (global_size / {WG_SIZE} == group_idx) {{
+                group_size = global_size % {WG_SIZE};
+            }} else {{
+                group_size = {WG_SIZE};
+            }}
+
+            // copy from global to local memory
+            partial_sums[local_idx] = input[idx];
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            if (local_idx == 0) {{
+                // TODO: make this more parallel
+                uint sum = 0;
+                for (uint i = 0; i < group_size; i++) {{
+                    sum += partial_sums[i];
+                }}
+                output[group_idx] = sum;
+            }}
+        }}
+        "#,
+        dtype = T::TYPE_STR
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    while buffer.len() >= MIN_SIZE {
+        let mut input = vec![T::zero(); buffer.len()];
+        buffer.read(&mut input).enq()?;
+        println!("input: {:?} (size {})", input, input.len());
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(div_ceil(buffer.len(), WG_SIZE))
+            .fill_val(T::zero())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("reduce_sum")
+            .program(&program)
+            .queue(queue.clone())
+            .local_work_size(WG_SIZE)
+            .global_work_size(buffer.len())
+            .arg(&buffer)
+            .arg(&output)
+            .arg_local::<T>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        buffer = output;
+    }
+
+    let mut result = vec![T::zero(); buffer.len()];
+    buffer.read(&mut result).enq()?;
+    println!("sums: {:?}", result);
+    Ok(Sum::sum(result.into_iter()))
+}
+
+#[inline]
+fn div_ceil(num: usize, denom: usize) -> usize {
+    if num % denom == 0 {
+        num / denom
+    } else {
+        (num / denom) + 1
+    }
 }
