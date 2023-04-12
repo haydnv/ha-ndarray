@@ -69,6 +69,18 @@ impl<T: CDatatype> Op for ArrayAdd<ArrayBase<T>, ArrayBase<T>> {
     }
 }
 
+impl<'a, T: CDatatype> Op for ArrayAdd<&'a ArrayBase<T>, &'a ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(
+        &self,
+        queue: Queue,
+        output: Option<Buffer<Self::Out>>,
+    ) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, self.right, queue, output)
+    }
+}
+
 pub struct ArrayDiv<L, R> {
     left: L,
     right: R,
@@ -102,17 +114,43 @@ pub struct MatMul<L, R> {
 
 // comparison
 
-pub struct ArrayEq<L, R> {
+pub struct ArrayCompare<L, R> {
     left: L,
     right: R,
+    cmp: &'static str,
 }
 
-impl<L, R> ArrayEq<L, R> {
-    pub fn new(left: L, right: R) -> Self {
-        Self { left, right }
+impl<L, R> ArrayCompare<L, R> {
+    fn new(left: L, right: R, cmp: &'static str) -> Self {
+        Self { left, right, cmp }
+    }
+
+    pub fn eq(left: L, right: R) -> Self {
+        Self::new(left, right, "==")
+    }
+
+    pub fn gt(left: L, right: R) -> Self {
+        Self::new(left, right, ">")
+    }
+
+    pub fn gte(left: L, right: R) -> Self {
+        Self::new(left, right, ">=")
+    }
+
+    pub fn lt(left: L, right: R) -> Self {
+        Self::new(left, right, "<")
+    }
+
+    pub fn lte(left: L, right: R) -> Self {
+        Self::new(left, right, "<=")
+    }
+
+    pub fn ne(left: L, right: R) -> Self {
+        Self::new(left, right, "!=")
     }
 
     fn enqueue<T, LA, RA>(
+        cmp: &'static str,
         queue: Queue,
         left: LA,
         right: RA,
@@ -134,100 +172,76 @@ impl<L, R> ArrayEq<L, R> {
                 .build()?
         };
 
+        // TODO: use two separate queues in the same context to read the arguments
         let left = left.read(queue.clone(), None)?;
         let right = right.read(queue.clone(), None)?;
 
-        kernels::elementwise("==", queue, &left, &right, output).map_err(Error::from)
+        kernels::elementwise_cmp(cmp, queue, &left, &right, output).map_err(Error::from)
     }
 }
 
-impl<T: CDatatype> Op for ArrayEq<ArrayBase<T>, ArrayBase<T>> {
+impl<T: CDatatype> Op for ArrayCompare<ArrayBase<T>, ArrayBase<T>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, &self.left, &self.right, output)
+        Self::enqueue(self.cmp, queue, &self.left, &self.right, output)
     }
 }
 
-impl<'a, T: CDatatype> Op for ArrayEq<ArrayBase<T>, &'a ArrayBase<T>> {
+impl<'a, T: CDatatype> Op for ArrayCompare<ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, &self.left, self.right, output)
+        Self::enqueue(self.cmp, queue, &self.left, self.right, output)
     }
 }
 
-impl<'a, T: CDatatype> Op for ArrayEq<&'a ArrayBase<T>, ArrayBase<T>> {
+impl<'a, T: CDatatype> Op for ArrayCompare<&'a ArrayBase<T>, ArrayBase<T>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, self.left, &self.right, output)
+        Self::enqueue(self.cmp, queue, self.left, &self.right, output)
     }
 }
 
-impl<'a, T: CDatatype> Op for ArrayEq<&'a ArrayBase<T>, &'a ArrayBase<T>> {
+impl<'a, T: CDatatype> Op for ArrayCompare<&'a ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, self.left, self.right, output)
+        Self::enqueue(self.cmp, queue, self.left, self.right, output)
     }
 }
 
-impl<T: CDatatype, O: Op<Out = T>> Op for ArrayEq<ArrayBase<T>, ArrayOp<O>> {
+impl<T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<ArrayBase<T>, ArrayOp<O>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, &self.left, &self.right, output)
+        Self::enqueue(self.cmp, queue, &self.left, &self.right, output)
     }
 }
 
-impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<ArrayBase<T>, &'a ArrayOp<O>> {
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<ArrayBase<T>, &'a ArrayOp<O>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, &self.left, self.right, output)
+        Self::enqueue(self.cmp, queue, &self.left, self.right, output)
     }
 }
 
-impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<&'a ArrayBase<T>, ArrayOp<O>> {
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<&'a ArrayBase<T>, ArrayOp<O>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, self.left, &self.right, output)
+        Self::enqueue(self.cmp, queue, self.left, &self.right, output)
     }
 }
 
-impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayEq<&'a ArrayBase<T>, &'a ArrayOp<O>> {
+impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<&'a ArrayBase<T>, &'a ArrayOp<O>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(queue, self.left, self.right, output)
+        Self::enqueue(self.cmp, queue, self.left, self.right, output)
     }
-}
-
-pub struct ArrayGT<L, R> {
-    left: L,
-    right: R,
-}
-
-pub struct ArrayGTE<L, R> {
-    left: L,
-    right: R,
-}
-
-pub struct ArrayLT<L, R> {
-    left: L,
-    right: R,
-}
-
-pub struct ArrayLTE<L, R> {
-    left: L,
-    right: R,
-}
-
-pub struct ArrayNE<L, R> {
-    left: L,
-    right: R,
 }
 
 // reduction

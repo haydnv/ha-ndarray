@@ -2,35 +2,38 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
-pub fn elementwise<T: CDatatype, O: CDatatype>(
-    op: &'static str,
+pub fn elementwise_cmp<T: CDatatype>(
+    cmp: &'static str,
     queue: Queue,
     left: &Buffer<T>,
     right: &Buffer<T>,
-    output: Buffer<O>,
-) -> Result<Buffer<O>, Error> {
+    output: Buffer<u8>,
+) -> Result<Buffer<u8>, Error> {
     assert_eq!(left.len(), right.len());
     assert_eq!(left.len(), output.len());
 
     let src = format!(
         r#"
-        __kernel void elementwise(
-            __global {itype}* left,
-            __global {itype}* right,
-            __global {otype}* output)
+        __kernel void elementwise_cmp(
+            __global {dtype}* left,
+            __global {dtype}* right,
+            __global char* output)
         {{
             uint const idx = get_global_id(0);
-            output[idx] = left[idx] {op} right[idx];
+            if (left[idx] {cmp} right[idx]) {{
+                output[idx] = 1;
+            }} else {{
+                output[idx] = 0;
+            }}
         }}
     "#,
-        itype = T::TYPE_STR,
-        otype = O::TYPE_STR,
+        dtype = T::TYPE_STR,
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
     let kernel = Kernel::builder()
-        .name("elementwise")
+        .name("elementwise_cmp")
         .program(&program)
         .queue(queue)
         .global_work_size(output.len())

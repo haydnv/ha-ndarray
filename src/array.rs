@@ -46,6 +46,10 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
     pub fn random(shape: Shape) -> Result<Self, Error> {
         todo!()
     }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.data
+    }
 }
 
 impl<T: OclPrm> NDArray for ArrayBase<T> {

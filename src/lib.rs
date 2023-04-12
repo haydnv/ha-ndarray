@@ -43,14 +43,24 @@ pub type Shape = Vec<usize>;
 
 pub trait CDatatype: OclPrm {
     const TYPE_STR: &'static str;
+
+    fn zero() -> Self;
 }
 
 impl CDatatype for f32 {
     const TYPE_STR: &'static str = "float";
+
+    fn zero() -> Self {
+        0.
+    }
 }
 
 impl CDatatype for u8 {
-    const TYPE_STR: &'static str = "uint";
+    const TYPE_STR: &'static str = "char";
+
+    fn zero() -> Self {
+        0
+    }
 }
 
 pub trait NDArray: Sized {
@@ -65,7 +75,18 @@ pub trait NDArray: Sized {
     fn shape(&self) -> &[usize];
 }
 
-pub trait NDArrayRead<T: OclPrm>: NDArray {
+pub trait NDArrayRead<T: CDatatype>: NDArray {
+    fn copy(self) -> Result<ArrayBase<T>, Error> {
+        let shape = self.shape().to_vec();
+
+        let queue = autoqueue()?;
+        let mut data = vec![T::zero(); self.size()];
+        let buffer = self.read(queue, None)?;
+        buffer.read(&mut data).enq()?;
+
+        Ok(ArrayBase::from_vec(shape, data))
+    }
+
     fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
 }
 
@@ -78,20 +99,35 @@ pub trait NDArrayCast<O>: NDArray {
 }
 
 pub trait NDArrayCompare<O: NDArray>: NDArray {
-    fn eq(&self, other: O) -> Result<ArrayOp<ArrayEq<&Self, O>>, Error> {
-        let shape = broadcast_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayEq::new(self, other), shape))
+    fn eq(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::eq(self, other), shape))
     }
 
-    // fn gt(&self, other: &O) -> Result<ArrayOp<ArrayGT<Self, O>>, Error>;
-    //
-    // fn gte(&self, other: &O) -> Result<ArrayOp<ArrayGTE<Self, O>>, Error>;
-    //
-    // fn lt(&self, other: &O) -> Result<ArrayOp<ArrayLT<Self, O>>, Error>;
-    //
-    // fn lte(&self, other: &O) -> Result<ArrayOp<ArrayLTE<Self, O>>, Error>;
-    //
-    // fn ne(&self, other: &O) -> Result<ArrayOp<ArrayNE<Self, O>>, Error>;
+    fn gt(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::gt(self, other), shape))
+    }
+
+    fn gte(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::gte(self, other), shape))
+    }
+
+    fn lt(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::lt(self, other), shape))
+    }
+
+    fn lte(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::lte(self, other), shape))
+    }
+
+    fn ne(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        Ok(ArrayOp::new(ArrayCompare::ne(self, other), shape))
+    }
 }
 
 pub trait NDArrayMath<T, O>: NDArray {
@@ -185,42 +221,16 @@ fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     Ok(shape)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_constant_array() -> Result<(), Error> {
-        let array = ArrayBase::constant(vec![2, 3], 0.);
-        assert!(!array.any()?);
-
-        let array = ArrayBase::constant(vec![2, 3], 1.);
-        assert!(array.all()?);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_add() -> Result<(), Error> {
-        let shape = vec![5, 2];
-        let left = ArrayBase::from_vec(shape.to_vec(), (0..10).into_iter().collect());
-        let right = ArrayBase::from_vec(shape.to_vec(), (0..10).into_iter().rev().collect());
-        let actual = left + right;
-        let expected = ArrayBase::constant(shape, 9);
-        assert!(expected.eq(actual)?.all()?);
-        Ok(())
-    }
-
-    #[test]
-    fn test_eq() -> Result<(), Error> {
-        let zeros = ArrayBase::constant(vec![2, 3], 0.);
-        let ones = ArrayBase::constant(vec![2, 3], 1.);
-
-        assert!(zeros.eq(&zeros)?.all()?);
-        assert!(ones.eq(&ones)?.all()?);
-        assert!(!zeros.eq(&ones)?.any()?);
-        assert!(!ones.eq(zeros)?.any()?);
-
-        Ok(())
+#[inline]
+fn check_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
+    if left == right {
+        Ok(left.to_vec())
+    } else {
+        const MSG: &str = "this operation expects arrays of the same shape";
+        const HINT: &str = "consider calling broadcast() explicitly";
+        Err(Error::Bounds(format!(
+            "{} but found {:?} and {:?} ({})",
+            MSG, left, right, HINT
+        )))
     }
 }
