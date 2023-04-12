@@ -1,13 +1,9 @@
-use std::iter::Sum;
-use std::ops::{Div, Rem};
-
-use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
 // TODO: move to a custom Platform struct
-const MIN_SIZE: usize = 64;
+const MIN_SIZE: usize = 1024;
 
 // TODO: is there a good way to determine this at runtime?
 const WG_SIZE: usize = 64;
@@ -170,11 +166,11 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     Ok(result == [1])
 }
 
-pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Result<T, Error> {
+pub fn reduce_sum<T: CDatatype>(queue: Queue, mut buffer: Buffer<T>) -> Result<T, Error> {
     if buffer.len() < MIN_SIZE {
         let mut result = vec![T::zero(); buffer.len()];
         buffer.read(&mut result).enq()?;
-        return Ok(Sum::sum(result.into_iter()));
+        return Ok(result.into_iter().sum());
     }
 
     let src = format!(
@@ -185,30 +181,23 @@ pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Re
                 __local {dtype}* partial_sums)
         {{
             uint global_size = get_global_size(0);
+            uint group_size = get_local_size(0);
+
             uint idx = get_global_id(0);
-            uint group_idx = idx / {WG_SIZE};
-
-            uint local_idx;
-            if (group_idx == 0) {{ local_idx = idx; }} else {{ local_idx = idx % {WG_SIZE}; }}
-
-            uint group_size;
-            if (global_size / {WG_SIZE} == group_idx) {{
-                group_size = global_size % {WG_SIZE};
-            }} else {{
-                group_size = {WG_SIZE};
-            }}
+            uint group_idx = idx / group_size;
+            uint local_idx = idx % group_size;
 
             // copy from global to local memory
             partial_sums[local_idx] = input[idx];
-            barrier(CLK_LOCAL_MEM_FENCE);
+
+            // sum over local memory in parallel
+            for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
+                barrier(CLK_LOCAL_MEM_FENCE);
+                partial_sums[local_idx] += partial_sums[local_idx + stride];
+            }}
 
             if (local_idx == 0) {{
-                // TODO: make this more parallel
-                uint sum = 0;
-                for (uint i = 0; i < group_size; i++) {{
-                    sum += partial_sums[i];
-                }}
-                output[group_idx] = sum;
+                output[group_idx] = partial_sums[local_idx];
             }}
         }}
         "#,
@@ -217,14 +206,30 @@ pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Re
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
+    let mut tail_sum = T::zero();
     while buffer.len() >= MIN_SIZE {
-        let mut input = vec![T::zero(); buffer.len()];
-        buffer.read(&mut input).enq()?;
-        println!("input: {:?} (size {})", input, input.len());
+        let input_size = WG_SIZE * (buffer.len() / WG_SIZE);
+
+        debug_assert!(input_size > 0);
+        debug_assert!(input_size / WG_SIZE > 0);
+        debug_assert_eq!(input_size % WG_SIZE, 0);
+
+        if input_size < buffer.len() {
+            let mut tail = vec![T::zero(); buffer.len() - input_size];
+
+            buffer
+                .create_sub_buffer(None, input_size, tail.len())?
+                .read(&mut tail)
+                .enq()?;
+
+            tail_sum += tail.into_iter().sum();
+        }
+
+        let input = buffer;
 
         let output = Buffer::builder()
             .queue(queue.clone())
-            .len(div_ceil(buffer.len(), WG_SIZE))
+            .len(input_size / WG_SIZE)
             .fill_val(T::zero())
             .build()?;
 
@@ -233,8 +238,8 @@ pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Re
             .program(&program)
             .queue(queue.clone())
             .local_work_size(WG_SIZE)
-            .global_work_size(buffer.len())
-            .arg(&buffer)
+            .global_work_size(input_size)
+            .arg(&input)
             .arg(&output)
             .arg_local::<T>(WG_SIZE)
             .build()?;
@@ -246,8 +251,9 @@ pub fn reduce_sum<T: CDatatype + Sum>(queue: Queue, mut buffer: Buffer<T>) -> Re
 
     let mut result = vec![T::zero(); buffer.len()];
     buffer.read(&mut result).enq()?;
-    println!("sums: {:?}", result);
-    Ok(Sum::sum(result.into_iter()))
+
+    let sum: T = result.into_iter().sum();
+    Ok(tail_sum + sum)
 }
 
 #[inline]

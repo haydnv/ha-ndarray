@@ -7,7 +7,7 @@ use crate::autoqueue;
 pub mod kernels;
 
 use super::array::{ArrayBase, ArrayOp};
-use super::{CDatatype, Error, NDArray, NDArrayRead};
+use super::{CDatatype, Error, NDArrayRead};
 
 pub trait Op {
     type Out: CDatatype;

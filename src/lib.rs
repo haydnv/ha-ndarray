@@ -1,8 +1,10 @@
 extern crate ocl;
 
 use std::fmt;
+use std::iter::Sum;
+use std::ops::{Add, AddAssign};
 
-use ocl::{Buffer, Context, Device, DeviceType, Event, OclPrm, Platform, Queue};
+use ocl::{Buffer, Context, Device, OclPrm, Platform, Queue};
 
 pub use array::*;
 use ops::*;
@@ -43,7 +45,7 @@ impl std::error::Error for Error {}
 
 pub type Shape = Vec<usize>;
 
-pub trait CDatatype: OclPrm {
+pub trait CDatatype: OclPrm + Add<Output = Self> + AddAssign + Sum {
     const TYPE_STR: &'static str;
 
     fn zero() -> Self;

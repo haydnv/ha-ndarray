@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::Sum;
 use std::ops::Add;
 
 use ocl::{Buffer, OclPrm, Queue};
@@ -139,7 +138,7 @@ impl<'a, T: CDatatype> NDArrayRead<T> for &'a ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype + Sum> NDArrayReduce<T> for ArrayBase<T> {
+impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn all(&self) -> Result<bool, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone(), None)?;
