@@ -7,11 +7,9 @@ pub fn elementwise_cmp<T: CDatatype>(
     queue: Queue,
     left: &Buffer<T>,
     right: &Buffer<T>,
-    output: Buffer<u8>,
     ewait: &Event,
 ) -> Result<Buffer<u8>, Error> {
     assert_eq!(left.len(), right.len());
-    assert_eq!(left.len(), output.len());
 
     let src = format!(
         r#"
@@ -33,6 +31,11 @@ pub fn elementwise_cmp<T: CDatatype>(
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(left.len())
+        .build()?;
 
     let kernel = Kernel::builder()
         .name("elementwise_cmp")
@@ -92,7 +95,6 @@ pub fn scalar_cmp<T: CDatatype>(
     queue: Queue,
     input: &Buffer<T>,
     scalar: T,
-    output: Buffer<u8>,
 ) -> Result<Buffer<u8>, Error> {
     let src = format!(
         r#"
@@ -109,6 +111,11 @@ pub fn scalar_cmp<T: CDatatype>(
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(input.len())
+        .build()?;
 
     let kernel = Kernel::builder()
         .name("scalar_cmp")

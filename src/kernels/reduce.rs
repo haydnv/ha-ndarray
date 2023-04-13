@@ -172,7 +172,6 @@ pub fn reduce_axis<T: CDatatype>(
     input: Buffer<T>,
     shape: Shape,
     axis: usize,
-    output: Buffer<T>,
 ) -> Result<Buffer<T>, Error> {
     assert!(axis < shape.len());
 
@@ -202,13 +201,16 @@ pub fn reduce_axis<T: CDatatype>(
 
     let reduce_dim = shape[axis];
 
-    debug_assert_eq!(output.len() * reduce_dim, input.len());
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(input.len() / reduce_dim)
+        .build()?;
 
     let kernel = Kernel::builder()
         .name("reduce_axis")
         .program(&program)
         .queue(queue.clone())
-        .global_work_size(WG_SIZE * div_ceil(input.len(), WG_SIZE))
+        .global_work_size(output.len())
         .arg(input.len() as u64)
         .arg(reduce_dim as u64)
         .arg(init)

@@ -102,13 +102,13 @@ pub trait NDArrayRead<T: CDatatype>: NDArray {
 
         let queue = autoqueue(None)?;
         let mut data = vec![T::zero(); self.size()];
-        let buffer = self.read(queue, None)?;
+        let buffer = self.read(queue)?;
         buffer.read(&mut data).enq()?;
 
         ArrayBase::from_vec(shape, data)
     }
 
-    fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error>;
+    fn read(self, queue: Queue) -> Result<Buffer<T>, Error>;
 }
 
 pub trait NDArrayWrite<O>: NDArray {

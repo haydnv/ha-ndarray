@@ -7,11 +7,7 @@ use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArray, N
 pub trait Op {
     type Out: CDatatype;
 
-    fn enqueue(
-        &self,
-        queue: Queue,
-        output: Option<Buffer<Self::Out>>,
-    ) -> Result<Buffer<Self::Out>, Error>;
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
 }
 
 // constructors
@@ -37,22 +33,17 @@ impl<L, R> ArrayAdd<L, R> {
         Self { left, right }
     }
 
-    fn enqueue<T, LA, RA>(
-        left: LA,
-        right: RA,
-        queue: Queue,
-        output: Option<Buffer<T>>,
-    ) -> Result<Buffer<T>, Error>
+    fn enqueue<T, LA, RA>(left: LA, right: RA, queue: Queue) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
         LA: NDArrayRead<T>,
         RA: NDArrayRead<T>,
     {
         let right_queue = autoqueue(Some(queue.context()))?;
-        let right = right.read(queue.clone(), None)?;
+        let right = right.read(queue.clone())?;
         let event = right_queue.enqueue_marker::<Event>(None)?;
 
-        let left = left.read(queue.clone(), output)?;
+        let left = left.read(queue.clone())?;
 
         kernels::elementwise_inplace("+=", queue, left, &right, &event).map_err(Error::from)
     }
@@ -61,24 +52,16 @@ impl<L, R> ArrayAdd<L, R> {
 impl<T: CDatatype> Op for ArrayAdd<ArrayBase<T>, ArrayBase<T>> {
     type Out = T;
 
-    fn enqueue(
-        &self,
-        queue: Queue,
-        output: Option<Buffer<Self::Out>>,
-    ) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue)
     }
 }
 
 impl<'a, T: CDatatype> Op for ArrayAdd<&'a ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = T;
 
-    fn enqueue(
-        &self,
-        queue: Queue,
-        output: Option<Buffer<Self::Out>>,
-    ) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, self.right, queue, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, self.right, queue)
     }
 }
 
@@ -155,7 +138,6 @@ impl<L, R> ArrayCompare<L, R> {
         queue: Queue,
         left: LA,
         right: RA,
-        output: Option<Buffer<u8>>,
     ) -> Result<Buffer<u8>, Error>
     where
         T: CDatatype,
@@ -164,79 +146,77 @@ impl<L, R> ArrayCompare<L, R> {
     {
         assert_eq!(left.shape(), right.shape());
 
-        let output = buffer_or_new(queue.clone(), left.size(), output)?;
-
         let right_queue = autoqueue(Some(queue.context()))?;
-        let right = right.read(right_queue.clone(), None)?;
+        let right = right.read(right_queue.clone())?;
         let event = right_queue.enqueue_marker::<Event>(None)?;
 
-        let left = left.read(queue.clone(), None)?;
+        let left = left.read(queue.clone())?;
 
-        kernels::elementwise_cmp(cmp, queue, &left, &right, output, &event).map_err(Error::from)
+        kernels::elementwise_cmp(cmp, queue, &left, &right, &event).map_err(Error::from)
     }
 }
 
 impl<T: CDatatype> Op for ArrayCompare<ArrayBase<T>, ArrayBase<T>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, &self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, &self.right)
     }
 }
 
 impl<'a, T: CDatatype> Op for ArrayCompare<ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, self.right)
     }
 }
 
 impl<'a, T: CDatatype> Op for ArrayCompare<&'a ArrayBase<T>, ArrayBase<T>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.left, &self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.left, &self.right)
     }
 }
 
 impl<'a, T: CDatatype> Op for ArrayCompare<&'a ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.left, self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.left, self.right)
     }
 }
 
 impl<T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<ArrayBase<T>, ArrayOp<O>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, &self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, &self.right)
     }
 }
 
 impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<ArrayBase<T>, &'a ArrayOp<O>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, self.right)
     }
 }
 
 impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<&'a ArrayBase<T>, ArrayOp<O>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.left, &self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.left, &self.right)
     }
 }
 
 impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<&'a ArrayBase<T>, &'a ArrayOp<O>> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.left, self.right, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.left, self.right)
     }
 }
 
@@ -280,47 +260,45 @@ impl<A, T> ArrayCompareScalar<A, T> {
         queue: Queue,
         array: LA,
         scalar: T,
-        output: Option<Buffer<u8>>,
     ) -> Result<Buffer<u8>, Error>
     where
         T: CDatatype,
         LA: NDArrayRead<T>,
     {
-        let input = array.read(queue.clone(), None)?;
-        let output = buffer_or_new(queue.clone(), input.len(), output)?;
-        kernels::scalar_cmp(cmp, queue, &input, scalar, output).map_err(Error::from)
+        let input = array.read(queue.clone())?;
+        kernels::scalar_cmp(cmp, queue, &input, scalar).map_err(Error::from)
     }
 }
 
 impl<T: CDatatype> Op for ArrayCompareScalar<ArrayBase<T>, T> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.array, self.scalar, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.array, self.scalar)
     }
 }
 
 impl<'a, T: CDatatype> Op for ArrayCompareScalar<&'a ArrayBase<T>, T> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.array, self.scalar, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.array, self.scalar)
     }
 }
 
 impl<O: Op> Op for ArrayCompareScalar<ArrayOp<O>, O::Out> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.array, self.scalar, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.array, self.scalar)
     }
 }
 
 impl<'a, O: Op> Op for ArrayCompareScalar<&'a ArrayOp<O>, O::Out> {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.array, self.scalar, output)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.array, self.scalar)
     }
 }
 
@@ -360,31 +338,20 @@ impl<A> ArraySum<A> {
 impl<'a, T: CDatatype> Op for ArraySum<&'a ArrayBase<T>> {
     type Out = T;
 
-    fn enqueue(
-        &self,
-        queue: Queue,
-        output: Option<Buffer<Self::Out>>,
-    ) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         assert!(self.axis < self.source.ndim());
 
-        let size = self.source.size() / self.source.shape()[self.axis];
         let shape = self.source.shape().to_vec();
-        let input = (&self.source).read(queue.clone(), None)?;
-        let output = buffer_or_new(queue.clone(), size, output)?;
+        let input = (&self.source).read(queue.clone())?;
 
-        kernels::reduce_axis(T::zero(), "+=", queue, input, shape, self.axis, output)
-            .map_err(Error::from)
+        kernels::reduce_axis(T::zero(), "+=", queue, input, shape, self.axis).map_err(Error::from)
     }
 }
 
 impl<O: Op> Op for ArraySum<ArrayOp<O>> {
     type Out = O::Out;
 
-    fn enqueue(
-        &self,
-        queue: Queue,
-        output: Option<Buffer<Self::Out>>,
-    ) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         todo!()
     }
 }
