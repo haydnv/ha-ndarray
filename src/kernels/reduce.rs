@@ -82,37 +82,50 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     Ok(result == [1])
 }
 
-pub fn reduce_sum<T: CDatatype>(queue: Queue, mut buffer: Buffer<T>) -> Result<T, Error> {
+pub fn reduce<T: CDatatype>(
+    init: T,
+    reduce: &'static str,
+    queue: Queue,
+    mut buffer: Buffer<T>,
+    collector: impl Fn(std::vec::IntoIter<T>) -> T,
+) -> Result<T, Error> {
     if buffer.len() < MIN_SIZE {
-        let mut result = vec![T::zero(); buffer.len()];
+        let mut result = vec![init; buffer.len()];
         buffer.read(&mut result).enq()?;
-        return Ok(result.into_iter().sum());
+        return Ok((collector)(result.into_iter()));
     }
 
     let src = format!(
         r#"
-        __kernel void reduce_sum(
+        __kernel void reduce(
+                const ulong size,
                 __global const {dtype}* input,
                 __global {dtype}* output,
-                __local {dtype}* partial_sums)
+                __local {dtype}* partials)
         {{
-            uint group_size = get_local_size(0);
+            const uint idx = get_global_id(0);
 
-            uint idx = get_global_id(0);
-            uint group_idx = idx / group_size;
-            uint local_idx = idx % group_size;
+            if (idx >= size) {{
+                return;
+            }}
+
+            const uint group_size = get_local_size(0);
+            const uint group_idx = idx / group_size;
+            const uint local_idx = idx % group_size;
 
             // copy from global to local memory
-            partial_sums[local_idx] = input[idx];
+            partials[local_idx] = input[idx];
 
-            // sum over local memory in parallel
+            // reduce over local memory in parallel
             for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
-                partial_sums[local_idx] += partial_sums[local_idx + stride];
+                if (idx + stride < size) {{
+                    partials[local_idx] {reduce} partials[local_idx + stride];
+                }}
             }}
 
             if (local_idx == 0) {{
-                output[group_idx] = partial_sums[local_idx];
+                output[group_idx] = partials[local_idx];
             }}
         }}
         "#,
@@ -121,39 +134,22 @@ pub fn reduce_sum<T: CDatatype>(queue: Queue, mut buffer: Buffer<T>) -> Result<T
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let mut tail_sum = T::zero();
     while buffer.len() >= MIN_SIZE {
-        let input_size = WG_SIZE * (buffer.len() / WG_SIZE);
-
-        debug_assert!(input_size > 0);
-        debug_assert!(input_size / WG_SIZE > 0);
-        debug_assert_eq!(input_size % WG_SIZE, 0);
-
-        if input_size < buffer.len() {
-            let mut tail = vec![T::zero(); buffer.len() - input_size];
-
-            buffer
-                .create_sub_buffer(None, input_size, tail.len())?
-                .read(&mut tail)
-                .enq()?;
-
-            tail_sum += tail.into_iter().sum();
-        }
-
         let input = buffer;
 
         let output = Buffer::builder()
             .queue(queue.clone())
-            .len(input_size / WG_SIZE)
-            .fill_val(T::zero())
+            .len(div_ceil(input.len(), WG_SIZE))
+            .fill_val(init)
             .build()?;
 
         let kernel = Kernel::builder()
-            .name("reduce_sum")
+            .name("reduce")
             .program(&program)
             .queue(queue.clone())
             .local_work_size(WG_SIZE)
-            .global_work_size(input_size)
+            .global_work_size(WG_SIZE * output.len())
+            .arg(input.len())
             .arg(&input)
             .arg(&output)
             .arg_local::<T>(WG_SIZE)
@@ -164,23 +160,14 @@ pub fn reduce_sum<T: CDatatype>(queue: Queue, mut buffer: Buffer<T>) -> Result<T
         buffer = output;
     }
 
-    let mut result = vec![T::zero(); buffer.len()];
+    let mut result = vec![init; buffer.len()];
     buffer.read(&mut result).enq()?;
-
-    let sum: T = result.into_iter().sum();
-    Ok(tail_sum + sum)
+    Ok((collector)(result.into_iter()))
 }
 
-#[inline]
-fn div_ceil(num: usize, denom: usize) -> usize {
-    if num % denom == 0 {
-        num / denom
-    } else {
-        (num / denom) + 1
-    }
-}
-
-pub fn reduce_sum_axis<T: CDatatype>(
+pub fn reduce_axis<T: CDatatype>(
+    init: T,
+    reduce: &'static str,
     queue: Queue,
     input: Buffer<T>,
     shape: Shape,
@@ -191,23 +178,21 @@ pub fn reduce_sum_axis<T: CDatatype>(
 
     let src = format!(
         r#"
-        __kernel void reduce_sum(
+        __kernel void reduce_axis(
+                const ulong input_size,
+                const ulong reduce_dim,
+                {dtype} init,
                 __global const {dtype}* input,
                 __global {dtype}* output)
         {{
-            uint reduce_dim = get_global_size(1);
-            uint out_size = get_global_size(0);
+            const uint idx = get_global_id(0);
 
-            uint idx = (get_global_id(0) * reduce_dim) + get_global_id(1);
-
-            if (idx % reduce_dim == 0) {{
-                {dtype} sum = 0;
-                for (uint i = 0; i < reduce_dim; i++) {{
-                    sum += input[idx + i];
-                }}
-
-                output[idx / reduce_dim] = sum;
+            {dtype} reduced = init;
+            for (uint i = idx; i < idx + reduce_dim; i++) {{
+                reduced {reduce} input[i];
             }}
+
+            output[idx] = reduced;
         }}
         "#,
         dtype = T::TYPE_STR
@@ -220,10 +205,13 @@ pub fn reduce_sum_axis<T: CDatatype>(
     debug_assert_eq!(output.len() * reduce_dim, input.len());
 
     let kernel = Kernel::builder()
-        .name("reduce_sum")
+        .name("reduce_axis")
         .program(&program)
         .queue(queue.clone())
-        .global_work_size((output.len(), reduce_dim))
+        .global_work_size(WG_SIZE * div_ceil(input.len(), WG_SIZE))
+        .arg(input.len() as u64)
+        .arg(reduce_dim as u64)
+        .arg(init)
         .arg(&input)
         .arg(&output)
         .build()?;
@@ -231,4 +219,13 @@ pub fn reduce_sum_axis<T: CDatatype>(
     unsafe { kernel.enq()? }
 
     Ok(output)
+}
+
+#[inline]
+fn div_ceil(num: usize, denom: usize) -> usize {
+    if num % denom == 0 {
+        num / denom
+    } else {
+        (num / denom) + 1
+    }
 }

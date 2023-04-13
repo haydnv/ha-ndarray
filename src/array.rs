@@ -188,7 +188,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn sum(&self) -> Result<T, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone(), None)?;
-        kernels::reduce_sum(queue, input).map_err(Error::from)
+        kernels::reduce(T::zero(), "+=", queue, input, std::iter::Sum::sum).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error> {

@@ -372,7 +372,8 @@ impl<'a, T: CDatatype> Op for ArraySum<&'a ArrayBase<T>> {
         let input = (&self.source).read(queue.clone(), None)?;
         let output = buffer_or_new(queue.clone(), size, output)?;
 
-        kernels::reduce_sum_axis(queue, input, shape, self.axis, output).map_err(Error::from)
+        kernels::reduce_axis(T::zero(), "+=", queue, input, shape, self.axis, output)
+            .map_err(Error::from)
     }
 }
 
