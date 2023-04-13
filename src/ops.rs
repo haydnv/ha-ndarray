@@ -247,6 +247,99 @@ impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<&'a ArrayBase<T>, &'a
     }
 }
 
+pub struct ArrayCompareScalar<A, T> {
+    array: A,
+    scalar: T,
+    cmp: &'static str,
+}
+
+impl<A, T> ArrayCompareScalar<A, T> {
+    fn new(array: A, scalar: T, cmp: &'static str) -> Self {
+        Self { array, scalar, cmp }
+    }
+
+    pub fn eq(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, "==")
+    }
+
+    pub fn gt(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, ">")
+    }
+
+    pub fn gte(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, ">=")
+    }
+
+    pub fn lt(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, "<")
+    }
+
+    pub fn lte(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, "<=")
+    }
+
+    pub fn ne(array: A, scalar: T) -> Self {
+        Self::new(array, scalar, "!=")
+    }
+
+    fn enqueue<LA>(
+        cmp: &'static str,
+        queue: Queue,
+        array: LA,
+        scalar: T,
+        output: Option<Buffer<u8>>,
+    ) -> Result<Buffer<u8>, Error>
+    where
+        T: CDatatype,
+        LA: NDArrayRead<T>,
+    {
+        let input = array.read(queue.clone(), None)?;
+
+        let output = if let Some(output) = output {
+            output
+        } else {
+            Buffer::builder()
+                .queue(queue.clone())
+                .len(input.len())
+                .build()?
+        };
+
+        kernels::scalar_cmp(cmp, queue, &input, scalar, output).map_err(Error::from)
+    }
+}
+
+impl<T: CDatatype> Op for ArrayCompareScalar<ArrayBase<T>, T> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.array, self.scalar, output)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayCompareScalar<&'a ArrayBase<T>, T> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.array, self.scalar, output)
+    }
+}
+
+impl<O: Op> Op for ArrayCompareScalar<ArrayOp<O>, O::Out> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.array, self.scalar, output)
+    }
+}
+
+impl<'a, O: Op> Op for ArrayCompareScalar<&'a ArrayOp<O>, O::Out> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue, output: Option<Buffer<u8>>) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, self.array, self.scalar, output)
+    }
+}
+
 // reduction
 
 pub struct ArrayAll<A> {
@@ -271,6 +364,30 @@ pub struct ArrayProduct<A> {
 
 pub struct ArraySum<A> {
     source: A,
+}
+
+impl<T: CDatatype> Op for ArraySum<ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(
+        &self,
+        queue: Queue,
+        output: Option<Buffer<Self::Out>>,
+    ) -> Result<Buffer<Self::Out>, Error> {
+        todo!()
+    }
+}
+
+impl<O: Op> Op for ArraySum<ArrayOp<O>> {
+    type Out = O::Out;
+
+    fn enqueue(
+        &self,
+        queue: Queue,
+        output: Option<Buffer<Self::Out>>,
+    ) -> Result<Buffer<Self::Out>, Error> {
+        todo!()
+    }
 }
 
 // other unary ops

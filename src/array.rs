@@ -6,7 +6,7 @@ use ocl::{Buffer, OclPrm, Queue};
 use super::ops::*;
 use super::{
     autoqueue, broadcast_shape, kernels, AxisBound, CDatatype, Error, NDArray, NDArrayCompare,
-    NDArrayRead, NDArrayReduce, Shape,
+    NDArrayCompareScalar, NDArrayRead, NDArrayReduce, Shape,
 };
 
 pub struct ArrayBase<T> {
@@ -105,6 +105,8 @@ where
     Op: super::ops::Op<Out = T>,
 {
 }
+
+impl<T: CDatatype> NDArrayCompareScalar<T> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
     fn read(self, queue: Queue, output: Option<Buffer<T>>) -> Result<Buffer<T>, Error> {
@@ -222,6 +224,8 @@ impl<'a, Op> NDArray for &'a ArrayOp<Op> {
         &self.shape
     }
 }
+
+impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
 
 impl<Op: super::ops::Op> NDArrayRead<Op::Out> for ArrayOp<Op> {
     fn read(self, queue: Queue, output: Option<Buffer<Op::Out>>) -> Result<Buffer<Op::Out>, Error> {

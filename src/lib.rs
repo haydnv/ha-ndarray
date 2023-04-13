@@ -68,6 +68,14 @@ impl CDatatype for u8 {
     }
 }
 
+impl CDatatype for u32 {
+    const TYPE_STR: &'static str = "uint";
+
+    fn zero() -> Self {
+        0
+    }
+}
+
 impl CDatatype for i32 {
     const TYPE_STR: &'static str = "int";
 
@@ -140,6 +148,38 @@ pub trait NDArrayCompare<O: NDArray>: NDArray {
     fn ne(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::ne(self, other), shape))
+    }
+}
+
+pub trait NDArrayCompareScalar<T>: NDArray {
+    fn eq(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::eq(self, other), shape))
+    }
+
+    fn gt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::gt(self, other), shape))
+    }
+
+    fn gte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::gte(self, other), shape))
+    }
+
+    fn lt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::lt(self, other), shape))
+    }
+
+    fn lte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::lte(self, other), shape))
+    }
+
+    fn ne(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+        let shape = self.shape().to_vec();
+        Ok(ArrayOp::new(ArrayCompareScalar::ne(self, other), shape))
     }
 }
 

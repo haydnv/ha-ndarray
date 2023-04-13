@@ -16,11 +16,12 @@ pub fn elementwise_cmp<T: CDatatype>(
     let src = format!(
         r#"
         __kernel void elementwise_cmp(
-            __global {dtype}* left,
-            __global {dtype}* right,
+            __global const {dtype}* left,
+            __global const {dtype}* right,
             __global char* output)
         {{
             uint const idx = get_global_id(0);
+
             if (left[idx] {cmp} right[idx]) {{
                 output[idx] = 1;
             }} else {{
@@ -61,7 +62,7 @@ pub fn elementwise_inplace<T: CDatatype>(
         r#"
         __kernel void elementwise_inplace(
             __global {dtype}* left,
-            __global {dtype}* right)
+            __global const {dtype}* right)
         {{
             uint const idx = get_global_id(0);
             left[idx] {op} right[idx];
@@ -84,4 +85,42 @@ pub fn elementwise_inplace<T: CDatatype>(
     unsafe { kernel.cmd().ewait(ewait).enq()? }
 
     Ok(left)
+}
+
+pub fn scalar_cmp<T: CDatatype>(
+    cmp: &'static str,
+    queue: Queue,
+    input: &Buffer<T>,
+    scalar: T,
+    output: Buffer<u8>,
+) -> Result<Buffer<u8>, Error> {
+    let src = format!(
+        r#"
+        __kernel void scalar_cmp(
+            __global const {dtype}* input,
+            __private const {dtype} right,
+            __global char* output)
+        {{
+            uint const idx = get_global_id(0);
+            output[idx] = input[idx] {cmp} right;
+        }}
+    "#,
+        dtype = T::TYPE_STR,
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let kernel = Kernel::builder()
+        .name("scalar_cmp")
+        .program(&program)
+        .queue(queue)
+        .global_work_size(input.len())
+        .arg(input)
+        .arg(scalar)
+        .arg(&output)
+        .build()?;
+
+    unsafe { kernel.enq()? }
+
+    Ok(output)
 }
