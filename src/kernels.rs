@@ -1,6 +1,6 @@
 use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
-use crate::CDatatype;
+use super::CDatatype;
 
 // TODO: move to a custom Platform struct
 const MIN_SIZE: usize = 1024;

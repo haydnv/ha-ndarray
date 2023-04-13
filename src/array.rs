@@ -5,8 +5,8 @@ use ocl::{Buffer, OclPrm, Queue};
 
 use super::ops::*;
 use super::{
-    autoqueue, broadcast_shape, AxisBound, CDatatype, Error, NDArray, NDArrayCompare, NDArrayRead,
-    NDArrayReduce, Shape,
+    autoqueue, broadcast_shape, kernels, AxisBound, CDatatype, Error, NDArray, NDArrayCompare,
+    NDArrayRead, NDArrayReduce, Shape,
 };
 
 pub struct ArrayBase<T> {

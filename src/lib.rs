@@ -10,6 +10,7 @@ pub use array::*;
 use ops::*;
 
 mod array;
+mod kernels;
 mod ops;
 
 pub enum Error {

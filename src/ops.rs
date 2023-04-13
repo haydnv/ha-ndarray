@@ -2,12 +2,7 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Event, OclPrm, Queue};
 
-use crate::autoqueue;
-
-pub mod kernels;
-
-use super::array::{ArrayBase, ArrayOp};
-use super::{CDatatype, Error, NDArrayRead};
+use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArrayRead};
 
 pub trait Op {
     type Out: CDatatype;
