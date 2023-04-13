@@ -190,27 +190,27 @@ pub trait NDArrayMath<T, O>: NDArray {
 pub trait NDArrayReduce<T>: NDArray {
     fn all(&self) -> Result<bool, Error>;
 
-    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error>;
+    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<&Self>>, Error>;
 
     fn any(&self) -> Result<bool, Error>;
 
-    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error>;
+    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<&Self>>, Error>;
 
     fn max(&self) -> Result<T, Error>;
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error>;
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<&Self>>, Error>;
 
     fn min(&self) -> Result<T, Error>;
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error>;
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<&Self>>, Error>;
 
     fn product(&self) -> Result<T, Error>;
 
-    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error>;
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<&Self>>, Error>;
 
     fn sum(&self) -> Result<T, Error>;
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error>;
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error>;
 }
 
 pub trait NDArrayTransform<T>: NDArray {

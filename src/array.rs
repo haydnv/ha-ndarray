@@ -147,7 +147,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         kernels::reduce_all(queue, input).map_err(Error::from)
     }
 
-    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error> {
+    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<&Self>>, Error> {
         todo!()
     }
 
@@ -157,7 +157,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         kernels::reduce_any(queue, input).map_err(Error::from)
     }
 
-    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error> {
+    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<&Self>>, Error> {
         todo!()
     }
 
@@ -165,7 +165,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         todo!()
     }
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error> {
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<&Self>>, Error> {
         todo!()
     }
 
@@ -173,7 +173,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         todo!()
     }
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error> {
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<&Self>>, Error> {
         todo!()
     }
 
@@ -181,7 +181,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         todo!()
     }
 
-    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error> {
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<&Self>>, Error> {
         todo!()
     }
 
@@ -191,8 +191,21 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
         kernels::reduce_sum(queue, input).map_err(Error::from)
     }
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error> {
-        todo!()
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error> {
+        if axis >= self.ndim() {
+            return Err(Error::Bounds(format!(
+                "axis {} is out of bounds for {:?}",
+                axis, self
+            )));
+        }
+
+        let mut shape = vec![0; self.ndim() - 1];
+        shape[..axis].copy_from_slice(&self.shape()[..axis]);
+        shape[axis..].copy_from_slice(&self.shape()[(axis + 1)..]);
+
+        let op = ArraySum::new(self, axis);
+
+        Ok(ArrayOp::new(op, shape))
     }
 }
 
@@ -246,7 +259,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         kernels::reduce_all(queue, input).map_err(Error::from)
     }
 
-    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<Self>>, Error> {
+    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<&Self>>, Error> {
         todo!()
     }
 
@@ -256,7 +269,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         kernels::reduce_any(queue, input).map_err(Error::from)
     }
 
-    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<Self>>, Error> {
+    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<&Self>>, Error> {
         todo!()
     }
 
@@ -264,7 +277,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         todo!()
     }
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<Self>>, Error> {
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<&Self>>, Error> {
         todo!()
     }
 
@@ -272,7 +285,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         todo!()
     }
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<Self>>, Error> {
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<&Self>>, Error> {
         todo!()
     }
 
@@ -280,7 +293,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         todo!()
     }
 
-    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<Self>>, Error> {
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<&Self>>, Error> {
         todo!()
     }
 
@@ -288,7 +301,7 @@ impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {
         todo!()
     }
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<Self>>, Error> {
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error> {
         todo!()
     }
 }

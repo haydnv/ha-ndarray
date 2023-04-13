@@ -1,6 +1,6 @@
-use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
+use ocl::{Buffer, Error, Kernel, Program, Queue};
 
-use crate::CDatatype;
+use crate::{CDatatype, Shape};
 
 // TODO: move to a custom Platform struct
 const MIN_SIZE: usize = 1024;
@@ -13,7 +13,7 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
         r#"
         __kernel void reduce_all(
                 __global uint* flag,
-                __global {dtype}* input)
+                __global const {dtype}* input)
         {{
             if (input[get_global_id(0)] == 0) {{
                 flag[0] = 0;
@@ -50,7 +50,7 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
         r#"
         __kernel void reduce_any(
                 __global uint* flag,
-                __global {dtype}* input)
+                __global const {dtype}* input)
         {{
             if (input[get_global_id(0)] != 0) {{
                 flag[0] = 1;
@@ -92,11 +92,10 @@ pub fn reduce_sum<T: CDatatype>(queue: Queue, mut buffer: Buffer<T>) -> Result<T
     let src = format!(
         r#"
         __kernel void reduce_sum(
-                __global {dtype}* input,
+                __global const {dtype}* input,
                 __global {dtype}* output,
                 __local {dtype}* partial_sums)
         {{
-            uint global_size = get_global_size(0);
             uint group_size = get_local_size(0);
 
             uint idx = get_global_id(0);
@@ -179,4 +178,57 @@ fn div_ceil(num: usize, denom: usize) -> usize {
     } else {
         (num / denom) + 1
     }
+}
+
+pub fn reduce_sum_axis<T: CDatatype>(
+    queue: Queue,
+    input: Buffer<T>,
+    shape: Shape,
+    axis: usize,
+    output: Buffer<T>,
+) -> Result<Buffer<T>, Error> {
+    assert!(axis < shape.len());
+
+    let src = format!(
+        r#"
+        __kernel void reduce_sum(
+                __global const {dtype}* input,
+                __global {dtype}* output)
+        {{
+            uint reduce_dim = get_global_size(1);
+            uint out_size = get_global_size(0);
+
+            uint idx = (get_global_id(0) * reduce_dim) + get_global_id(1);
+
+            if (idx % reduce_dim == 0) {{
+                {dtype} sum = 0;
+                for (uint i = 0; i < reduce_dim; i++) {{
+                    sum += input[idx + i];
+                }}
+
+                output[idx / reduce_dim] = sum;
+            }}
+        }}
+        "#,
+        dtype = T::TYPE_STR
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let reduce_dim = shape[axis];
+
+    debug_assert_eq!(output.len() * reduce_dim, input.len());
+
+    let kernel = Kernel::builder()
+        .name("reduce_sum")
+        .program(&program)
+        .queue(queue.clone())
+        .global_work_size((output.len(), reduce_dim))
+        .arg(&input)
+        .arg(&output)
+        .build()?;
+
+    unsafe { kernel.enq()? }
+
+    Ok(output)
 }

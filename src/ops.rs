@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Event, OclPrm, Queue};
 
-use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArrayRead};
+use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArray, NDArrayRead};
 
 pub trait Op {
     type Out: CDatatype;
@@ -164,14 +164,7 @@ impl<L, R> ArrayCompare<L, R> {
     {
         assert_eq!(left.shape(), right.shape());
 
-        let output = if let Some(output) = output {
-            output
-        } else {
-            Buffer::builder()
-                .queue(queue.clone())
-                .len(left.size())
-                .build()?
-        };
+        let output = buffer_or_new(queue.clone(), left.size(), output)?;
 
         let right_queue = autoqueue(Some(queue.context()))?;
         let right = right.read(right_queue.clone(), None)?;
@@ -294,16 +287,7 @@ impl<A, T> ArrayCompareScalar<A, T> {
         LA: NDArrayRead<T>,
     {
         let input = array.read(queue.clone(), None)?;
-
-        let output = if let Some(output) = output {
-            output
-        } else {
-            Buffer::builder()
-                .queue(queue.clone())
-                .len(input.len())
-                .build()?
-        };
-
+        let output = buffer_or_new(queue.clone(), input.len(), output)?;
         kernels::scalar_cmp(cmp, queue, &input, scalar, output).map_err(Error::from)
     }
 }
@@ -364,9 +348,16 @@ pub struct ArrayProduct<A> {
 
 pub struct ArraySum<A> {
     source: A,
+    axis: usize,
 }
 
-impl<T: CDatatype> Op for ArraySum<ArrayBase<T>> {
+impl<A> ArraySum<A> {
+    pub fn new(source: A, axis: usize) -> Self {
+        Self { source, axis }
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArraySum<&'a ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(
@@ -374,7 +365,14 @@ impl<T: CDatatype> Op for ArraySum<ArrayBase<T>> {
         queue: Queue,
         output: Option<Buffer<Self::Out>>,
     ) -> Result<Buffer<Self::Out>, Error> {
-        todo!()
+        assert!(self.axis < self.source.ndim());
+
+        let size = self.source.size() / self.source.shape()[self.axis];
+        let shape = self.source.shape().to_vec();
+        let input = (&self.source).read(queue.clone(), None)?;
+        let output = buffer_or_new(queue.clone(), size, output)?;
+
+        kernels::reduce_sum_axis(queue, input, shape, self.axis, output).map_err(Error::from)
     }
 }
 
