@@ -7,6 +7,6 @@ fn test_add() -> Result<(), Error> {
     let right = ArrayBase::from_vec(shape.to_vec(), (0..10).into_iter().rev().collect())?;
     let actual = left + right;
     let expected = ArrayBase::constant(shape, 9);
-    assert!(expected.eq(actual)?.all()?);
+    assert!(expected.eq(&actual)?.all()?);
     Ok(())
 }

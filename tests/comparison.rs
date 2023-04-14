@@ -19,7 +19,7 @@ fn test_eq() -> Result<(), Error> {
     assert!(zeros.eq(&zeros)?.all()?);
     assert!(ones.eq(&ones)?.all()?);
     assert!(!zeros.eq(&ones)?.any()?);
-    assert!(!ones.eq(zeros)?.any()?);
+    assert!(!ones.eq(&zeros)?.any()?);
 
     Ok(())
 }
@@ -32,7 +32,7 @@ fn test_gt() -> Result<(), Error> {
     assert!(!zeros.gt(&zeros)?.any()?);
     assert!(!ones.gt(&ones)?.any()?);
     assert!(!zeros.gt(&ones)?.any()?);
-    assert!(ones.gt(zeros)?.all()?);
+    assert!(ones.gt(&zeros)?.all()?);
 
     Ok(())
 }
@@ -45,7 +45,7 @@ fn test_gte() -> Result<(), Error> {
     assert!(zeros.gte(&zeros)?.all()?);
     assert!(ones.gte(&ones)?.all()?);
     assert!(!zeros.gte(&ones)?.any()?);
-    assert!(ones.gte(zeros)?.all()?);
+    assert!(ones.gte(&zeros)?.all()?);
 
     Ok(())
 }
@@ -58,7 +58,7 @@ fn test_lt() -> Result<(), Error> {
     assert!(!zeros.lt(&zeros)?.any()?);
     assert!(!ones.lt(&ones)?.any()?);
     assert!(zeros.lt(&ones)?.all()?);
-    assert!(!ones.lt(zeros)?.any()?);
+    assert!(!ones.lt(&zeros)?.any()?);
 
     Ok(())
 }
@@ -71,7 +71,7 @@ fn test_lte() -> Result<(), Error> {
     assert!(zeros.lte(&zeros)?.all()?);
     assert!(ones.lte(&ones)?.all()?);
     assert!(zeros.lte(&ones)?.all()?);
-    assert!(!ones.lte(zeros)?.any()?);
+    assert!(!ones.lte(&zeros)?.any()?);
 
     Ok(())
 }
@@ -84,7 +84,7 @@ fn test_ne() -> Result<(), Error> {
     assert!(!zeros.ne(&zeros)?.any()?);
     assert!(!ones.ne(&ones)?.any()?);
     assert!(zeros.ne(&ones)?.all()?);
-    assert!(ones.ne(zeros)?.all()?);
+    assert!(ones.ne(&zeros)?.all()?);
 
     Ok(())
 }

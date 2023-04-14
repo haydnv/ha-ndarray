@@ -97,7 +97,7 @@ pub trait NDArray: Sized {
 }
 
 pub trait NDArrayRead<T: CDatatype>: NDArray {
-    fn copy(self) -> Result<ArrayBase<T>, Error> {
+    fn copy(&self) -> Result<ArrayBase<T>, Error> {
         let shape = self.shape().to_vec();
 
         let queue = autoqueue(None)?;
@@ -108,7 +108,7 @@ pub trait NDArrayRead<T: CDatatype>: NDArray {
         ArrayBase::from_vec(shape, data)
     }
 
-    fn read(self, queue: Queue) -> Result<Buffer<T>, Error>;
+    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error>;
 }
 
 pub trait NDArrayWrite<O>: NDArray {
@@ -119,65 +119,65 @@ pub trait NDArrayCast<O>: NDArray {
     fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error>;
 }
 
-pub trait NDArrayCompare<O: NDArray>: NDArray {
-    fn eq(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+pub trait NDArrayCompare<T: CDatatype, O: NDArray>: NDArray {
+    fn eq<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::eq(self, other), shape))
     }
 
-    fn gt(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+    fn gt<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::gt(self, other), shape))
     }
 
-    fn gte(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+    fn gte<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::gte(self, other), shape))
     }
 
-    fn lt(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+    fn lt<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::lt(self, other), shape))
     }
 
-    fn lte(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+    fn lte<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::lte(self, other), shape))
     }
 
-    fn ne(&self, other: O) -> Result<ArrayOp<ArrayCompare<&Self, O>>, Error> {
+    fn ne<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::ne(self, other), shape))
     }
 }
 
 pub trait NDArrayCompareScalar<T>: NDArray {
-    fn eq(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn eq(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::eq(self, other), shape))
     }
 
-    fn gt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn gt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::gt(self, other), shape))
     }
 
-    fn gte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn gte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::gte(self, other), shape))
     }
 
-    fn lt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn lt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::lt(self, other), shape))
     }
 
-    fn lte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn lte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::lte(self, other), shape))
     }
 
-    fn ne(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<&Self, T>>, Error> {
+    fn ne(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
         let shape = self.shape().to_vec();
         Ok(ArrayOp::new(ArrayCompareScalar::ne(self, other), shape))
     }
@@ -187,30 +187,70 @@ pub trait NDArrayMath<T, O>: NDArray {
     fn matmul(&self, other: &O) -> Result<ArrayOp<MatMul<Self, O>>, Error>;
 }
 
-pub trait NDArrayReduce<T>: NDArray {
-    fn all(&self) -> Result<bool, Error>;
+pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
+    fn all(&self) -> Result<bool, Error> {
+        let queue = autoqueue(None)?;
+        let input = self.read(queue.clone())?;
+        kernels::reduce_all(queue, input).map_err(Error::from)
+    }
 
-    fn all_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAll<&Self>>, Error>;
+    fn any(&self) -> Result<bool, Error> {
+        let queue = autoqueue(None)?;
+        let input = self.read(queue.clone())?;
+        kernels::reduce_any(queue, input).map_err(Error::from)
+    }
 
-    fn any(&self) -> Result<bool, Error>;
+    fn max(&self) -> Result<T, Error> {
+        todo!()
+    }
 
-    fn any_axis(&self, axis: usize) -> Result<ArrayOp<ArrayAny<&Self>>, Error>;
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
+        todo!()
+    }
 
-    fn max(&self) -> Result<T, Error>;
+    fn min(&self) -> Result<T, Error> {
+        todo!()
+    }
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMax<&Self>>, Error>;
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
+        todo!()
+    }
 
-    fn min(&self) -> Result<T, Error>;
+    fn product(&self) -> Result<T, Error> {
+        todo!()
+    }
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayMin<&Self>>, Error>;
+    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
+        todo!()
+    }
 
-    fn product(&self) -> Result<T, Error>;
+    fn sum(&self) -> Result<T, Error> {
+        let queue = autoqueue(None)?;
+        let input = self.read(queue.clone())?;
+        kernels::reduce(T::zero(), "+", queue, input, std::iter::Sum::sum).map_err(Error::from)
+    }
 
-    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayProduct<&Self>>, Error>;
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
+        if axis >= self.ndim() {
+            return Err(Error::Bounds(format!(
+                "axis {} is out of bounds for {:?}",
+                axis, self
+            )));
+        }
 
-    fn sum(&self) -> Result<T, Error>;
+        let shape = if self.ndim() == 1 {
+            vec![1]
+        } else {
+            let mut shape = vec![0; self.ndim() - 1];
+            shape[..axis].copy_from_slice(&self.shape()[..axis]);
+            shape[axis..].copy_from_slice(&self.shape()[(axis + 1)..]);
+            shape
+        };
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error>;
+        let op = ArrayReduce::sum(self, axis);
+
+        Ok(ArrayOp::new(op, shape))
+    }
 }
 
 pub trait NDArrayTransform<T>: NDArray {
