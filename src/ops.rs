@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use ocl::{Buffer, Event, OclPrm, Queue};
+use ocl::{Buffer, Event, Queue};
 
 use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArray, NDArrayRead};
 
@@ -344,7 +344,7 @@ impl<'a, T: CDatatype> Op for ArraySum<&'a ArrayBase<T>> {
         let shape = self.source.shape().to_vec();
         let input = (&self.source).read(queue.clone())?;
 
-        kernels::reduce_axis(T::zero(), "+=", queue, input, shape, self.axis).map_err(Error::from)
+        kernels::reduce_axis(T::zero(), "+", queue, input, shape, self.axis).map_err(Error::from)
     }
 }
 

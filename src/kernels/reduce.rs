@@ -12,7 +12,7 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     let src = format!(
         r#"
         __kernel void reduce_all(
-                __global uint* flag,
+                __global uchar* flag,
                 __global const {dtype}* input)
         {{
             if (input[get_global_id(0)] == 0) {{
@@ -49,7 +49,7 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     let src = format!(
         r#"
         __kernel void reduce_any(
-                __global uint* flag,
+                __global uchar* flag,
                 __global const {dtype}* input)
         {{
             if (input[get_global_id(0)] != 0) {{
@@ -103,14 +103,14 @@ pub fn reduce<T: CDatatype>(
                 __global {dtype}* output,
                 __local {dtype}* partials)
         {{
-            const uint offset = get_global_id(0);
+            const ulong offset = get_global_id(0);
 
             if (offset >= size) {{
                 return;
             }}
 
             const uint group_size = get_local_size(0);
-            const uint a = offset / group_size;
+            const ulong a = offset / group_size;
             const uint b = offset % group_size;
 
             // copy from global to local memory
@@ -120,7 +120,7 @@ pub fn reduce<T: CDatatype>(
             for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
                 if (offset + stride < size) {{
-                    partials[b] {reduce} partials[b + stride];
+                    partials[b] {reduce}= partials[b + stride];
                 }}
             }}
 
@@ -169,46 +169,47 @@ pub fn reduce_axis<T: CDatatype>(
     init: T,
     reduce: &'static str,
     queue: Queue,
-    input: Buffer<T>,
+    mut buffer: Buffer<T>,
     shape: Shape,
     axis: usize,
 ) -> Result<Buffer<T>, Error> {
     assert!(axis < shape.len());
-    assert_eq!(input.len(), shape.iter().product());
+    assert_eq!(buffer.len(), shape.iter().product());
 
     let mut reduce_dim = shape[axis];
-    let output_size = input.len() / reduce_dim;
+    let output_size = buffer.len() / reduce_dim;
 
-    let mut buffer =
-        if reduce_dim < WG_SIZE || (reduce_dim as f32).log(WG_SIZE as f32).fract() == 0. {
-            input
-        } else {
-            todo!()
-        };
+    if reduce_dim < WG_SIZE {
+        return fold_axis(init, reduce, queue.clone(), &buffer, reduce_dim, 1);
+    } else {
+        let log = (reduce_dim as f32).log(WG_SIZE as f32).fract();
+        if log.fract() != 0. {
+            let target_dim = WG_SIZE.pow(log as u32);
+            buffer = fold_axis(init, reduce, queue.clone(), &buffer, reduce_dim, target_dim)?;
+        }
+    }
 
     let src = format!(
         r#"
         __kernel void reduce_axis(
-                ulong stride,
                 {dtype} init,
                 __global const {dtype}* input,
                 __global {dtype}* output,
                 __local {dtype}* partials)
         {{
-            const uint offset = get_global_id(0);
-            const uint reduce_dim = get_local_size(0);
+            const ulong offset = get_global_id(0);
+            const ulong reduce_dim = get_local_size(0);
 
-            const uint a = offset / reduce_dim;
-            const uint b = offset % reduce_dim;
+            const ulong a = offset / reduce_dim;
+            const ulong b = offset % reduce_dim;
 
             // copy from global to local memory
             partials[b] = input[offset];
 
             // reduce over local memory in parallel
-            while (stride > 0) {{
+            for (ulong stride = reduce_dim >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
-                partials[b] {reduce} partials[b + stride];
-                stride = stride >> 1;
+                partials[b] {reduce}= partials[b + stride];
             }}
 
             if (b == 0) {{
@@ -234,19 +235,12 @@ pub fn reduce_axis<T: CDatatype>(
             WG_SIZE
         };
 
-        let stride = if wg_size % 2 == 0 {
-            wg_size >> 1
-        } else {
-            wg_size - 1
-        };
-
         let kernel = Kernel::builder()
             .name("reduce_axis")
             .program(&program)
             .queue(queue.clone())
             .local_work_size(wg_size)
             .global_work_size(buffer.len())
-            .arg(stride)
             .arg(init)
             .arg(&buffer)
             .arg(&output)
@@ -260,6 +254,75 @@ pub fn reduce_axis<T: CDatatype>(
     }
 
     Ok(buffer)
+}
+
+fn fold_axis<T: CDatatype>(
+    init: T,
+    reduce: &'static str,
+    queue: Queue,
+    input: &Buffer<T>,
+    reduce_dim: usize,
+    target_dim: usize,
+) -> Result<Buffer<T>, Error> {
+    debug_assert_eq!(input.len() % reduce_dim, 0);
+
+    let output_size = (input.len() / reduce_dim) * target_dim;
+
+    let src = format!(
+        r#"
+        __kernel void fold_axis(
+            ulong reduce_dim,
+            ulong target_dim,
+            {dtype} init,
+            __global const {dtype}* input,
+            __global {dtype}* output)
+        {{
+            // the global offset in the output basis
+            const ulong o_offset = get_global_id(0);
+
+            // the local coordinate in the outer dimension
+            const ulong a = o_offset / target_dim;
+
+            // the local coordinate in the dimension to reduce
+            const ulong b = o_offset % target_dim;
+
+            // the global offset in the input basis
+            const ulong i_offset = (a * reduce_dim) + b;
+
+            {dtype} reduced = init;
+
+            for (uint stride = i_offset; stride < (a + 1) * reduce_dim; stride += target_dim) {{
+                reduced {reduce}= input[stride];
+            }}
+
+            output[o_offset] = reduced;
+        }}
+        "#,
+        dtype = T::TYPE_STR,
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(output_size)
+        .build()?;
+
+    let kernel = Kernel::builder()
+        .name("fold_axis")
+        .program(&program)
+        .queue(queue.clone())
+        .global_work_size(output_size)
+        .arg(reduce_dim)
+        .arg(target_dim)
+        .arg(init)
+        .arg(input)
+        .arg(&output)
+        .build()?;
+
+    unsafe { kernel.enq()? }
+
+    Ok(output)
 }
 
 #[inline]

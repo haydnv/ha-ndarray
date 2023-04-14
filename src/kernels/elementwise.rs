@@ -16,7 +16,7 @@ pub fn elementwise_cmp<T: CDatatype>(
         __kernel void elementwise_cmp(
             __global const {dtype}* left,
             __global const {dtype}* right,
-            __global char* output)
+            __global uchar* output)
         {{
             uint const offset = get_global_id(0);
 
@@ -101,7 +101,7 @@ pub fn scalar_cmp<T: CDatatype>(
         __kernel void scalar_cmp(
             __global const {dtype}* input,
             __private const {dtype} right,
-            __global char* output)
+            __global uchar* output)
         {{
             uint const offset = get_global_id(0);
             output[offset] = input[offset] {cmp} right;

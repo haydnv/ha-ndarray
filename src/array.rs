@@ -9,6 +9,7 @@ use super::{
     NDArrayCompareScalar, NDArrayRead, NDArrayReduce, Shape,
 };
 
+#[derive(Clone)]
 pub struct ArrayBase<T> {
     data: Vec<T>,
     shape: Shape,
@@ -58,6 +59,10 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
 
     pub fn into_vec(self) -> Vec<T> {
         self.data
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        self.data.to_vec()
     }
 }
 
@@ -176,7 +181,7 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
     fn sum(&self) -> Result<T, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone())?;
-        kernels::reduce(T::zero(), "+=", queue, input, std::iter::Sum::sum).map_err(Error::from)
+        kernels::reduce(T::zero(), "+", queue, input, std::iter::Sum::sum).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArraySum<&Self>>, Error> {
@@ -187,9 +192,14 @@ impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {
             )));
         }
 
-        let mut shape = vec![0; self.ndim() - 1];
-        shape[..axis].copy_from_slice(&self.shape()[..axis]);
-        shape[axis..].copy_from_slice(&self.shape()[(axis + 1)..]);
+        let shape = if self.ndim() == 1 {
+            vec![1]
+        } else {
+            let mut shape = vec![0; self.ndim() - 1];
+            shape[..axis].copy_from_slice(&self.shape()[..axis]);
+            shape[axis..].copy_from_slice(&self.shape()[(axis + 1)..]);
+            shape
+        };
 
         let op = ArraySum::new(self, axis);
 
