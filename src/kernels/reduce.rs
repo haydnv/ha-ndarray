@@ -103,29 +103,29 @@ pub fn reduce<T: CDatatype>(
                 __global {dtype}* output,
                 __local {dtype}* partials)
         {{
-            const uint idx = get_global_id(0);
+            const uint offset = get_global_id(0);
 
-            if (idx >= size) {{
+            if (offset >= size) {{
                 return;
             }}
 
             const uint group_size = get_local_size(0);
-            const uint group_idx = idx / group_size;
-            const uint local_idx = idx % group_size;
+            const uint a = offset / group_size;
+            const uint b = offset % group_size;
 
             // copy from global to local memory
-            partials[local_idx] = input[idx];
+            partials[b] = input[offset];
 
             // reduce over local memory in parallel
             for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
-                if (idx + stride < size) {{
-                    partials[local_idx] {reduce} partials[local_idx + stride];
+                if (offset + stride < size) {{
+                    partials[b] {reduce} partials[b + stride];
                 }}
             }}
 
-            if (local_idx == 0) {{
-                output[group_idx] = partials[local_idx];
+            if (b == 0) {{
+                output[a] = partials[b];
             }}
         }}
         "#,
@@ -174,24 +174,46 @@ pub fn reduce_axis<T: CDatatype>(
     axis: usize,
 ) -> Result<Buffer<T>, Error> {
     assert!(axis < shape.len());
+    assert_eq!(input.len(), shape.iter().product());
+
+    let mut reduce_dim = shape[axis];
+    let output_size = input.len() / reduce_dim;
+
+    let mut buffer =
+        if reduce_dim < WG_SIZE || (reduce_dim as f32).log(WG_SIZE as f32).fract() == 0. {
+            input
+        } else {
+            todo!()
+        };
 
     let src = format!(
         r#"
         __kernel void reduce_axis(
-                const ulong input_size,
-                const ulong reduce_dim,
+                ulong stride,
                 {dtype} init,
                 __global const {dtype}* input,
-                __global {dtype}* output)
+                __global {dtype}* output,
+                __local {dtype}* partials)
         {{
-            const uint idx = get_global_id(0);
+            const uint offset = get_global_id(0);
+            const uint reduce_dim = get_local_size(0);
 
-            {dtype} reduced = init;
-            for (uint i = idx; i < idx + reduce_dim; i++) {{
-                reduced {reduce} input[i];
+            const uint a = offset / reduce_dim;
+            const uint b = offset % reduce_dim;
+
+            // copy from global to local memory
+            partials[b] = input[offset];
+
+            // reduce over local memory in parallel
+            while (stride > 0) {{
+                barrier(CLK_LOCAL_MEM_FENCE);
+                partials[b] {reduce} partials[b + stride];
+                stride = stride >> 1;
             }}
 
-            output[idx] = reduced;
+            if (b == 0) {{
+                output[a] = partials[b];
+            }}
         }}
         "#,
         dtype = T::TYPE_STR
@@ -199,28 +221,45 @@ pub fn reduce_axis<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let reduce_dim = shape[axis];
+    while buffer.len() > output_size {
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(buffer.len() / reduce_dim)
+            .build()?;
 
-    let output = Buffer::builder()
-        .queue(queue.clone())
-        .len(input.len() / reduce_dim)
-        .build()?;
+        let wg_size = if reduce_dim < WG_SIZE {
+            reduce_dim
+        } else {
+            debug_assert_eq!(reduce_dim % WG_SIZE, 0);
+            WG_SIZE
+        };
 
-    let kernel = Kernel::builder()
-        .name("reduce_axis")
-        .program(&program)
-        .queue(queue.clone())
-        .global_work_size(output.len())
-        .arg(input.len() as u64)
-        .arg(reduce_dim as u64)
-        .arg(init)
-        .arg(&input)
-        .arg(&output)
-        .build()?;
+        let stride = if wg_size % 2 == 0 {
+            wg_size >> 1
+        } else {
+            wg_size - 1
+        };
 
-    unsafe { kernel.enq()? }
+        let kernel = Kernel::builder()
+            .name("reduce_axis")
+            .program(&program)
+            .queue(queue.clone())
+            .local_work_size(wg_size)
+            .global_work_size(buffer.len())
+            .arg(stride)
+            .arg(init)
+            .arg(&buffer)
+            .arg(&output)
+            .arg_local::<T>(wg_size)
+            .build()?;
 
-    Ok(output)
+        unsafe { kernel.enq()? }
+
+        buffer = output;
+        reduce_dim /= wg_size;
+    }
+
+    Ok(buffer)
 }
 
 #[inline]

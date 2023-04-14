@@ -362,16 +362,3 @@ pub struct ArrayCast<A, O> {
     source: A,
     dtype: PhantomData<O>,
 }
-
-#[inline]
-fn buffer_or_new<T: OclPrm>(
-    queue: Queue,
-    size: usize,
-    buffer: Option<Buffer<T>>,
-) -> Result<Buffer<T>, ocl::Error> {
-    if let Some(buffer) = buffer {
-        Ok(buffer)
-    } else {
-        Buffer::builder().queue(queue).len(size).build()
-    }
-}

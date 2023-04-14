@@ -18,12 +18,12 @@ pub fn elementwise_cmp<T: CDatatype>(
             __global const {dtype}* right,
             __global char* output)
         {{
-            uint const idx = get_global_id(0);
+            uint const offset = get_global_id(0);
 
-            if (left[idx] {cmp} right[idx]) {{
-                output[idx] = 1;
+            if (left[offset] {cmp} right[offset]) {{
+                output[offset] = 1;
             }} else {{
-                output[idx] = 0;
+                output[offset] = 0;
             }}
         }}
     "#,
@@ -67,8 +67,8 @@ pub fn elementwise_inplace<T: CDatatype>(
             __global {dtype}* left,
             __global const {dtype}* right)
         {{
-            uint const idx = get_global_id(0);
-            left[idx] {op} right[idx];
+            uint const offset = get_global_id(0);
+            left[offset] {op} right[offset];
         }}
     "#,
         dtype = T::TYPE_STR,
@@ -103,8 +103,8 @@ pub fn scalar_cmp<T: CDatatype>(
             __private const {dtype} right,
             __global char* output)
         {{
-            uint const idx = get_global_id(0);
-            output[idx] = input[idx] {cmp} right;
+            uint const offset = get_global_id(0);
+            output[offset] = input[offset] {cmp} right;
         }}
     "#,
         dtype = T::TYPE_STR,
