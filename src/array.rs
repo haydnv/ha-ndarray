@@ -5,8 +5,8 @@ use ocl::{Buffer, OclPrm, Queue};
 
 use super::ops::*;
 use super::{
-    broadcast_shape, AxisBound, CDatatype, Error, NDArray, NDArrayCompare, NDArrayCompareScalar,
-    NDArrayRead, NDArrayReduce, Shape,
+    broadcast_shape, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
+    NDArrayCompareScalar, NDArrayRead, NDArrayReduce, Shape,
 };
 
 #[derive(Clone)]
@@ -97,6 +97,8 @@ impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
         ArrayOp { op, shape }
     }
 }
+
+impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompare<T, Self> for ArrayBase<T> {}
 

@@ -183,8 +183,44 @@ pub trait NDArrayCompareScalar<T>: NDArray {
     }
 }
 
-pub trait NDArrayMath<T, O>: NDArray {
-    fn matmul(&self, other: &O) -> Result<ArrayOp<MatMul<Self, O>>, Error>;
+pub trait MatrixMath<T: CDatatype, O: NDArrayRead<T>>: NDArray {
+    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
+        let ndim = self.ndim();
+        let prefix = &self.shape()[..ndim - 2];
+        if other.ndim() != ndim {
+            return Err(Error::Bounds(format!(
+                "matrix multiply expects at least two dimensions but found shapes {:?} and {:?}",
+                self.shape(),
+                other.shape()
+            )));
+        } else if &other.shape()[..ndim - 2] != prefix {
+            return Err(Error::Bounds(format!(
+                "matrix multiply requires the same batch shape, not {:?} and {:?}",
+                prefix,
+                &other.shape()[..ndim - 2]
+            )));
+        }
+
+        let a = self.shape()[ndim - 2];
+        let b = self.shape()[ndim - 1];
+        let c = other.shape()[ndim - 1];
+
+        if other.shape()[ndim - 2] != b {
+            return Err(Error::Bounds(format!(
+                "invalid dimensions for matrix multiply: {:?} and {:?}",
+                self.shape(),
+                other.shape()
+            )));
+        }
+
+        let mut shape = Vec::with_capacity(ndim);
+        shape.extend_from_slice(prefix);
+        shape.push(a);
+        shape.push(c);
+
+        let op = MatMul::new(self, other);
+        Ok(ArrayOp::new(op, shape))
+    }
 }
 
 pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {

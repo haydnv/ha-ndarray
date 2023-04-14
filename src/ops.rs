@@ -72,9 +72,38 @@ pub struct MatDiag<A> {
     source: A,
 }
 
-pub struct MatMul<L, R> {
-    left: L,
-    right: R,
+pub struct MatMul<'a, L, R> {
+    left: &'a L,
+    right: &'a R,
+}
+
+impl<'a, L, R> MatMul<'a, L, R> {
+    pub fn new(left: &'a L, right: &'a R) -> Self {
+        Self { left, right }
+    }
+}
+
+impl<'a, T: CDatatype> Op for MatMul<'a, ArrayBase<T>, ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let ndim = self.left.ndim();
+        debug_assert_eq!(ndim, self.right.ndim());
+
+        let num_matrices = self.left.shape()[..ndim - 2].iter().product();
+        let a = self.left.shape()[ndim - 2];
+        let b = self.left.shape()[ndim - 1];
+        let c = self.right.shape()[ndim - 1];
+        debug_assert_eq!(b, self.right.shape()[ndim - 2]);
+
+        let right_queue = autoqueue(Some(queue.context()))?;
+        let right = self.right.read(right_queue.clone())?;
+        let event = right_queue.enqueue_marker::<Event>(None)?;
+
+        let left = self.left.read(queue.clone())?;
+
+        kernels::matmul(queue, &left, &right, num_matrices, (a, b, c), &event).map_err(Error::from)
+    }
 }
 
 // comparison
