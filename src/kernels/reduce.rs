@@ -2,11 +2,7 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::{CDatatype, Shape};
 
-// TODO: move to a custom Platform struct
-const MIN_SIZE: usize = 1024;
-
-// TODO: is there a good way to determine this at runtime?
-const WG_SIZE: usize = 64;
+use super::{MIN_SIZE, WG_SIZE};
 
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
     let src = format!(
@@ -105,7 +101,7 @@ pub fn reduce<T: CDatatype>(
         {{
             const ulong offset = get_global_id(0);
 
-            if (offset >= size) {{
+            if (size < offset) {{
                 return;
             }}
 
@@ -120,7 +116,10 @@ pub fn reduce<T: CDatatype>(
             for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
                 if (offset + stride < size) {{
-                    partials[b] {reduce}= partials[b + stride];
+                    uint next = b + stride;
+                    if (next < group_size) {{
+                        partials[b] {reduce}= partials[b + stride];
+                    }}
                 }}
             }}
 
@@ -149,7 +148,7 @@ pub fn reduce<T: CDatatype>(
             .queue(queue.clone())
             .local_work_size(WG_SIZE)
             .global_work_size(WG_SIZE * output.len())
-            .arg(input.len())
+            .arg(input.len() as u64)
             .arg(&input)
             .arg(&output)
             .arg_local::<T>(WG_SIZE)
@@ -198,18 +197,22 @@ pub fn reduce_axis<T: CDatatype>(
                 __local {dtype}* partials)
         {{
             const ulong offset = get_global_id(0);
-            const ulong reduce_dim = get_local_size(0);
+            const uint reduce_dim = get_local_size(0);
 
             const ulong a = offset / reduce_dim;
-            const ulong b = offset % reduce_dim;
+            const uint b = offset % reduce_dim;
 
             // copy from global to local memory
             partials[b] = input[offset];
 
             // reduce over local memory in parallel
-            for (ulong stride = reduce_dim >> 1; stride > 0; stride = stride >> 1) {{
+            for (uint stride = reduce_dim >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
-                partials[b] {reduce}= partials[b + stride];
+
+                uint next = b + stride;
+                if (next < reduce_dim) {{
+                    partials[b] {reduce}= partials[next];
+                }}
             }}
 
             if (b == 0) {{
@@ -313,8 +316,8 @@ fn fold_axis<T: CDatatype>(
         .program(&program)
         .queue(queue.clone())
         .global_work_size(output_size)
-        .arg(reduce_dim)
-        .arg(target_dim)
+        .arg(reduce_dim as u64)
+        .arg(target_dim as u64)
         .arg(init)
         .arg(input)
         .arg(&output)
