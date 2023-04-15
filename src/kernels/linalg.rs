@@ -21,7 +21,6 @@ pub fn matmul<T: CDatatype>(
 
     // TODO: remove these conditions
     assert!(b <= WG_SIZE);
-    assert_eq!(num_matrices, 1);
 
     let src = format!(
         r#"
@@ -42,11 +41,11 @@ pub fn matmul<T: CDatatype>(
             // w := axis to reduce
 
             // copy axis w from the left matrix
-            partials[coord.w] = left[(coord.y * dims.w) + coord.w];
+            partials[coord.w] = left[(coord.x * dims.y * dims.w) + (coord.y * dims.w) + coord.w];
             barrier(CLK_LOCAL_MEM_FENCE);
 
             // multiply by axis w from the right matrix
-            partials[coord.w] *= right[(coord.w * dims.z) + coord.z];
+            partials[coord.w] *= right[(coord.x * dims.w * dims.z) + (coord.w * dims.z) + coord.z];
             barrier(CLK_LOCAL_MEM_FENCE);
 
             // sum over axis w
@@ -58,8 +57,8 @@ pub fn matmul<T: CDatatype>(
                     sum += partials[b];
                 }}
 
-                ulong yz = (coord.y * dims.z) + coord.z;
-                output[yz] = sum;
+                ulong xyz = (coord.x * dims.y * dims.z) + (coord.y * dims.z) + coord.z;
+                output[xyz] = sum;
             }}
         }}
         "#,
