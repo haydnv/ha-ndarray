@@ -187,6 +187,7 @@ pub trait MatrixMath<T: CDatatype, O: NDArrayRead<T>>: NDArray {
     fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
+
         if other.ndim() != ndim {
             return Err(Error::Bounds(format!(
                 "matrix multiply expects at least two dimensions but found shapes {:?} and {:?}",

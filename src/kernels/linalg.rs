@@ -3,63 +3,47 @@ use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
-use super::WG_SIZE;
-
 pub fn matmul<T: CDatatype>(
     queue: Queue,
-    left: &Buffer<T>,
-    right: &Buffer<T>,
-    num_matrices: usize,
+    left: Buffer<T>,
+    right: Buffer<T>,
+    batch_size: usize,
     dims: (usize, usize, usize),
-    ewait: &Event,
+    ewait: Event,
 ) -> Result<Buffer<T>, Error> {
     let (a, b, c) = dims;
-    debug_assert_eq!(num_matrices * a * b, left.len());
-    debug_assert_eq!(num_matrices * b * c, right.len());
 
-    let mut ewait = Some(ewait);
-
-    // TODO: remove these conditions
-    assert!(b <= WG_SIZE);
+    debug_assert!(batch_size > 0);
+    debug_assert_eq!(batch_size * a * b, left.len());
+    debug_assert_eq!(batch_size * b * c, right.len());
 
     let src = format!(
         r#"
         __kernel void matmul(
-                const ulong4 dims,
-                const ulong4 strides,
-                __global const {dtype}* left,
-                __global const {dtype}* right,
-                __global {dtype}* output,
-                __local {dtype}* partials)
+                ulong4 const dims,
+                __global const {dtype}* restrict left,
+                __global const {dtype}* restrict right,
+                __global {dtype}* output)
         {{
-            const ulong offset = get_global_id(0);
-            const ulong4 coord = (offset / strides) % dims;
-
-            // x := matrix number
-            // y := output axis 0
+            // x := output axis 0
+            // y := reduce axis
             // z := output axis 1
-            // w := axis to reduce
+            // w := matrix number
 
-            // copy axis w from the left matrix
-            partials[coord.w] = left[(coord.x * dims.y * dims.w) + (coord.y * dims.w) + coord.w];
-            barrier(CLK_LOCAL_MEM_FENCE);
+            const ulong x = get_global_id(1);
+            const ulong z = get_global_id(2);
+            const ulong w = get_global_id(0);
 
-            // multiply by axis w from the right matrix
-            partials[coord.w] *= right[(coord.x * dims.w * dims.z) + (coord.w * dims.z) + coord.z];
-            barrier(CLK_LOCAL_MEM_FENCE);
+            {dtype} sum = 0;
 
-            // sum over axis w
-
-            if (coord.w == 0) {{
-                // TODO: parallelize
-                {dtype} sum = 0;
-                for (uint b = 0; b < dims.w; b++) {{
-                    sum += partials[b];
-                }}
-
-                ulong xyz = (coord.x * dims.y * dims.z) + (coord.y * dims.z) + coord.z;
-                output[xyz] = sum;
+            #pragma unroll
+            for (ulong y = 0; y < dims.y; y++) {{
+                {dtype} l = left[(w * dims.x * dims.y) + (x * dims.y) + y];
+                {dtype} r = right[(w * dims.y * dims.z) + (y * dims.z) + z];
+                sum += (l * r);
             }}
+
+            output[(w * dims.x * dims.z) + (x * dims.z) + z] = sum;
         }}
         "#,
         dtype = T::TYPE_STR
@@ -67,41 +51,25 @@ pub fn matmul<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let wg_size = if b < WG_SIZE {
-        b
-    } else {
-        assert_eq!(b % WG_SIZE, 0);
-        WG_SIZE
-    };
-
-    let dims = [num_matrices as u64, a as u64, c as u64, b as u64];
-
-    let strides = [(a * c * b) as u64, (c * b) as u64, b as u64, 1];
+    let dims = [a as u64, b as u64, c as u64, batch_size as u64];
 
     let output = Buffer::builder()
         .queue(queue.clone())
-        .len(a * c * num_matrices)
+        .len(a * c * batch_size)
         .build()?;
 
     let kernel = Kernel::builder()
         .name("matmul")
         .program(&program)
         .queue(queue)
-        .local_work_size(wg_size)
-        .global_work_size(a * b * c * num_matrices)
+        .global_work_size((batch_size, a, c))
         .arg(Ulong4::from(dims))
-        .arg(Ulong4::from(strides))
         .arg(left)
         .arg(right)
         .arg(&output)
-        .arg_local::<T>(wg_size)
         .build()?;
 
-    if let Some(ewait) = ewait.take() {
-        unsafe { kernel.cmd().ewait(ewait).enq()? }
-    } else {
-        unsafe { kernel.enq()? }
-    }
+    unsafe { kernel.cmd().ewait(&ewait).enq()? }
 
     Ok(output)
 }

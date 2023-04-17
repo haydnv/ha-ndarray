@@ -7,15 +7,18 @@ fn test_matmul() -> Result<(), Error> {
     let shapes = [
         (vec![2, 3], vec![3, 4], vec![2, 4]),
         (vec![2, 2, 3], vec![2, 3, 4], vec![2, 2, 4]),
+        (vec![63, 65], vec![65, 64], vec![63, 64]),
     ];
 
     for (left_shape, right_shape, output_shape) in shapes {
         let left = ArrayBase::constant(left_shape, 1.);
         let right = ArrayBase::constant(right_shape, 1.);
+
         let actual = left.matmul(&right)?.copy()?;
         assert_eq!(actual.shape(), output_shape);
-        println!("{:?}", actual.to_vec());
-        assert!(actual.eq(left.shape()[left.ndim() - 1] as f32)?.all()?);
+
+        let expected = *left.shape().last().unwrap();
+        assert!(actual.eq(expected as f32)?.all()?);
     }
 
     Ok(())

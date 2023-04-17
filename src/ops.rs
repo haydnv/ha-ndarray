@@ -91,18 +91,17 @@ impl<'a, T: CDatatype> Op for MatMul<'a, ArrayBase<T>, ArrayBase<T>> {
         debug_assert_eq!(ndim, self.right.ndim());
 
         let num_matrices = self.left.shape()[..ndim - 2].iter().product();
-        let a = self.left.shape()[ndim - 2];
-        let b = self.left.shape()[ndim - 1];
-        let c = self.right.shape()[ndim - 1];
+        let a = *self.left.shape().iter().nth(ndim - 2).expect("a");
+        let b = *self.left.shape().last().expect("b");
+        let c = *self.right.shape().last().expect("c");
         debug_assert_eq!(b, self.right.shape()[ndim - 2]);
 
         let right_queue = autoqueue(Some(queue.context()))?;
         let right = self.right.read(right_queue.clone())?;
         let event = right_queue.enqueue_marker::<Event>(None)?;
-
         let left = self.left.read(queue.clone())?;
 
-        kernels::matmul(queue, &left, &right, num_matrices, (a, b, c), &event).map_err(Error::from)
+        kernels::matmul(queue, left, right, num_matrices, (a, b, c), event).map_err(Error::from)
     }
 }
 

@@ -14,8 +14,8 @@ pub fn elementwise_cmp<T: CDatatype>(
     let src = format!(
         r#"
         __kernel void elementwise_cmp(
-            __global const {dtype}* left,
-            __global const {dtype}* right,
+            __global const {dtype}* restrict left,
+            __global const {dtype}* restrict right,
             __global uchar* output)
         {{
             uint const offset = get_global_id(0);
@@ -64,8 +64,8 @@ pub fn elementwise_inplace<T: CDatatype>(
     let src = format!(
         r#"
         __kernel void elementwise_inplace(
-            __global {dtype}* left,
-            __global const {dtype}* right)
+            __global {dtype}* restrict left,
+            __global const {dtype}* restrict right)
         {{
             uint const offset = get_global_id(0);
             left[offset] {op} right[offset];
