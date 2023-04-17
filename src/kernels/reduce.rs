@@ -2,7 +2,7 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::{CDatatype, Shape};
 
-use super::{MIN_SIZE, WG_SIZE};
+use super::{div_ceil, MIN_SIZE, WG_SIZE};
 
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
     let src = format!(
@@ -326,13 +326,4 @@ fn fold_axis<T: CDatatype>(
     unsafe { kernel.enq()? }
 
     Ok(output)
-}
-
-#[inline]
-fn div_ceil(num: usize, denom: usize) -> usize {
-    if num % denom == 0 {
-        num / denom
-    } else {
-        (num / denom) + 1
-    }
 }

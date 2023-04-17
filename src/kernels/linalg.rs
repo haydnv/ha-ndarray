@@ -3,6 +3,10 @@ use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
+use super::{div_ceil, WG_SIZE};
+
+const TILE_SIZE: usize = 8;
+
 pub fn matmul<T: CDatatype>(
     queue: Queue,
     left: Buffer<T>,
@@ -17,10 +21,13 @@ pub fn matmul<T: CDatatype>(
     debug_assert_eq!(batch_size * a * b, left.len());
     debug_assert_eq!(batch_size * b * c, right.len());
 
+    debug_assert_eq!(TILE_SIZE * TILE_SIZE, WG_SIZE);
+
     let src = format!(
         r#"
         __kernel void matmul(
                 ulong4 const dims,
+                ulong const reduce_tiles,
                 __global const {dtype}* restrict left,
                 __global const {dtype}* restrict right,
                 __global {dtype}* output)
@@ -30,20 +37,64 @@ pub fn matmul<T: CDatatype>(
             // z := output axis 1
             // w := matrix number
 
-            const ulong x = get_global_id(1);
-            const ulong z = get_global_id(2);
+            const ulong x_tile = get_global_id(1);
+            const ulong z_tile = get_global_id(2);
             const ulong w = get_global_id(0);
 
-            {dtype} sum = 0;
+            {dtype} tile[{TILE_SIZE}][{TILE_SIZE}];
 
-            #pragma unroll
-            for (ulong y = 0; y < dims.y; y++) {{
-                {dtype} l = left[(w * dims.x * dims.y) + (x * dims.y) + y];
-                {dtype} r = right[(w * dims.y * dims.z) + (y * dims.z) + z];
-                sum += (l * r);
+            // initialize the local cache for the left and right tiles to zero
+            {dtype} left_tile[{TILE_SIZE}][{TILE_SIZE}];
+            {dtype} right_tile[{TILE_SIZE}][{TILE_SIZE}];
+
+            // for each tile on the y axis
+            for (ulong y_tile = 0; y_tile < reduce_tiles; y_tile++) {{
+                // read the left and right tiles into the local cache
+                #pragma unroll
+                for (uint i = 0; i < {TILE_SIZE}; i++) {{
+                    #pragma unroll
+                    for (uint j = 0; j < {TILE_SIZE}; j++) {{
+                        if ((x_tile * {TILE_SIZE}) + i < dims.x && (y_tile * {TILE_SIZE}) + j < dims.y) {{
+                            ulong offset = (w * dims.x * dims.y) + (((x_tile * {TILE_SIZE}) + i) * dims.y) + ((y_tile * {TILE_SIZE}) + j);
+                            left_tile[i][j] = left[offset];
+                        }} else {{
+                            left_tile[i][j] = 0;
+                        }}
+
+                        if ((y_tile * {TILE_SIZE}) + i < dims.y && (z_tile * {TILE_SIZE}) + j < dims.z) {{
+                            ulong offset = (w * dims.y * dims.z) + (((y_tile * {TILE_SIZE}) + i) * dims.z) + ((z_tile * {TILE_SIZE}) + j);
+                            right_tile[i][j] = right[offset];
+                        }} else {{
+                            right_tile[i][j] = 0;
+                        }}
+                    }}
+                }}
+
+                // tile += left tile @ right tile
+                #pragma unroll
+                for (uint i = 0; i < {TILE_SIZE}; i++) {{
+                    #pragma unroll
+                    for (uint j = 0; j < {TILE_SIZE}; j++) {{
+                        #pragma unroll
+                        for (uint k = 0; k < {TILE_SIZE}; k++) {{
+                            tile[i][k] += left_tile[i][j] * right_tile[j][k];
+                        }}
+                    }}
+                }}
             }}
 
-            output[(w * dims.x * dims.z) + (x * dims.z) + z] = sum;
+            // write tile to output
+            ulong offset = (w * dims.x * dims.z) + (x_tile * {TILE_SIZE} * dims.z) + (z_tile * {TILE_SIZE});
+
+            #pragma unroll
+            for (uint i = 0; i < {TILE_SIZE}; i++) {{
+                #pragma unroll
+                for (uint j = 0; j < {TILE_SIZE}; j++) {{
+                    if (((x_tile * {TILE_SIZE}) + i) < dims.x && ((z_tile * {TILE_SIZE}) + j) < dims.z) {{
+                        output[offset + (i * dims.z) + j] = tile[i][j];
+                    }}
+                }}
+            }}
         }}
         "#,
         dtype = T::TYPE_STR
@@ -62,8 +113,9 @@ pub fn matmul<T: CDatatype>(
         .name("matmul")
         .program(&program)
         .queue(queue)
-        .global_work_size((batch_size, a, c))
+        .global_work_size((batch_size, div_ceil(a, TILE_SIZE), div_ceil(c, TILE_SIZE)))
         .arg(Ulong4::from(dims))
+        .arg(div_ceil(b, TILE_SIZE))
         .arg(left)
         .arg(right)
         .arg(&output)
