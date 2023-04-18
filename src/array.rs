@@ -1,8 +1,10 @@
 use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::sync::{Arc, RwLock};
 
 use ocl::{Buffer, OclPrm, Queue};
 
+use super::kernels;
 use super::ops::*;
 use super::{
     AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar,
@@ -11,39 +13,31 @@ use super::{
 
 #[derive(Clone)]
 pub struct ArrayBase<T> {
-    data: Vec<T>,
+    data: Arc<RwLock<Vec<T>>>,
     shape: Shape,
 }
 
 impl<T: OclPrm + CDatatype> ArrayBase<T> {
+    fn new(shape: Shape, data: Vec<T>) -> Self {
+        Self {
+            data: Arc::new(RwLock::new(data)),
+            shape,
+        }
+    }
+
     pub fn concatenate(arrays: Vec<Array<T>>, axis: usize) -> Result<Self, Error> {
         todo!()
     }
 
     pub fn constant(shape: Shape, value: T) -> Self {
         let size = shape.iter().product();
-        Self {
-            data: vec![value; size],
-            shape,
-        }
-    }
-
-    pub fn eye(shape: Shape) -> Result<Self, Error> {
-        let ndim = shape.len();
-        if shape.len() < 2 || shape[ndim - 1] != shape[ndim - 2] {
-            Err(Error::Bounds(format!(
-                "invalid shape for identity matrix: {:?}",
-                shape
-            )))
-        } else {
-            todo!()
-        }
+        Self::new(shape, vec![value; size])
     }
 
     pub fn from_vec(shape: Shape, data: Vec<T>) -> Result<Self, Error> {
         let size = shape.iter().product();
         if data.len() == size {
-            Ok(Self { shape, data })
+            Ok(Self::new(shape, data))
         } else {
             Err(Error::Bounds(format!(
                 "{} data were provided for an array of size {}",
@@ -57,12 +51,9 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
         todo!()
     }
 
-    pub fn into_vec(self) -> Vec<T> {
-        self.data
-    }
-
     pub fn to_vec(&self) -> Vec<T> {
-        self.data.to_vec()
+        let data = self.data.read().expect("array data");
+        data.to_vec()
     }
 }
 
@@ -83,22 +74,45 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     type View = ArrayView<Self>;
 
     fn broadcast(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        todo!()
-    }
+        if shape.len() < self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast {:?} into {:?}",
+                self.shape, shape
+            )));
+        }
 
-    fn expand_dims<Dims: IntoIterator<Item = usize>>(
-        &self,
-        dims: Dims,
-    ) -> Result<ArrayView<Self>, Error> {
-        todo!()
+        for (dim, bdim) in self.shape.iter().zip(&shape[shape.len() - self.ndim()..]) {
+            if dim == bdim || *dim == 1 {
+                // ok
+            } else {
+                return Err(Error::Bounds(format!(
+                    "cannot broadcast dimension {} into {}",
+                    dim, bdim
+                )));
+            }
+        }
+
+        let strides = strides_for(&self.shape, shape.len());
+
+        Ok(ArrayView::new(self.clone(), shape, strides))
     }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
         todo!()
     }
 
-    fn reshape(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        todo!()
+    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == self.size() {
+            Ok(Self {
+                shape,
+                data: self.data.clone(),
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot reshape from {:?} to {:?}",
+                self.shape, shape
+            )))
+        }
     }
 
     fn slice<Bounds: IntoIterator<Item = AxisBound>>(
@@ -195,13 +209,15 @@ impl<T: CDatatype> NDArrayCompareScalar<T> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+        let data = self.data.read().expect("array data");
+
         let buffer = Buffer::<T>::builder()
             .queue(queue)
             .len(self.size())
             .build()
             .map_err(Error::from)?;
 
-        buffer.write(&self.data).enq()?;
+        buffer.write(data.as_slice()).enq()?;
 
         Ok(buffer)
     }
@@ -267,8 +283,18 @@ impl<A> NDArray for ArraySlice<A> {
 
 pub struct ArrayView<A> {
     source: A,
-    strides: Vec<u64>,
     shape: Shape,
+    strides: Vec<usize>,
+}
+
+impl<A> ArrayView<A> {
+    fn new(source: A, shape: Shape, strides: Vec<usize>) -> Self {
+        Self {
+            source,
+            shape,
+            strides,
+        }
+    }
 }
 
 impl<A> NDArray for ArrayView<A> {
@@ -279,7 +305,16 @@ impl<A> NDArray for ArrayView<A> {
 
 impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArrayView<A> {
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
-        todo!()
+        let buffer = self.source.read(queue.clone())?;
+        let strides = strides_for(&self.shape, self.ndim());
+
+        if self.size() == self.source.size() {
+            kernels::reorder_inplace(queue, buffer, &self.shape, &self.strides, &strides)
+                .map_err(Error::from)
+        } else {
+            kernels::reorder(queue, buffer, &self.shape, &strides, &self.strides)
+                .map_err(Error::from)
+        }
     }
 }
 
@@ -288,13 +323,6 @@ impl<A: NDArray> NDArrayTransform for ArrayView<A> {
     type View = Self;
 
     fn broadcast(&self, shape: Shape) -> Result<Self::View, Error> {
-        todo!()
-    }
-
-    fn expand_dims<Dims: IntoIterator<Item = usize>>(
-        &self,
-        dims: Dims,
-    ) -> Result<Self::View, Error> {
         todo!()
     }
 
@@ -330,4 +358,24 @@ impl<T: OclPrm> NDArray for Array<T> {
             Self::Op(op) => op.shape(),
         }
     }
+}
+
+#[inline]
+fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
+    debug_assert!(ndim >= shape.len());
+
+    let mut strides = vec![0; ndim];
+
+    let offset = ndim - shape.len();
+    let mut stride = 1;
+    for (x, dim) in shape.iter().enumerate().rev() {
+        if *dim == 1 {
+            strides[offset + x] = 0;
+        } else {
+            strides[offset + x] = stride;
+            stride *= dim;
+        }
+    }
+
+    strides
 }

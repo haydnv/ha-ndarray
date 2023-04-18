@@ -68,7 +68,7 @@ pub fn elementwise_inplace<T: CDatatype>(
             __global const {dtype}* restrict right)
         {{
             uint const offset = get_global_id(0);
-            left[offset] {op} right[offset];
+            left[offset] {op}= right[offset];
         }}
     "#,
         dtype = T::TYPE_STR,

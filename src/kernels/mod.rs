@@ -1,10 +1,12 @@
 mod elementwise;
 mod linalg;
 mod reduce;
+mod view;
 
 pub use elementwise::*;
 pub use linalg::*;
 pub use reduce::*;
+pub use view::*;
 
 // TODO: move to a custom Platform struct
 const MIN_SIZE: usize = 1024;

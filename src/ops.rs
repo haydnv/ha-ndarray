@@ -45,7 +45,12 @@ impl<L, R> ArrayDual<L, R> {
         Self::new(left, right, "-")
     }
 
-    fn enqueue<T, LA, RA>(left: &LA, right: &RA, queue: Queue) -> Result<Buffer<T>, Error>
+    fn enqueue<T, LA, RA>(
+        left: &LA,
+        right: &RA,
+        queue: Queue,
+        op: &'static str,
+    ) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
         LA: NDArrayRead<T>,
@@ -57,7 +62,7 @@ impl<L, R> ArrayDual<L, R> {
 
         let left = left.read(queue.clone())?;
 
-        kernels::elementwise_inplace("+=", queue, left, &right, &event).map_err(Error::from)
+        kernels::elementwise_inplace(op, queue, left, &right, &event).map_err(Error::from)
     }
 }
 
@@ -65,7 +70,7 @@ impl<T: CDatatype> Op for ArrayDual<ArrayBase<T>, ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue)
+        Self::enqueue(&self.left, &self.right, queue, self.op)
     }
 }
 
@@ -73,7 +78,7 @@ impl<'a, T: CDatatype> Op for ArrayDual<ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, self.right, queue)
+        Self::enqueue(&self.left, self.right, queue, self.op)
     }
 }
 
@@ -81,7 +86,7 @@ impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, &self.right, queue)
+        Self::enqueue(self.left, &self.right, queue, self.op)
     }
 }
 
@@ -89,7 +94,7 @@ impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, &'a ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, self.right, queue)
+        Self::enqueue(self.left, self.right, queue, self.op)
     }
 }
 
@@ -97,7 +102,7 @@ impl<T: CDatatype, O: Op<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayOp<O>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue)
+        Self::enqueue(&self.left, &self.right, queue, self.op)
     }
 }
 
@@ -105,7 +110,7 @@ impl<T: CDatatype, O: NDArrayRead<T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue)
+        Self::enqueue(&self.left, &self.right, queue, self.op)
     }
 }
 

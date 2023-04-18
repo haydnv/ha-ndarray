@@ -291,16 +291,24 @@ pub trait NDArrayTransform: NDArray {
     type Slice: NDArray;
     type View: NDArray;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::View, Error>;
+    fn broadcast<'a>(&'a self, shape: Shape) -> Result<Self::View, Error>;
 
-    fn expand_dims<Dims: IntoIterator<Item = usize>>(
-        &self,
-        dims: Dims,
-    ) -> Result<Self::View, Error>;
+    fn expand_dims(&self, mut axes: Vec<usize>) -> Result<Self, Error> {
+        axes.sort();
+
+        let mut shape = Vec::with_capacity(self.ndim() + axes.len());
+        shape.extend_from_slice(self.shape());
+
+        for x in axes.into_iter().rev() {
+            shape.insert(x, 1);
+        }
+
+        self.reshape(shape)
+    }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error>;
 
-    fn reshape(&self, shape: Shape) -> Result<Self::View, Error>;
+    fn reshape(&self, shape: Shape) -> Result<Self, Error>;
 
     fn slice<Bounds: IntoIterator<Item = AxisBound>>(
         &self,
