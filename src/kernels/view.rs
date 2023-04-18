@@ -9,9 +9,6 @@ pub fn reorder_inplace<T: CDatatype>(
     strides: &[usize],
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
-    debug_assert_eq!(shape.len(), strides.len());
-    debug_assert_eq!(shape.len(), source_strides.len());
-
     let src = format!(
         r#"
         __kernel void reorder(
@@ -50,23 +47,8 @@ pub fn reorder_inplace<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let dims = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(shape)
-        .len(shape.len())
-        .build()?;
-
-    let strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(strides)
-        .len(strides.len())
-        .build()?;
-
-    let source_strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(source_strides)
-        .len(strides.len())
-        .build()?;
+    let (dims, strides, source_strides) =
+        build_args(queue.clone(), shape, strides, source_strides)?;
 
     let kernel = Kernel::builder()
         .name("reorder")
@@ -92,9 +74,6 @@ pub fn reorder<T: CDatatype>(
     strides: &[usize],
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
-    debug_assert_eq!(shape.len(), strides.len());
-    debug_assert_eq!(shape.len(), source_strides.len());
-
     let src = format!(
         r#"
         __kernel void reorder(
@@ -132,23 +111,8 @@ pub fn reorder<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let dims = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(shape)
-        .len(shape.len())
-        .build()?;
-
-    let strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(strides)
-        .len(strides.len())
-        .build()?;
-
-    let source_strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(source_strides)
-        .len(strides.len())
-        .build()?;
+    let (dims, strides, source_strides) =
+        build_args(queue.clone(), shape, strides, source_strides)?;
 
     let output = Buffer::builder()
         .queue(queue.clone())
@@ -171,4 +135,34 @@ pub fn reorder<T: CDatatype>(
     unsafe { kernel.enq()? }
 
     Ok(output)
+}
+
+pub fn build_args(
+    queue: Queue,
+    shape: &[usize],
+    strides: &[usize],
+    source_strides: &[usize],
+) -> Result<(Buffer<usize>, Buffer<usize>, Buffer<usize>), Error> {
+    debug_assert_eq!(shape.len(), strides.len());
+    debug_assert_eq!(shape.len(), source_strides.len());
+
+    let dims = Buffer::builder()
+        .queue(queue.clone())
+        .copy_host_slice(shape)
+        .len(shape.len())
+        .build()?;
+
+    let strides = Buffer::builder()
+        .queue(queue.clone())
+        .copy_host_slice(strides)
+        .len(strides.len())
+        .build()?;
+
+    let source_strides = Buffer::builder()
+        .queue(queue.clone())
+        .copy_host_slice(source_strides)
+        .len(strides.len())
+        .build()?;
+
+    Ok((dims, strides, source_strides))
 }
