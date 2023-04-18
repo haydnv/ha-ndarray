@@ -98,7 +98,26 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
-        todo!()
+        let axes = if let Some(axes) = axes {
+            if axes.len() == self.ndim() && (0..self.ndim()).into_iter().all(|x| axes.contains(&x))
+            {
+                Ok(axes)
+            } else {
+                Err(Error::Bounds(format!(
+                    "invalid permutation {:?} for shape {:?}",
+                    axes, self.shape
+                )))
+            }
+        } else {
+            Ok((0..self.ndim()).into_iter().rev().collect())
+        }?;
+
+        let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
+
+        let source_strides = strides_for(&self.shape, self.ndim());
+        let strides = axes.into_iter().map(|x| source_strides[x]).collect();
+
+        Ok(ArrayView::new(self.clone(), shape, strides))
     }
 
     fn reshape(&self, shape: Shape) -> Result<Self, Error> {
@@ -202,6 +221,8 @@ impl_op!(Sub, sub, ArrayBase<T>, ArrayView<O>);
 impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompare<T, Self> for ArrayBase<T> {}
+
+impl<T: CDatatype, A: NDArrayRead<T>> NDArrayCompare<T, ArrayView<A>> for ArrayBase<T> {}
 
 impl<T: CDatatype, Op: super::ops::Op<Out = T>> NDArrayCompare<T, ArrayOp<Op>> for ArrayBase<T> {}
 
@@ -309,7 +330,7 @@ impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArrayView<A> {
         let strides = strides_for(&self.shape, self.ndim());
 
         if self.size() == self.source.size() {
-            kernels::reorder_inplace(queue, buffer, &self.shape, &self.strides, &strides)
+            kernels::reorder_inplace(queue, buffer, &self.shape, &strides, &self.strides)
                 .map_err(Error::from)
         } else {
             kernels::reorder(queue, buffer, &self.shape, &strides, &self.strides)

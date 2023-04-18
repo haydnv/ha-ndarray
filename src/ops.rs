@@ -229,6 +229,14 @@ impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<'a, ArrayBase<T>, Arr
     }
 }
 
+impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, ArrayView<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, &self.right)
+    }
+}
+
 pub struct ArrayCompareScalar<'a, A, T> {
     array: &'a A,
     scalar: T,
