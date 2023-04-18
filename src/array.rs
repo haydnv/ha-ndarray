@@ -1,12 +1,12 @@
 use std::fmt;
-use std::ops::Add;
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
 use ocl::{Buffer, OclPrm, Queue};
 
 use super::ops::*;
 use super::{
-    broadcast_shape, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
-    NDArrayCompareScalar, NDArrayRead, NDArrayReduce, Shape,
+    AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar,
+    NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
 };
 
 #[derive(Clone)]
@@ -66,37 +66,124 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
     }
 }
 
-impl<T: OclPrm> NDArray for ArrayBase<T> {
+impl<T> NDArray for ArrayBase<T> {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
-impl<'a, T: OclPrm> NDArray for &'a ArrayBase<T> {
+impl<'a, T> NDArray for &'a ArrayBase<T> {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
-impl<'a, T: OclPrm> Add for ArrayBase<T> {
-    type Output = ArrayOp<ArrayAdd<Self, Self>>;
+impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
+    type Slice = ArraySlice<Self>;
+    type View = ArrayView<Self>;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        let shape = broadcast_shape(self.shape(), rhs.shape()).expect("add");
-        let op = ArrayAdd::new(self, rhs);
-        ArrayOp { op, shape }
+    fn broadcast(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
+        todo!()
+    }
+
+    fn expand_dims<Dims: IntoIterator<Item = usize>>(
+        &self,
+        dims: Dims,
+    ) -> Result<ArrayView<Self>, Error> {
+        todo!()
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
+        todo!()
+    }
+
+    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
+        &self,
+        bounds: Bounds,
+    ) -> Result<ArraySlice<Self>, Error> {
+        todo!()
     }
 }
 
-impl<'a, T: OclPrm> Add for &'a ArrayBase<T> {
-    type Output = ArrayOp<ArrayAdd<Self, Self>>;
+macro_rules! impl_op {
+    ($op:ident, $name:ident, $t:ty, $o:ty) => {
+        impl<T, O> $op<$o> for $t {
+            type Output = ArrayOp<ArrayDual<Self, $o>>;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        let shape = broadcast_shape(self.shape(), rhs.shape()).expect("add");
-        let op = ArrayAdd::new(self, rhs);
-        ArrayOp { op, shape }
-    }
+            fn $name(self, rhs: $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
+
+                let op = ArrayDual::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+
+        impl<'a, T, O> $op<&'a $o> for $t {
+            type Output = ArrayOp<ArrayDual<Self, &'a $o>>;
+
+            fn $name(self, rhs: &'a $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
+
+                let op = ArrayDual::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+
+        impl<'a, T, O> $op<$o> for &'a $t {
+            type Output = ArrayOp<ArrayDual<Self, $o>>;
+
+            fn $name(self, rhs: $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
+
+                let op = ArrayDual::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+
+        impl<'a, T, O> $op<&'a $o> for &'a $t {
+            type Output = ArrayOp<ArrayDual<Self, &'a $o>>;
+
+            fn $name(self, rhs: &'a $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
+
+                let op = ArrayDual::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+    };
 }
+
+impl_op!(Add, add, ArrayBase<T>, ArrayBase<O>);
+impl_op!(Div, div, ArrayBase<T>, ArrayBase<O>);
+impl_op!(Mul, mul, ArrayBase<T>, ArrayBase<O>);
+impl_op!(Rem, rem, ArrayBase<T>, ArrayBase<O>);
+impl_op!(Sub, sub, ArrayBase<T>, ArrayBase<O>);
+
+impl_op!(Add, add, ArrayBase<T>, ArrayOp<O>);
+impl_op!(Div, div, ArrayBase<T>, ArrayOp<O>);
+impl_op!(Mul, mul, ArrayBase<T>, ArrayOp<O>);
+impl_op!(Rem, rem, ArrayBase<T>, ArrayOp<O>);
+impl_op!(Sub, sub, ArrayBase<T>, ArrayOp<O>);
+
+impl_op!(Add, add, ArrayBase<T>, ArraySlice<O>);
+impl_op!(Div, div, ArrayBase<T>, ArraySlice<O>);
+impl_op!(Mul, mul, ArrayBase<T>, ArraySlice<O>);
+impl_op!(Rem, rem, ArrayBase<T>, ArraySlice<O>);
+impl_op!(Sub, sub, ArrayBase<T>, ArraySlice<O>);
+
+impl_op!(Add, add, ArrayBase<T>, ArrayView<O>);
+impl_op!(Div, div, ArrayBase<T>, ArrayView<O>);
+impl_op!(Mul, mul, ArrayBase<T>, ArrayView<O>);
+impl_op!(Rem, rem, ArrayBase<T>, ArrayView<O>);
+impl_op!(Sub, sub, ArrayBase<T>, ArrayView<O>);
 
 impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
 
@@ -187,6 +274,43 @@ pub struct ArrayView<A> {
 impl<A> NDArray for ArrayView<A> {
     fn shape(&self) -> &[usize] {
         &self.shape
+    }
+}
+
+impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArrayView<A> {
+    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+        todo!()
+    }
+}
+
+impl<A: NDArray> NDArrayTransform for ArrayView<A> {
+    type Slice = ArraySlice<Self>;
+    type View = Self;
+
+    fn broadcast(&self, shape: Shape) -> Result<Self::View, Error> {
+        todo!()
+    }
+
+    fn expand_dims<Dims: IntoIterator<Item = usize>>(
+        &self,
+        dims: Dims,
+    ) -> Result<Self::View, Error> {
+        todo!()
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self::View, Error> {
+        todo!()
+    }
+
+    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
+        &self,
+        bounds: Bounds,
+    ) -> Result<Self::Slice, Error> {
+        todo!()
     }
 }
 

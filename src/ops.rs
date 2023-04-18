@@ -2,7 +2,9 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Event, Queue};
 
-use super::{autoqueue, kernels, ArrayBase, ArrayOp, CDatatype, Error, NDArray, NDArrayRead};
+use super::{
+    autoqueue, kernels, ArrayBase, ArrayOp, ArrayView, CDatatype, Error, NDArray, NDArrayRead,
+};
 
 pub trait Op {
     type Out: CDatatype;
@@ -12,21 +14,42 @@ pub trait Op {
 
 // arithmetic
 
-pub struct ArrayAdd<L, R> {
+pub struct ArrayDual<L, R> {
     left: L,
     right: R,
+    op: &'static str,
 }
 
-impl<L, R> ArrayAdd<L, R> {
-    pub fn new(left: L, right: R) -> Self {
-        Self { left, right }
+impl<L, R> ArrayDual<L, R> {
+    fn new(left: L, right: R, op: &'static str) -> Self {
+        Self { left, right, op }
     }
 
-    fn enqueue<T>(left: &L, right: &R, queue: Queue) -> Result<Buffer<T>, Error>
+    pub fn add(left: L, right: R) -> Self {
+        Self::new(left, right, "+")
+    }
+
+    pub fn div(left: L, right: R) -> Self {
+        Self::new(left, right, "/")
+    }
+
+    pub fn mul(left: L, right: R) -> Self {
+        Self::new(left, right, "*")
+    }
+
+    pub fn rem(left: L, right: R) -> Self {
+        Self::new(left, right, "%")
+    }
+
+    pub fn sub(left: L, right: R) -> Self {
+        Self::new(left, right, "-")
+    }
+
+    fn enqueue<T, LA, RA>(left: &LA, right: &RA, queue: Queue) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
-        L: NDArrayRead<T>,
-        R: NDArrayRead<T>,
+        LA: NDArrayRead<T>,
+        RA: NDArrayRead<T>,
     {
         let right_queue = autoqueue(Some(queue.context()))?;
         let right = right.read(queue.clone())?;
@@ -38,7 +61,7 @@ impl<L, R> ArrayAdd<L, R> {
     }
 }
 
-impl<T: CDatatype> Op for ArrayAdd<ArrayBase<T>, ArrayBase<T>> {
+impl<T: CDatatype> Op for ArrayDual<ArrayBase<T>, ArrayBase<T>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -46,24 +69,44 @@ impl<T: CDatatype> Op for ArrayAdd<ArrayBase<T>, ArrayBase<T>> {
     }
 }
 
-pub struct ArrayDiv<L, R> {
-    left: L,
-    right: R,
+impl<'a, T: CDatatype> Op for ArrayDual<ArrayBase<T>, &'a ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, self.right, queue)
+    }
 }
 
-pub struct ArrayMul<L, R> {
-    left: L,
-    right: R,
+impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, &self.right, queue)
+    }
 }
 
-pub struct ArrayMod<L, R> {
-    left: L,
-    right: R,
+impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, &'a ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, self.right, queue)
+    }
 }
 
-pub struct ArraySub<L, R> {
-    left: L,
-    right: R,
+impl<T: CDatatype, O: Op<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayOp<O>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue)
+    }
+}
+
+impl<T: CDatatype, O: NDArrayRead<T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue)
+    }
 }
 
 // linear algebra

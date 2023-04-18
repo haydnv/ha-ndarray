@@ -49,40 +49,37 @@ pub type Shape = Vec<usize>;
 pub trait CDatatype: OclPrm + Add<Output = Self> + AddAssign + Sum {
     const TYPE_STR: &'static str;
 
+    fn one() -> Self;
+
     fn zero() -> Self;
 }
 
-impl CDatatype for f32 {
-    const TYPE_STR: &'static str = "float";
+macro_rules! c_type {
+    ($t:ty, $ct:expr, $zero:expr, $one:expr) => {
+        impl CDatatype for $t {
+            const TYPE_STR: &'static str = $ct;
 
-    fn zero() -> Self {
-        0.
-    }
+            fn one() -> Self {
+                $one
+            }
+
+            fn zero() -> Self {
+                $zero
+            }
+        }
+    };
 }
 
-impl CDatatype for u8 {
-    const TYPE_STR: &'static str = "char";
-
-    fn zero() -> Self {
-        0
-    }
-}
-
-impl CDatatype for u32 {
-    const TYPE_STR: &'static str = "uint";
-
-    fn zero() -> Self {
-        0
-    }
-}
-
-impl CDatatype for i32 {
-    const TYPE_STR: &'static str = "int";
-
-    fn zero() -> Self {
-        0
-    }
-}
+c_type!(f32, "float", 0., 1.);
+c_type!(f64, "double", 0., 1.);
+c_type!(u8, "uchar", 0, 1);
+c_type!(u16, "ushort", 0, 1);
+c_type!(u32, "uint", 0, 1);
+c_type!(u64, "ulong", 0, 1);
+c_type!(i8, "char", 0, 1);
+c_type!(i16, "short", 0, 1);
+c_type!(i32, "int", 0, 1);
+c_type!(i64, "long", 0, 1);
 
 pub trait NDArray: Sized {
     fn ndim(&self) -> usize {
@@ -290,14 +287,25 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
     }
 }
 
-pub trait NDArrayTransform<T>: NDArray {
-    fn broadcast(shape: Shape) -> Result<ArrayView<Self>, Error>;
+pub trait NDArrayTransform: NDArray {
+    type Slice: NDArray;
+    type View: NDArray;
 
-    fn transpose(axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error>;
+    fn broadcast(&self, shape: Shape) -> Result<Self::View, Error>;
 
-    fn reshape(shape: Shape) -> Result<ArrayView<Self>, Error>;
+    fn expand_dims<Dims: IntoIterator<Item = usize>>(
+        &self,
+        dims: Dims,
+    ) -> Result<Self::View, Error>;
 
-    fn slice(bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error>;
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error>;
+
+    fn reshape(&self, shape: Shape) -> Result<Self::View, Error>;
+
+    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
+        &self,
+        bounds: Bounds,
+    ) -> Result<Self::Slice, Error>;
 }
 
 pub enum AxisBound {
