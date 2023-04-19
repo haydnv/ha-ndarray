@@ -2,7 +2,7 @@ extern crate ocl;
 
 use std::fmt;
 use std::iter::Sum;
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, Range};
 
 use ocl::{Buffer, Context, Device, OclPrm, Platform, Queue};
 
@@ -310,16 +310,52 @@ pub trait NDArrayTransform: NDArray {
 
     fn reshape(&self, shape: Shape) -> Result<Self, Error>;
 
-    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
-        &self,
-        bounds: Bounds,
-    ) -> Result<Self::Slice, Error>;
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error>;
 }
 
 pub enum AxisBound {
-    At(u64),
-    In(u64, u64, u64),
-    Of(Vec<u64>),
+    At(usize),
+    In(usize, usize, usize),
+    Of(Vec<usize>),
+}
+
+impl AxisBound {
+    pub fn size(&self) -> usize {
+        match self {
+            Self::At(_) => 0,
+            Self::In(start, stop, step) => (stop - start) / step,
+            Self::Of(indices) => indices.len(),
+        }
+    }
+}
+
+impl From<usize> for AxisBound {
+    fn from(i: usize) -> Self {
+        Self::At(i)
+    }
+}
+
+impl From<Range<usize>> for AxisBound {
+    fn from(range: Range<usize>) -> Self {
+        Self::In(range.start, range.end, 1)
+    }
+}
+
+impl From<Vec<usize>> for AxisBound {
+    fn from(indices: Vec<usize>) -> Self {
+        Self::Of(indices)
+    }
+}
+
+impl fmt::Debug for AxisBound {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::At(i) => write!(f, "{}", i),
+            Self::In(start, stop, 1) => write!(f, "{}:{}", start, stop),
+            Self::In(start, stop, step) => write!(f, "{}:{}:{}", start, stop, step),
+            Self::Of(indices) => write!(f, "{:?}", indices),
+        }
+    }
 }
 
 pub fn autoqueue(context: Option<Context>) -> Result<Queue, ocl::Error> {

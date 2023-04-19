@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Event, Queue};
 
 use super::{
-    autoqueue, kernels, ArrayBase, ArrayOp, ArrayView, CDatatype, Error, NDArray, NDArrayRead,
+    autoqueue, kernels, ArrayBase, ArrayOp, ArraySlice, ArrayView, CDatatype, Error, NDArray,
+    NDArrayRead,
 };
 
 pub trait Op {
@@ -222,6 +223,14 @@ impl<'a, T: CDatatype> Op for ArrayCompare<'a, ArrayBase<T>, ArrayBase<T>> {
 }
 
 impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<'a, ArrayBase<T>, ArrayOp<O>> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
+        Self::enqueue(self.cmp, queue, &self.left, &self.right)
+    }
+}
+
+impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, ArraySlice<O>> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {

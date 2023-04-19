@@ -11,7 +11,7 @@ pub fn reorder_inplace<T: CDatatype>(
 ) -> Result<Buffer<T>, Error> {
     let src = format!(
         r#"
-        __kernel void reorder(
+        __kernel void reorder_inplace(
                 const uint ndim,
                 __global const ulong* restrict dims,
                 __global const ulong* restrict strides,
@@ -51,7 +51,7 @@ pub fn reorder_inplace<T: CDatatype>(
         build_args(queue.clone(), shape, strides, source_strides)?;
 
     let kernel = Kernel::builder()
-        .name("reorder")
+        .name("reorder_inplace")
         .program(&program)
         .queue(queue)
         .global_work_size(buffer.len())
@@ -137,7 +137,8 @@ pub fn reorder<T: CDatatype>(
     Ok(output)
 }
 
-pub fn build_args(
+#[inline]
+fn build_args(
     queue: Queue,
     shape: &[usize],
     strides: &[usize],

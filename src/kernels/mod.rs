@@ -1,11 +1,13 @@
 mod elementwise;
 mod linalg;
 mod reduce;
+mod slice;
 mod view;
 
 pub use elementwise::*;
 pub use linalg::*;
 pub use reduce::*;
+pub use slice::*;
 pub use view::*;
 
 // TODO: move to a custom Platform struct

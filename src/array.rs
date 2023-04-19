@@ -1,6 +1,7 @@
-use std::fmt;
+use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::sync::{Arc, RwLock};
+use std::{fmt, iter};
 
 use ocl::{Buffer, OclPrm, Queue};
 
@@ -134,11 +135,8 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
         }
     }
 
-    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
-        &self,
-        bounds: Bounds,
-    ) -> Result<ArraySlice<Self>, Error> {
-        todo!()
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
+        ArraySlice::new(self.clone(), bounds)
     }
 }
 
@@ -222,6 +220,8 @@ impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompare<T, Self> for ArrayBase<T> {}
 
+impl<T: CDatatype, A: NDArrayRead<T>> NDArrayCompare<T, ArraySlice<A>> for ArrayBase<T> {}
+
 impl<T: CDatatype, A: NDArrayRead<T>> NDArrayCompare<T, ArrayView<A>> for ArrayBase<T> {}
 
 impl<T: CDatatype, Op: super::ops::Op<Out = T>> NDArrayCompare<T, ArrayOp<Op>> for ArrayBase<T> {}
@@ -296,9 +296,79 @@ pub struct ArraySlice<A> {
     shape: Shape,
 }
 
+impl<A: NDArray> ArraySlice<A> {
+    pub fn new(source: A, mut bounds: Vec<AxisBound>) -> Result<Self, Error> {
+        if bounds.len() > source.ndim() {
+            return Err(Error::Bounds(format!(
+                "shape {:?} does not support slice bounds {:?}",
+                source.shape(),
+                bounds
+            )));
+        }
+
+        for (bound, dim) in bounds.iter().zip(source.shape()) {
+            match bound {
+                AxisBound::At(i) => check_bound(i, dim, true)?,
+                AxisBound::In(start, stop, _step) => {
+                    check_bound(start, dim, false)?;
+                    check_bound(stop, dim, false)?;
+                }
+                AxisBound::Of(indices) => {
+                    for i in indices {
+                        check_bound(i, dim, true)?;
+                    }
+                }
+            }
+        }
+
+        let tail_bounds = source
+            .shape()
+            .iter()
+            .rev()
+            .take(source.ndim() - bounds.len())
+            .copied()
+            .map(|dim| AxisBound::In(0, dim, 1))
+            .rev();
+
+        bounds.extend(tail_bounds);
+
+        debug_assert_eq!(source.ndim(), bounds.len());
+
+        let shape = bounds
+            .iter()
+            .map(|bound| bound.size())
+            .filter(|size| *size > 0)
+            .collect();
+
+        Ok(Self {
+            source,
+            bounds,
+            shape,
+        })
+    }
+}
+
 impl<A> NDArray for ArraySlice<A> {
     fn shape(&self) -> &[usize] {
         &self.shape
+    }
+}
+
+impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArraySlice<A> {
+    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+        let buffer = self.source.read(queue.clone())?;
+        let strides = strides_for(self.shape(), self.ndim());
+        let source_strides = strides_for(self.source.shape(), self.source.ndim());
+
+        kernels::slice(
+            queue,
+            &buffer,
+            self.shape(),
+            &strides,
+            &self.bounds,
+            &source_strides,
+        )
+        .map_err(Error::from)
     }
 }
 
@@ -355,10 +425,7 @@ impl<A: NDArray> NDArrayTransform for ArrayView<A> {
         todo!()
     }
 
-    fn slice<Bounds: IntoIterator<Item = AxisBound>>(
-        &self,
-        bounds: Bounds,
-    ) -> Result<Self::Slice, Error> {
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
         todo!()
     }
 }
@@ -382,21 +449,29 @@ impl<T: OclPrm> NDArray for Array<T> {
 }
 
 #[inline]
+fn check_bound(i: &usize, dim: &usize, is_index: bool) -> Result<(), Error> {
+    match i.cmp(dim) {
+        Ordering::Less => Ok(()),
+        Ordering::Equal if !is_index => Ok(()),
+        Ordering::Greater | Ordering::Equal => Err(Error::Bounds(format!(
+            "index {i} is out of bounds for dimension {dim}"
+        ))),
+    }
+}
+
+#[inline]
 fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
     debug_assert!(ndim >= shape.len());
 
-    let mut strides = vec![0; ndim];
+    let zeros = iter::repeat(0).take(ndim - shape.len());
 
-    let offset = ndim - shape.len();
-    let mut stride = 1;
-    for (x, dim) in shape.iter().enumerate().rev() {
+    let strides = shape.iter().enumerate().map(|(x, dim)| {
         if *dim == 1 {
-            strides[offset + x] = 0;
+            0
         } else {
-            strides[offset + x] = stride;
-            stride *= dim;
+            shape.iter().rev().take(shape.len() - 1 - x).product()
         }
-    }
+    });
 
-    strides
+    zeros.chain(strides).collect()
 }
