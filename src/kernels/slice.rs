@@ -4,27 +4,7 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::{AxisBound, CDatatype};
 
-struct ArrayFormat<'a, T> {
-    arr: &'a [T],
-}
-
-impl<'a, T> From<&'a [T]> for ArrayFormat<'a, T> {
-    fn from(arr: &'a [T]) -> Self {
-        Self { arr }
-    }
-}
-
-impl<'a, T: fmt::Display> fmt::Display for ArrayFormat<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("{ ")?;
-
-        for item in self.arr {
-            write!(f, "{item}, ")?;
-        }
-
-        f.write_str(" }")
-    }
-}
+use super::ArrayFormat;
 
 struct Bounds<'a> {
     axes: &'a [AxisBound],
@@ -40,17 +20,6 @@ impl<'a> Bounds<'a> {
                 AxisBound::Of(indices) => indices.len(),
             })
             .fold(1, Ord::max)
-    }
-
-    fn ndim(&self) -> usize {
-        self.axes
-            .iter()
-            .map(|bound| match bound {
-                AxisBound::At(_) => 0,
-                AxisBound::In(_, _, _) => 1,
-                AxisBound::Of(_) => 1,
-            })
-            .sum()
     }
 
     fn size(&self) -> usize {

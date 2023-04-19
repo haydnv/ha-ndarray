@@ -2,6 +2,8 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
+use super::ArrayFormat;
+
 pub fn reorder_inplace<T: CDatatype>(
     queue: Queue,
     buffer: Buffer<T>,
@@ -9,15 +11,24 @@ pub fn reorder_inplace<T: CDatatype>(
     strides: &[usize],
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
+    let ndim = shape.len();
+    debug_assert_eq!(strides.len(), ndim);
+
+    let source_ndim = source_strides.len();
+
+    let dims = ArrayFormat::from(shape);
+    let strides = ArrayFormat::from(strides);
+    let source_strides = ArrayFormat::from(source_strides);
+
     let src = format!(
         r#"
-        __kernel void reorder_inplace(
-                const uint ndim,
-                __global const ulong* restrict dims,
-                __global const ulong* restrict strides,
-                __global const ulong* restrict source_strides,
-                __global {dtype}* restrict input)
-        {{
+        const uint ndim = {ndim};
+        const ulong dims[{ndim}] = {dims};
+        const ulong strides[{ndim}] = {strides};
+
+        const ulong source_strides[{source_ndim}] = {source_strides};
+
+        __kernel void reorder_inplace(__global {dtype}* restrict input) {{
             ulong offset = get_global_id(0);
 
             ulong coord[{ndim}];
@@ -47,18 +58,11 @@ pub fn reorder_inplace<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let (dims, strides, source_strides) =
-        build_args(queue.clone(), shape, strides, source_strides)?;
-
     let kernel = Kernel::builder()
         .name("reorder_inplace")
         .program(&program)
         .queue(queue)
         .global_work_size(buffer.len())
-        .arg(u32::try_from(shape.len()).expect("ndim"))
-        .arg(&dims)
-        .arg(&strides)
-        .arg(&source_strides)
         .arg(&buffer)
         .build()?;
 
@@ -74,13 +78,24 @@ pub fn reorder<T: CDatatype>(
     strides: &[usize],
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
+    let ndim = shape.len();
+    debug_assert_eq!(strides.len(), ndim);
+
+    let source_ndim = source_strides.len();
+
+    let dims = ArrayFormat::from(shape);
+    let strides = ArrayFormat::from(strides);
+    let source_strides = ArrayFormat::from(source_strides);
+
     let src = format!(
         r#"
+        const uint ndim = {ndim};
+        const ulong dims[{ndim}] = {dims};
+        const ulong strides[{ndim}] = {strides};
+
+        const ulong source_strides[{source_ndim}] = {source_strides};
+
         __kernel void reorder(
-                const uint ndim,
-                __global const ulong* restrict dims,
-                __global const ulong* restrict strides,
-                __global const ulong* restrict source_strides,
                 __global const {dtype}* restrict input,
                 __global {dtype}* restrict output)
         {{
@@ -111,9 +126,6 @@ pub fn reorder<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let (dims, strides, source_strides) =
-        build_args(queue.clone(), shape, strides, source_strides)?;
-
     let output = Buffer::builder()
         .queue(queue.clone())
         .len(shape.iter().product::<usize>())
@@ -124,10 +136,6 @@ pub fn reorder<T: CDatatype>(
         .program(&program)
         .queue(queue)
         .global_work_size(output.len())
-        .arg(u32::try_from(shape.len()).expect("ndim"))
-        .arg(&dims)
-        .arg(&strides)
-        .arg(&source_strides)
         .arg(&input)
         .arg(&output)
         .build()?;
@@ -135,35 +143,4 @@ pub fn reorder<T: CDatatype>(
     unsafe { kernel.enq()? }
 
     Ok(output)
-}
-
-#[inline]
-fn build_args(
-    queue: Queue,
-    shape: &[usize],
-    strides: &[usize],
-    source_strides: &[usize],
-) -> Result<(Buffer<usize>, Buffer<usize>, Buffer<usize>), Error> {
-    debug_assert_eq!(shape.len(), strides.len());
-    debug_assert_eq!(shape.len(), source_strides.len());
-
-    let dims = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(shape)
-        .len(shape.len())
-        .build()?;
-
-    let strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(strides)
-        .len(strides.len())
-        .build()?;
-
-    let source_strides = Buffer::builder()
-        .queue(queue.clone())
-        .copy_host_slice(source_strides)
-        .len(strides.len())
-        .build()?;
-
-    Ok((dims, strides, source_strides))
 }
