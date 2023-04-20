@@ -28,7 +28,7 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     let kernel = Kernel::builder()
         .name("reduce_all")
         .program(&program)
-        .queue(queue)
+        .queue(queue.clone())
         .global_work_size(input.len())
         .arg(&flag)
         .arg(&input)
@@ -37,6 +37,8 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     unsafe { kernel.enq()? }
 
     flag.read(&mut result).enq()?;
+
+    queue.finish()?;
 
     Ok(result == [1])
 }
@@ -65,7 +67,7 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     let kernel = Kernel::builder()
         .name("reduce_any")
         .program(&program)
-        .queue(queue)
+        .queue(queue.clone())
         .global_work_size(input.len())
         .arg(&flag)
         .arg(&input)
@@ -74,6 +76,8 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     unsafe { kernel.enq()? }
 
     flag.read(&mut result).enq()?;
+
+    queue.finish()?;
 
     Ok(result == [1])
 }
@@ -161,6 +165,9 @@ pub fn reduce<T: CDatatype>(
 
     let mut result = vec![init; buffer.len()];
     buffer.read(&mut result).enq()?;
+
+    queue.finish()?;
+
     Ok((collector)(result.into_iter()))
 }
 

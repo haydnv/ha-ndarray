@@ -2,12 +2,14 @@ use std::fmt;
 
 mod elementwise;
 mod linalg;
+mod random;
 mod reduce;
 mod slice;
 mod view;
 
 pub use elementwise::*;
 pub use linalg::*;
+pub use random::*;
 pub use reduce::*;
 pub use slice::*;
 pub use view::*;

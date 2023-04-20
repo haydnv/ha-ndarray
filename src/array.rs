@@ -4,12 +4,13 @@ use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
 use ocl::{Buffer, OclPrm, Queue};
+use rand::Rng;
 
 use super::kernels;
 use super::ops::*;
 use super::{
-    AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar,
-    NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
+    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
+    NDArrayCompareScalar, NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
 };
 
 #[derive(Clone)]
@@ -48,13 +49,47 @@ impl<T: OclPrm + CDatatype> ArrayBase<T> {
         }
     }
 
-    pub fn random(shape: Shape) -> Result<Self, Error> {
-        todo!()
-    }
-
     pub fn to_vec(&self) -> Vec<T> {
         let data = self.data.read().expect("array data");
         data.to_vec()
+    }
+}
+
+impl ArrayBase<f32> {
+    pub fn random_normal(shape: Shape, seed: Option<usize>) -> Result<Self, Error> {
+        let seed = seed.unwrap_or_else(|| {
+            let mut rng = rand::thread_rng();
+            rng.gen()
+        });
+
+        let size = shape.iter().product();
+        let queue = autoqueue(None)?;
+        let buffer = kernels::random_normal(queue.clone(), seed, size)?;
+
+        let mut data = vec![0.; size];
+        buffer.read(&mut data[..]).enq()?;
+
+        queue.finish()?;
+
+        Self::from_vec(shape, data)
+    }
+
+    pub fn random_uniform(shape: Shape, seed: Option<usize>) -> Result<Self, Error> {
+        let seed = seed.unwrap_or_else(|| {
+            let mut rng = rand::thread_rng();
+            rng.gen()
+        });
+
+        let size = shape.iter().product();
+        let queue = autoqueue(None)?;
+        let buffer = kernels::random_uniform(queue.clone(), seed, size)?;
+
+        let mut data = vec![0.; size];
+        buffer.read(&mut data[..]).enq()?;
+
+        queue.finish()?;
+
+        Self::from_vec(shape, data)
     }
 }
 
