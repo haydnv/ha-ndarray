@@ -117,6 +117,95 @@ impl<T: CDatatype, O: NDArrayRead<Out = T>> Op for ArrayDual<ArrayBase<T>, Array
 }
 
 #[derive(Copy, Clone)]
+pub struct ArrayDualFloat<L, R> {
+    left: L,
+    right: R,
+    op: &'static str,
+}
+
+impl<L, R> ArrayDualFloat<L, R> {
+    fn new(left: L, right: R, op: &'static str) -> Self {
+        Self { left, right, op }
+    }
+
+    pub fn log(left: L, right: R) -> Self {
+        todo!()
+    }
+
+    pub fn pow(left: L, right: R) -> Self {
+        todo!()
+    }
+
+    fn enqueue<T, LA, RA>(
+        left: &LA,
+        right: &RA,
+        queue: Queue,
+        op: &'static str,
+    ) -> Result<Buffer<T>, Error>
+    where
+        T: CDatatype,
+        LA: NDArrayRead<Out = T>,
+        RA: NDArrayRead<Out = f64>,
+    {
+        let right_queue = autoqueue(Some(queue.context()))?;
+        let right = right.read(queue.clone())?;
+        let event = right_queue.enqueue_marker::<Event>(None)?;
+
+        let left = left.read(queue.clone())?;
+
+        todo!()
+    }
+}
+
+impl<T: CDatatype> Op for ArrayDualFloat<ArrayBase<T>, ArrayBase<f64>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue, self.op)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayDualFloat<ArrayBase<T>, &'a ArrayBase<f64>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, self.right, queue, self.op)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayDualFloat<&'a ArrayBase<T>, ArrayBase<f64>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, &self.right, queue, self.op)
+    }
+}
+
+impl<'a, T: CDatatype> Op for ArrayDualFloat<&'a ArrayBase<T>, &'a ArrayBase<f64>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(self.left, self.right, queue, self.op)
+    }
+}
+
+impl<T: CDatatype, O: Op<Out = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayOp<O>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue, self.op)
+    }
+}
+
+impl<T: CDatatype, O: NDArrayRead<Out = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayView<O>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        Self::enqueue(&self.left, &self.right, queue, self.op)
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct ArrayScalar<T, A> {
     array: A,
     scalar: T,
@@ -136,12 +225,16 @@ impl<T, A> ArrayScalar<T, A> {
         Self::new(left, right, "/")
     }
 
-    pub fn exp(left: A) -> Self {
+    pub fn log(left: A, right: T) -> Self {
         todo!()
     }
 
     pub fn mul(left: A, right: T) -> Self {
         Self::new(left, right, "*")
+    }
+
+    pub fn pow(left: A, right: T) -> Self {
+        todo!()
     }
 
     pub fn rem(left: A, right: T) -> Self {
@@ -153,7 +246,7 @@ impl<T, A> ArrayScalar<T, A> {
     }
 }
 
-impl<A: NDArrayRead> Op for ArrayScalar<A::Out, A> {
+impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
     type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -172,6 +265,10 @@ pub struct ArrayUnary<A> {
 }
 
 impl<A> ArrayUnary<A> {
+    pub fn abs(array: A) -> Self {
+        todo!()
+    }
+
     pub fn exp(array: A) -> Self {
         todo!()
     }

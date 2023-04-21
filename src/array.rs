@@ -10,7 +10,8 @@ use super::kernels;
 use super::ops::*;
 use super::{
     autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
-    NDArrayCompareScalar, NDArrayExp, NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
+    NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar, NDArrayRead, NDArrayReduce,
+    NDArrayTransform, Shape,
 };
 
 #[derive(Clone)]
@@ -156,6 +157,16 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
         ArraySlice::new(self.clone(), bounds)
     }
 }
+
+impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
+
+impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for ArrayBase<T> {}
+
+impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
+
+impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
+
+impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
 macro_rules! impl_op {
     ($op:ident, $name:ident, $t:ty, $o:ty) => {
@@ -363,6 +374,8 @@ where
 
 impl<Op: super::ops::Op, O: NDArrayRead<Out = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
 
+impl<Op: super::ops::Op> NDArrayMathScalar for ArrayOp<Op> where Self: Clone {}
+
 impl_op!(Add, add, ArrayOp<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayOp<T>, ArrayBase<O>);
 impl_op!(Mul, mul, ArrayOp<T>, ArrayBase<O>);
@@ -532,6 +545,8 @@ where
 {
 }
 
+impl<A: NDArrayRead> NDArrayMathScalar for ArraySlice<A> where Self: Clone {}
+
 impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Mul, mul, ArraySlice<T>, ArrayBase<O>);
@@ -666,6 +681,8 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
 }
 
 impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
+
+impl<A: NDArrayRead> NDArrayMathScalar for ArrayView<A> where Self: Clone {}
 
 impl_op!(Add, add, ArrayView<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayView<T>, ArrayBase<O>);

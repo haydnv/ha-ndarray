@@ -90,20 +90,25 @@ pub fn elementwise_inplace<T: CDatatype>(
     Ok(left)
 }
 
-pub fn elementwise_scalar<T: CDatatype>(
+pub fn elementwise_scalar<IT, OT>(
     op: &'static str,
     queue: Queue,
-    left: Buffer<T>,
-    right: T,
-) -> Result<Buffer<T>, Error> {
+    left: Buffer<OT>,
+    right: IT,
+) -> Result<Buffer<OT>, Error>
+where
+    IT: CDatatype,
+    OT: CDatatype,
+{
     let src = format!(
         r#"
-        __kernel void elementwise_scalar(__global {dtype}* left, const {dtype} right) {{
+        __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
             const ulong offset = get_global_id(0);
             left[offset] {op}= right;
         }}
         "#,
-        dtype = T::TYPE_STR,
+        itype = IT::TYPE_STR,
+        otype = OT::TYPE_STR,
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;

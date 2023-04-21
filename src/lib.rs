@@ -114,6 +114,13 @@ pub trait NDArrayWrite<O>: NDArray {
     fn write(&self, other: &O) -> Result<(), Error>;
 }
 
+pub trait NDArrayAbs: NDArray + Clone {
+    fn abs(&self) -> ArrayOp<ArrayUnary<Self>> {
+        let op = ArrayUnary::abs(self.clone());
+        ArrayOp::new(op, self.shape().to_vec())
+    }
+}
+
 pub trait NDArrayExp: NDArray + Clone {
     fn exp(&self) -> ArrayOp<ArrayUnary<Self>> {
         let op = ArrayUnary::exp(self.clone());
@@ -121,16 +128,32 @@ pub trait NDArrayExp: NDArray + Clone {
     }
 }
 
-pub trait NDArrayMath<O>: NDArray {
-    fn log(&self, base: O) -> ArrayOp<ArrayDual<Self, O>>;
+pub trait NDArrayMath<O: NDArrayRead<Out = f64>>: NDArrayRead {
+    fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
+        let shape = check_shape(self.shape(), base.shape())?;
+        let op = ArrayDualFloat::log(self, base);
+        Ok(ArrayOp::new(op, shape))
+    }
 
-    fn pow(&self, exp: O) -> ArrayOp<ArrayDual<Self, O>>;
+    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
+        let shape = check_shape(self.shape(), exp.shape())?;
+        let op = ArrayDualFloat::log(self, exp);
+        Ok(ArrayOp::new(op, shape))
+    }
 }
 
-pub trait NDArrayScalarMath: NDArray {
-    fn log<T: CDatatype>(&self, base: T) -> ArrayOp<ArrayScalar<Self, T>>;
+pub trait NDArrayMathScalar: NDArrayRead + Clone {
+    fn log(&self, base: f64) -> Result<ArrayOp<ArrayScalar<f64, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::log(self.clone(), base);
+        Ok(ArrayOp::new(op, shape))
+    }
 
-    fn pow<T: CDatatype>(&self, exp: T) -> ArrayOp<ArrayScalar<Self, T>>;
+    fn pow(&self, exp: f64) -> Result<ArrayOp<ArrayScalar<f64, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::pow(self.clone(), exp);
+        Ok(ArrayOp::new(op, shape))
+    }
 }
 
 pub trait NDArrayTrig: NDArray {
