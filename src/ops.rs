@@ -55,8 +55,8 @@ impl<L, R> ArrayDual<L, R> {
     ) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
-        LA: NDArrayRead<T>,
-        RA: NDArrayRead<T>,
+        LA: NDArrayRead<Out = T>,
+        RA: NDArrayRead<Out = T>,
     {
         let right_queue = autoqueue(Some(queue.context()))?;
         let right = right.read(queue.clone())?;
@@ -108,7 +108,7 @@ impl<T: CDatatype, O: Op<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayOp<O>> {
     }
 }
 
-impl<T: CDatatype, O: NDArrayRead<T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O>> {
+impl<T: CDatatype, O: NDArrayRead<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -153,8 +153,8 @@ impl<T, A> ArrayScalar<T, A> {
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<T>> Op for ArrayScalar<T, A> {
-    type Out = T;
+impl<A: NDArrayRead> Op for ArrayScalar<A::Out, A> {
+    type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let left = self.array.read(queue.clone())?;
@@ -197,23 +197,18 @@ pub struct MatDiag<A> {
 }
 
 #[derive(Copy, Clone)]
-pub struct MatMul<'a, T, L, R> {
+pub struct MatMul<'a, L, R> {
     left: &'a L,
     right: &'a R,
-    phantom: PhantomData<T>,
 }
 
-impl<'a, T, L, R> MatMul<'a, T, L, R> {
+impl<'a, L, R> MatMul<'a, L, R> {
     pub fn new(left: &'a L, right: &'a R) -> Self {
-        Self {
-            left,
-            right,
-            phantom: PhantomData,
-        }
+        Self { left, right }
     }
 }
 
-impl<'a, T: CDatatype, L: NDArrayRead<T>, R: NDArrayRead<T>> Op for MatMul<'a, T, L, R> {
+impl<'a, T: CDatatype, L: NDArrayRead<Out = T>, R: NDArrayRead<Out = T>> Op for MatMul<'a, L, R> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
@@ -281,8 +276,8 @@ impl<'a, L, R> ArrayCompare<'a, L, R> {
     ) -> Result<Buffer<u8>, Error>
     where
         T: CDatatype,
-        L: NDArrayRead<T>,
-        R: NDArrayRead<T>,
+        L: NDArrayRead<Out = T>,
+        R: NDArrayRead<Out = T>,
     {
         assert_eq!(left.shape(), right.shape());
 
@@ -312,7 +307,9 @@ impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<'a, ArrayBase<T>, Arr
     }
 }
 
-impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, ArraySlice<O>> {
+impl<'a, T: CDatatype, O: NDArrayRead<Out = T>> Op
+    for ArrayCompare<'a, ArrayBase<T>, ArraySlice<O>>
+{
     type Out = u8;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
@@ -320,7 +317,9 @@ impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, 
     }
 }
 
-impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, ArrayView<O>> {
+impl<'a, T: CDatatype, O: NDArrayRead<Out = T>> Op
+    for ArrayCompare<'a, ArrayBase<T>, ArrayView<O>>
+{
     type Out = u8;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
@@ -368,11 +367,10 @@ impl<'a, A, T> ArrayCompareScalar<'a, A, T> {
         cmp: &'static str,
         queue: Queue,
         array: &'a A,
-        scalar: T,
+        scalar: A::Out,
     ) -> Result<Buffer<u8>, Error>
     where
-        T: CDatatype,
-        A: NDArrayRead<T>,
+        A: NDArrayRead,
     {
         let input = array.read(queue.clone())?;
         kernels::scalar_cmp(cmp, queue, &input, scalar).map_err(Error::from)

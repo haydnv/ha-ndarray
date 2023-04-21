@@ -273,19 +273,15 @@ impl<T: CDatatype> Neg for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
+impl<T: CDatatype> MatrixMath<Self> for ArrayBase<T> {}
 
-impl<T: CDatatype> NDArrayCompare<T, Self> for ArrayBase<T> {}
-
-impl<T: CDatatype, A: NDArrayRead<T>> NDArrayCompare<T, ArraySlice<A>> for ArrayBase<T> {}
-
-impl<T: CDatatype, A: NDArrayRead<T>> NDArrayCompare<T, ArrayView<A>> for ArrayBase<T> {}
-
-impl<T: CDatatype, Op: super::ops::Op<Out = T>> NDArrayCompare<T, ArrayOp<Op>> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArrayRead<Out = T>> NDArrayCompare<A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompareScalar<T> for ArrayBase<T> {}
 
-impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
+impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
+    type Out = T;
+
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
@@ -301,7 +297,7 @@ impl<T: CDatatype> NDArrayRead<T> for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayReduce<T> for ArrayBase<T> {}
+impl<T: CDatatype> NDArrayReduce for ArrayBase<T> {}
 
 impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -329,7 +325,9 @@ impl<Op> NDArray for ArrayOp<Op> {
 
 impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
 
-impl<Op: super::ops::Op> NDArrayRead<Op::Out> for ArrayOp<Op> {
+impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
+    type Out = Op::Out;
+
     fn read(&self, queue: Queue) -> Result<Buffer<Op::Out>, Error> {
         self.op.enqueue(queue)
     }
@@ -337,7 +335,7 @@ impl<Op: super::ops::Op> NDArrayRead<Op::Out> for ArrayOp<Op> {
 
 impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
 
-impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {}
+impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> {}
 
 impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
 where
@@ -363,7 +361,7 @@ where
     }
 }
 
-impl<Op: super::ops::Op, O: NDArrayRead<Op::Out>> MatrixMath<Op::Out, O> for ArrayOp<Op> {}
+impl<Op: super::ops::Op, O: NDArrayRead<Out = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
 
 impl_op!(Add, add, ArrayOp<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayOp<T>, ArrayBase<O>);
@@ -480,8 +478,10 @@ impl<A> NDArray for ArraySlice<A> {
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArraySlice<A> {
-    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
+    type Out = A::Out;
+
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let buffer = self.source.read(queue.clone())?;
         let strides = strides_for(self.shape(), self.ndim());
         let source_strides = strides_for(self.source.shape(), self.source.ndim());
@@ -500,7 +500,13 @@ impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArraySlice<A> {
 
 impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
 
-impl<T: CDatatype, A: NDArrayRead<T>, O: NDArrayRead<T>> MatrixMath<T, O> for ArraySlice<A> {}
+impl<T, A, O> MatrixMath<O> for ArraySlice<A>
+where
+    T: CDatatype,
+    A: NDArrayRead<Out = T>,
+    O: NDArrayRead<Out = T>,
+{
+}
 
 impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
@@ -584,8 +590,10 @@ impl<A> NDArray for ArrayView<A> {
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArrayView<A> {
-    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
+    type Out = A::Out;
+
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let buffer = self.source.read(queue.clone())?;
         let strides = strides_for(&self.shape, self.ndim());
 
@@ -652,7 +660,13 @@ impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<T>, O: NDArrayRead<T>> MatrixMath<T, O> for ArrayView<A> {}
+impl<T, A, O> MatrixMath<O> for ArrayView<A>
+where
+    T: CDatatype,
+    A: NDArrayRead<Out = T>,
+    O: NDArrayRead<Out = T>,
+{
+}
 
 impl<A: fmt::Debug> fmt::Debug for ArrayView<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

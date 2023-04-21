@@ -93,19 +93,21 @@ pub trait NDArray: Sized {
     fn shape(&self) -> &[usize];
 }
 
-pub trait NDArrayRead<T: CDatatype>: NDArray {
-    fn copy(&self) -> Result<ArrayBase<T>, Error> {
+pub trait NDArrayRead: NDArray {
+    type Out: CDatatype;
+
+    fn copy(&self) -> Result<ArrayBase<Self::Out>, Error> {
         let shape = self.shape().to_vec();
 
         let queue = autoqueue(None)?;
-        let mut data = vec![T::zero(); self.size()];
+        let mut data = vec![Self::Out::zero(); self.size()];
         let buffer = self.read(queue)?;
         buffer.read(&mut data).enq()?;
 
         ArrayBase::from_vec(shape, data)
     }
 
-    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error>;
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
 }
 
 pub trait NDArrayWrite<O>: NDArray {
@@ -155,7 +157,7 @@ pub trait NDArrayCast<O>: NDArray {
     fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error>;
 }
 
-pub trait NDArrayCompare<T: CDatatype, O: NDArray>: NDArray {
+pub trait NDArrayCompare<O: NDArray>: NDArray {
     fn eq<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayCompare<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         Ok(ArrayOp::new(ArrayCompare::eq(self, other), shape))
@@ -219,8 +221,8 @@ pub trait NDArrayCompareScalar<T>: NDArray {
     }
 }
 
-pub trait MatrixMath<T: CDatatype, O: NDArrayRead<T>>: NDArray {
-    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, T, Self, O>>, Error> {
+pub trait MatrixMath<O: NDArrayRead>: NDArrayRead {
+    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
 
@@ -260,7 +262,7 @@ pub trait MatrixMath<T: CDatatype, O: NDArrayRead<T>>: NDArray {
     }
 }
 
-pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
+pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone())?;
@@ -273,7 +275,7 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
         kernels::reduce_any(queue, input).map_err(Error::from)
     }
 
-    fn max(&self) -> Result<T, Error> {
+    fn max(&self) -> Result<Self::Out, Error> {
         todo!()
     }
 
@@ -281,7 +283,7 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
         todo!()
     }
 
-    fn min(&self) -> Result<T, Error> {
+    fn min(&self) -> Result<Self::Out, Error> {
         todo!()
     }
 
@@ -289,7 +291,7 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
         todo!()
     }
 
-    fn product(&self) -> Result<T, Error> {
+    fn product(&self) -> Result<Self::Out, Error> {
         todo!()
     }
 
@@ -297,10 +299,11 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
         todo!()
     }
 
-    fn sum(&self) -> Result<T, Error> {
+    fn sum(&self) -> Result<Self::Out, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone())?;
-        kernels::reduce(T::zero(), "+", queue, input, std::iter::Sum::sum).map_err(Error::from)
+        kernels::reduce(Self::Out::zero(), "+", queue, input, std::iter::Sum::sum)
+            .map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
