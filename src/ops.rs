@@ -15,6 +15,7 @@ pub trait Op {
 
 // arithmetic
 
+#[derive(Copy, Clone)]
 pub struct ArrayDual<L, R> {
     left: L,
     right: R,
@@ -115,27 +116,107 @@ impl<T: CDatatype, O: NDArrayRead<T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct ArrayScalar<T, A> {
+    array: A,
+    scalar: T,
+    op: &'static str,
+}
+
+impl<T, A> ArrayScalar<T, A> {
+    fn new(array: A, scalar: T, op: &'static str) -> Self {
+        Self { array, scalar, op }
+    }
+
+    pub fn add(left: A, right: T) -> Self {
+        Self::new(left, right, "+")
+    }
+
+    pub fn div(left: A, right: T) -> Self {
+        Self::new(left, right, "/")
+    }
+
+    pub fn exp(left: A) -> Self {
+        todo!()
+    }
+
+    pub fn mul(left: A, right: T) -> Self {
+        Self::new(left, right, "*")
+    }
+
+    pub fn rem(left: A, right: T) -> Self {
+        Self::new(left, right, "%")
+    }
+
+    pub fn sub(left: A, right: T) -> Self {
+        Self::new(left, right, "-")
+    }
+}
+
+impl<T: CDatatype, A: NDArrayRead<T>> Op for ArrayScalar<T, A> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let left = self.array.read(queue.clone())?;
+        let right = self.scalar;
+        kernels::elementwise_scalar(self.op, queue, left, right).map_err(Error::from)
+    }
+}
+
+// trigonometry
+
+#[derive(Copy, Clone)]
+pub struct ArrayUnary<A> {
+    array: A,
+    op: &'static str,
+}
+
+impl<A> ArrayUnary<A> {
+    pub fn neg(array: A) -> Self {
+        todo!()
+    }
+
+    pub fn not(array: A) -> Self {
+        todo!()
+    }
+}
+
+impl<T: CDatatype> Op for ArrayUnary<ArrayBase<T>> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        todo!()
+    }
+}
+
 // linear algebra
 
+#[derive(Copy, Clone)]
 pub struct MatDiag<A> {
     source: A,
 }
 
-pub struct MatMul<'a, L, R> {
+#[derive(Copy, Clone)]
+pub struct MatMul<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
+    phantom: PhantomData<T>,
 }
 
-impl<'a, L, R> MatMul<'a, L, R> {
+impl<'a, T, L, R> MatMul<'a, T, L, R> {
     pub fn new(left: &'a L, right: &'a R) -> Self {
-        Self { left, right }
+        Self {
+            left,
+            right,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl<'a, T: CDatatype> Op for MatMul<'a, ArrayBase<T>, ArrayBase<T>> {
+impl<'a, T: CDatatype, L: NDArrayRead<T>, R: NDArrayRead<T>> Op for MatMul<'a, T, L, R> {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let ndim = self.left.ndim();
         debug_assert_eq!(ndim, self.right.ndim());
 
@@ -156,6 +237,7 @@ impl<'a, T: CDatatype> Op for MatMul<'a, ArrayBase<T>, ArrayBase<T>> {
 
 // comparison
 
+#[derive(Copy, Clone)]
 pub struct ArrayCompare<'a, L, R> {
     left: &'a L,
     right: &'a R,
@@ -246,6 +328,7 @@ impl<'a, T: CDatatype, O: NDArrayRead<T>> Op for ArrayCompare<'a, ArrayBase<T>, 
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct ArrayCompareScalar<'a, A, T> {
     array: &'a A,
     scalar: T,
@@ -314,6 +397,7 @@ impl<'a, O: Op> Op for ArrayCompareScalar<'a, ArrayOp<O>, O::Out> {
 
 // reduction
 
+#[derive(Copy, Clone)]
 pub struct ArrayReduce<'a, A> {
     source: &'a A,
     axis: usize,
@@ -354,6 +438,7 @@ impl<'a, O: Op> Op for ArrayReduce<'a, ArrayOp<O>> {
 
 // other unary ops
 
+#[derive(Copy, Clone)]
 pub struct ArrayCast<A, O> {
     source: A,
     dtype: PhantomData<O>,

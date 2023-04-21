@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
@@ -10,7 +10,7 @@ use super::kernels;
 use super::ops::*;
 use super::{
     autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
-    NDArrayCompareScalar, NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
+    NDArrayCompareScalar, NDArrayExp, NDArrayRead, NDArrayReduce, NDArrayTransform, Shape,
 };
 
 #[derive(Clone)]
@@ -105,32 +105,14 @@ impl<'a, T> NDArray for &'a ArrayBase<T> {
     }
 }
 
+impl<T: CDatatype> NDArrayExp for ArrayBase<T> {}
+
 impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     type Slice = ArraySlice<Self>;
     type View = ArrayView<Self>;
 
     fn broadcast(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        if shape.len() < self.ndim() {
-            return Err(Error::Bounds(format!(
-                "cannot broadcast {:?} into {:?}",
-                self.shape, shape
-            )));
-        }
-
-        for (dim, bdim) in self.shape.iter().zip(&shape[shape.len() - self.ndim()..]) {
-            if dim == bdim || *dim == 1 {
-                // ok
-            } else {
-                return Err(Error::Bounds(format!(
-                    "cannot broadcast dimension {} into {}",
-                    dim, bdim
-                )));
-            }
-        }
-
-        let strides = strides_for(&self.shape, shape.len());
-
-        Ok(ArrayView::new(self.clone(), shape, strides))
+        ArrayView::broadcast(self.clone(), shape)
     }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
@@ -251,6 +233,46 @@ impl_op!(Mul, mul, ArrayBase<T>, ArrayView<O>);
 impl_op!(Rem, rem, ArrayBase<T>, ArrayView<O>);
 impl_op!(Sub, sub, ArrayBase<T>, ArrayView<O>);
 
+macro_rules! impl_scalar_op {
+    ($op:ident, $name:ident, $t:ty) => {
+        impl<T: CDatatype> $op<T> for $t {
+            type Output = ArrayOp<ArrayScalar<T, Self>>;
+
+            fn $name(self, rhs: T) -> Self::Output {
+                let shape = self.shape().to_vec();
+                let op = ArrayScalar::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+
+        impl<'a, T: CDatatype> $op<T> for &'a $t {
+            type Output = ArrayOp<ArrayScalar<T, Self>>;
+
+            fn $name(self, rhs: T) -> Self::Output {
+                let shape = self.shape().to_vec();
+                let op = ArrayScalar::$name(self, rhs);
+                ArrayOp { op, shape }
+            }
+        }
+    };
+}
+
+impl_scalar_op!(Add, add, ArrayBase<T>);
+impl_scalar_op!(Div, div, ArrayBase<T>);
+impl_scalar_op!(Mul, mul, ArrayBase<T>);
+impl_scalar_op!(Rem, rem, ArrayBase<T>);
+impl_scalar_op!(Sub, sub, ArrayBase<T>);
+
+impl<T: CDatatype> Neg for ArrayBase<T> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn neg(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
+
 impl<T: CDatatype, A: NDArrayRead<T>> MatrixMath<T, A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompare<T, Self> for ArrayBase<T> {}
@@ -287,6 +309,7 @@ impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct ArrayOp<Op> {
     op: Op,
     shape: Shape,
@@ -312,7 +335,75 @@ impl<Op: super::ops::Op> NDArrayRead<Op::Out> for ArrayOp<Op> {
     }
 }
 
+impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
+
 impl<Op: super::ops::Op> NDArrayReduce<Op::Out> for ArrayOp<Op> {}
+
+impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
+where
+    Self: Clone,
+{
+    type Slice = ArraySlice<Self>;
+    type View = ArrayView<Self>;
+
+    fn broadcast<'a>(&'a self, shape: Shape) -> Result<Self::View, Error> {
+        ArrayView::broadcast(self.clone(), shape)
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+        todo!()
+    }
+
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        todo!()
+    }
+}
+
+impl<Op: super::ops::Op, O: NDArrayRead<Op::Out>> MatrixMath<Op::Out, O> for ArrayOp<Op> {}
+
+impl_op!(Add, add, ArrayOp<T>, ArrayBase<O>);
+impl_op!(Div, div, ArrayOp<T>, ArrayBase<O>);
+impl_op!(Mul, mul, ArrayOp<T>, ArrayBase<O>);
+impl_op!(Rem, rem, ArrayOp<T>, ArrayBase<O>);
+impl_op!(Sub, sub, ArrayOp<T>, ArrayBase<O>);
+
+impl_op!(Add, add, ArrayOp<T>, ArrayOp<O>);
+impl_op!(Div, div, ArrayOp<T>, ArrayOp<O>);
+impl_op!(Mul, mul, ArrayOp<T>, ArrayOp<O>);
+impl_op!(Rem, rem, ArrayOp<T>, ArrayOp<O>);
+impl_op!(Sub, sub, ArrayOp<T>, ArrayOp<O>);
+
+impl_op!(Add, add, ArrayOp<T>, ArraySlice<O>);
+impl_op!(Div, div, ArrayOp<T>, ArraySlice<O>);
+impl_op!(Mul, mul, ArrayOp<T>, ArraySlice<O>);
+impl_op!(Rem, rem, ArrayOp<T>, ArraySlice<O>);
+impl_op!(Sub, sub, ArrayOp<T>, ArraySlice<O>);
+
+impl_op!(Add, add, ArrayOp<T>, ArrayView<O>);
+impl_op!(Div, div, ArrayOp<T>, ArrayView<O>);
+impl_op!(Mul, mul, ArrayOp<T>, ArrayView<O>);
+impl_op!(Rem, rem, ArrayOp<T>, ArrayView<O>);
+impl_op!(Sub, sub, ArrayOp<T>, ArrayView<O>);
+
+impl_scalar_op!(Add, add, ArrayOp<T>);
+impl_scalar_op!(Div, div, ArrayOp<T>);
+impl_scalar_op!(Mul, mul, ArrayOp<T>);
+impl_scalar_op!(Rem, rem, ArrayOp<T>);
+impl_scalar_op!(Sub, sub, ArrayOp<T>);
+
+impl<Op: super::ops::Op> Neg for ArrayOp<Op> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn neg(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
 
 impl<Op: super::ops::Op> fmt::Debug for ArrayOp<Op> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -407,19 +498,83 @@ impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArraySlice<A> {
     }
 }
 
+impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
+
+impl<T: CDatatype, A: NDArrayRead<T>, O: NDArrayRead<T>> MatrixMath<T, O> for ArraySlice<A> {}
+
+impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
+impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
+impl_op!(Mul, mul, ArraySlice<T>, ArrayBase<O>);
+impl_op!(Rem, rem, ArraySlice<T>, ArrayBase<O>);
+impl_op!(Sub, sub, ArraySlice<T>, ArrayBase<O>);
+
+impl_op!(Add, add, ArraySlice<T>, ArrayOp<O>);
+impl_op!(Div, div, ArraySlice<T>, ArrayOp<O>);
+impl_op!(Mul, mul, ArraySlice<T>, ArrayOp<O>);
+impl_op!(Rem, rem, ArraySlice<T>, ArrayOp<O>);
+impl_op!(Sub, sub, ArraySlice<T>, ArrayOp<O>);
+
+impl_op!(Add, add, ArraySlice<T>, ArraySlice<O>);
+impl_op!(Div, div, ArraySlice<T>, ArraySlice<O>);
+impl_op!(Mul, mul, ArraySlice<T>, ArraySlice<O>);
+impl_op!(Rem, rem, ArraySlice<T>, ArraySlice<O>);
+impl_op!(Sub, sub, ArraySlice<T>, ArraySlice<O>);
+
+impl_op!(Add, add, ArraySlice<T>, ArrayView<O>);
+impl_op!(Div, div, ArraySlice<T>, ArrayView<O>);
+impl_op!(Mul, mul, ArraySlice<T>, ArrayView<O>);
+impl_op!(Rem, rem, ArraySlice<T>, ArrayView<O>);
+impl_op!(Sub, sub, ArraySlice<T>, ArrayView<O>);
+
+impl_scalar_op!(Add, add, ArraySlice<T>);
+impl_scalar_op!(Div, div, ArraySlice<T>);
+impl_scalar_op!(Mul, mul, ArraySlice<T>);
+impl_scalar_op!(Rem, rem, ArraySlice<T>);
+impl_scalar_op!(Sub, sub, ArraySlice<T>);
+
+#[derive(Clone)]
 pub struct ArrayView<A> {
     source: A,
     shape: Shape,
     strides: Vec<usize>,
 }
 
-impl<A> ArrayView<A> {
+impl<A: NDArray> ArrayView<A> {
     fn new(source: A, shape: Shape, strides: Vec<usize>) -> Self {
         Self {
             source,
             shape,
             strides,
         }
+    }
+
+    fn broadcast(source: A, shape: Shape) -> Result<Self, Error> {
+        if shape.len() < source.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast {:?} into {:?}",
+                source.shape(),
+                shape
+            )));
+        }
+
+        for (dim, bdim) in source
+            .shape()
+            .iter()
+            .zip(&shape[shape.len() - source.ndim()..])
+        {
+            if dim == bdim || *dim == 1 {
+                // ok
+            } else {
+                return Err(Error::Bounds(format!(
+                    "cannot broadcast dimension {} into {}",
+                    dim, bdim
+                )));
+            }
+        }
+
+        let strides = strides_for(source.shape(), shape.len());
+
+        Ok(Self::new(source, shape, strides))
     }
 }
 
@@ -444,7 +599,39 @@ impl<T: CDatatype, A: NDArrayRead<T>> NDArrayRead<T> for ArrayView<A> {
     }
 }
 
-impl<A: NDArray> NDArrayTransform for ArrayView<A> {
+impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
+
+impl_op!(Add, add, ArrayView<T>, ArrayBase<O>);
+impl_op!(Div, div, ArrayView<T>, ArrayBase<O>);
+impl_op!(Mul, mul, ArrayView<T>, ArrayBase<O>);
+impl_op!(Rem, rem, ArrayView<T>, ArrayBase<O>);
+impl_op!(Sub, sub, ArrayView<T>, ArrayBase<O>);
+
+impl_op!(Add, add, ArrayView<T>, ArrayOp<O>);
+impl_op!(Div, div, ArrayView<T>, ArrayOp<O>);
+impl_op!(Mul, mul, ArrayView<T>, ArrayOp<O>);
+impl_op!(Rem, rem, ArrayView<T>, ArrayOp<O>);
+impl_op!(Sub, sub, ArrayView<T>, ArrayOp<O>);
+
+impl_op!(Add, add, ArrayView<T>, ArraySlice<O>);
+impl_op!(Div, div, ArrayView<T>, ArraySlice<O>);
+impl_op!(Mul, mul, ArrayView<T>, ArraySlice<O>);
+impl_op!(Rem, rem, ArrayView<T>, ArraySlice<O>);
+impl_op!(Sub, sub, ArrayView<T>, ArraySlice<O>);
+
+impl_op!(Add, add, ArrayView<T>, ArrayView<O>);
+impl_op!(Div, div, ArrayView<T>, ArrayView<O>);
+impl_op!(Mul, mul, ArrayView<T>, ArrayView<O>);
+impl_op!(Rem, rem, ArrayView<T>, ArrayView<O>);
+impl_op!(Sub, sub, ArrayView<T>, ArrayView<O>);
+
+impl_scalar_op!(Add, add, ArrayView<T>);
+impl_scalar_op!(Div, div, ArrayView<T>);
+impl_scalar_op!(Mul, mul, ArrayView<T>);
+impl_scalar_op!(Rem, rem, ArrayView<T>);
+impl_scalar_op!(Sub, sub, ArrayView<T>);
+
+impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
     type Slice = ArraySlice<Self>;
     type View = Self;
 
@@ -462,6 +649,14 @@ impl<A: NDArray> NDArrayTransform for ArrayView<A> {
 
     fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
         todo!()
+    }
+}
+
+impl<T: CDatatype, A: NDArrayRead<T>, O: NDArrayRead<T>> MatrixMath<T, O> for ArrayView<A> {}
+
+impl<A: fmt::Debug> fmt::Debug for ArrayView<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "view of {:?} with shape {:?}", self.source, self.shape)
     }
 }
 

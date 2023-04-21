@@ -112,6 +112,45 @@ pub trait NDArrayWrite<O>: NDArray {
     fn write(&self, other: &O) -> Result<(), Error>;
 }
 
+pub trait NDArrayExp: NDArray + Clone {
+    fn exp(&self) -> ArrayOp<ArrayScalar<f64, Self>> {
+        let op = ArrayScalar::exp(self.clone());
+        ArrayOp::new(op, self.shape().to_vec())
+    }
+}
+
+pub trait NDArrayMath<O>: NDArray {
+    fn log(&self, base: O) -> ArrayOp<ArrayDual<Self, O>>;
+
+    fn pow(&self, exp: O) -> ArrayOp<ArrayDual<Self, O>>;
+}
+
+pub trait NDArrayScalarMath: NDArray {
+    fn log<T: CDatatype>(&self, base: T) -> ArrayOp<ArrayScalar<Self, T>>;
+
+    fn pow<T: CDatatype>(&self, exp: T) -> ArrayOp<ArrayScalar<Self, T>>;
+}
+
+pub trait NDArrayTrig: NDArray {
+    fn asin(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn sin(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn sinh(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn acos(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn cos(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn cosh(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn atan(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn tan(&self) -> ArrayOp<ArrayUnary<Self>>;
+
+    fn tanh(&self) -> ArrayOp<ArrayUnary<Self>>;
+}
+
 pub trait NDArrayCast<O>: NDArray {
     fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error>;
 }
@@ -181,7 +220,7 @@ pub trait NDArrayCompareScalar<T>: NDArray {
 }
 
 pub trait MatrixMath<T: CDatatype, O: NDArrayRead<T>>: NDArray {
-    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
+    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, T, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
 
@@ -287,13 +326,35 @@ pub trait NDArrayReduce<T: CDatatype>: NDArray + NDArrayRead<T> + fmt::Debug {
     }
 }
 
-pub trait NDArrayTransform: NDArray {
+pub trait NDArrayTransform: NDArray + fmt::Debug {
     type Slice: NDArray;
     type View: NDArray;
 
     fn broadcast<'a>(&'a self, shape: Shape) -> Result<Self::View, Error>;
 
+    fn expand_dim(&self, axis: usize) -> Result<Self, Error> {
+        if axis > self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot expand axis {} of {:?}",
+                axis, self
+            )));
+        }
+
+        let mut shape = Vec::with_capacity(self.ndim() + 1);
+        shape.extend_from_slice(self.shape());
+        shape.insert(axis, 1);
+
+        self.reshape(shape)
+    }
+
     fn expand_dims(&self, mut axes: Vec<usize>) -> Result<Self, Error> {
+        if axes.iter().any(|x| *x > self.ndim()) {
+            return Err(Error::Bounds(format!(
+                "cannot expand axes {:?} of {:?}",
+                axes, self
+            )));
+        }
+
         axes.sort();
 
         let mut shape = Vec::with_capacity(self.ndim() + axes.len());

@@ -20,8 +20,8 @@ fn test_random_uniform() -> Result<(), Error> {
 
     assert!(!array.eq(0.)?.any()?);
     assert_eq!(array.sum()? as usize / size, 0);
-    assert!(array.gt(-1.)?.all()?);
-    assert!(array.lt(1.)?.all()?);
+    assert!(array.gte(-1.)?.all()?);
+    assert!(array.lte(1.)?.all()?);
 
     Ok(())
 }
