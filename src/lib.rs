@@ -115,8 +115,8 @@ pub trait NDArrayWrite<O>: NDArray {
 }
 
 pub trait NDArrayExp: NDArray + Clone {
-    fn exp(&self) -> ArrayOp<ArrayScalar<f64, Self>> {
-        let op = ArrayScalar::exp(self.clone());
+    fn exp(&self) -> ArrayOp<ArrayUnary<Self>> {
+        let op = ArrayUnary::exp(self.clone());
         ArrayOp::new(op, self.shape().to_vec())
     }
 }

@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
@@ -233,35 +233,25 @@ impl_op!(Mul, mul, ArrayBase<T>, ArrayView<O>);
 impl_op!(Rem, rem, ArrayBase<T>, ArrayView<O>);
 impl_op!(Sub, sub, ArrayBase<T>, ArrayView<O>);
 
-macro_rules! impl_scalar_op {
-    ($op:ident, $name:ident, $t:ty) => {
-        impl<T: CDatatype> $op<T> for $t {
+macro_rules! impl_base_scalar_op {
+    ($op:ident, $name:ident) => {
+        impl<T: CDatatype> $op<T> for ArrayBase<T> {
             type Output = ArrayOp<ArrayScalar<T, Self>>;
 
             fn $name(self, rhs: T) -> Self::Output {
-                let shape = self.shape().to_vec();
+                let shape = self.shape.to_vec();
                 let op = ArrayScalar::$name(self, rhs);
-                ArrayOp { op, shape }
-            }
-        }
-
-        impl<'a, T: CDatatype> $op<T> for &'a $t {
-            type Output = ArrayOp<ArrayScalar<T, Self>>;
-
-            fn $name(self, rhs: T) -> Self::Output {
-                let shape = self.shape().to_vec();
-                let op = ArrayScalar::$name(self, rhs);
-                ArrayOp { op, shape }
+                ArrayOp::new(op, shape)
             }
         }
     };
 }
 
-impl_scalar_op!(Add, add, ArrayBase<T>);
-impl_scalar_op!(Div, div, ArrayBase<T>);
-impl_scalar_op!(Mul, mul, ArrayBase<T>);
-impl_scalar_op!(Rem, rem, ArrayBase<T>);
-impl_scalar_op!(Sub, sub, ArrayBase<T>);
+impl_base_scalar_op!(Add, add);
+impl_base_scalar_op!(Div, div);
+impl_base_scalar_op!(Mul, mul);
+impl_base_scalar_op!(Rem, rem);
+impl_base_scalar_op!(Sub, sub);
 
 impl<T: CDatatype> Neg for ArrayBase<T> {
     type Output = ArrayOp<ArrayUnary<Self>>;
@@ -269,6 +259,16 @@ impl<T: CDatatype> Neg for ArrayBase<T> {
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
         let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
+
+impl<T: CDatatype> Not for ArrayBase<T> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn not(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::not(self);
         ArrayOp::new(op, shape)
     }
 }
@@ -387,11 +387,25 @@ impl_op!(Mul, mul, ArrayOp<T>, ArrayView<O>);
 impl_op!(Rem, rem, ArrayOp<T>, ArrayView<O>);
 impl_op!(Sub, sub, ArrayOp<T>, ArrayView<O>);
 
-impl_scalar_op!(Add, add, ArrayOp<T>);
-impl_scalar_op!(Div, div, ArrayOp<T>);
-impl_scalar_op!(Mul, mul, ArrayOp<T>);
-impl_scalar_op!(Rem, rem, ArrayOp<T>);
-impl_scalar_op!(Sub, sub, ArrayOp<T>);
+macro_rules! impl_op_scalar_op {
+    ($op:ident, $name:ident) => {
+        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArrayOp<Op> {
+            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
+
+            fn $name(self, rhs: Op::Out) -> Self::Output {
+                let shape = self.shape.to_vec();
+                let op = ArrayScalar::$name(self, rhs);
+                ArrayOp::new(op, shape)
+            }
+        }
+    };
+}
+
+impl_op_scalar_op!(Add, add);
+impl_op_scalar_op!(Mul, mul);
+impl_op_scalar_op!(Div, div);
+impl_op_scalar_op!(Rem, rem);
+impl_op_scalar_op!(Sub, sub);
 
 impl<Op: super::ops::Op> Neg for ArrayOp<Op> {
     type Output = ArrayOp<ArrayUnary<Self>>;
@@ -399,6 +413,16 @@ impl<Op: super::ops::Op> Neg for ArrayOp<Op> {
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
         let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
+
+impl<Op: super::ops::Op> Not for ArrayOp<Op> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn not(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::not(self);
         ArrayOp::new(op, shape)
     }
 }
@@ -532,11 +556,45 @@ impl_op!(Mul, mul, ArraySlice<T>, ArrayView<O>);
 impl_op!(Rem, rem, ArraySlice<T>, ArrayView<O>);
 impl_op!(Sub, sub, ArraySlice<T>, ArrayView<O>);
 
-impl_scalar_op!(Add, add, ArraySlice<T>);
-impl_scalar_op!(Div, div, ArraySlice<T>);
-impl_scalar_op!(Mul, mul, ArraySlice<T>);
-impl_scalar_op!(Rem, rem, ArraySlice<T>);
-impl_scalar_op!(Sub, sub, ArraySlice<T>);
+macro_rules! impl_slice_scalar_op {
+    ($op:ident, $name:ident) => {
+        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArraySlice<Op> {
+            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
+
+            fn $name(self, rhs: Op::Out) -> Self::Output {
+                let shape = self.shape.to_vec();
+                let op = ArrayScalar::$name(self, rhs);
+                ArrayOp::new(op, shape)
+            }
+        }
+    };
+}
+
+impl_slice_scalar_op!(Add, add);
+impl_slice_scalar_op!(Div, div);
+impl_slice_scalar_op!(Mul, mul);
+impl_slice_scalar_op!(Rem, rem);
+impl_slice_scalar_op!(Sub, sub);
+
+impl<A: NDArrayRead> Neg for ArraySlice<A> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn neg(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
+
+impl<A: NDArrayRead> Not for ArraySlice<A> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn not(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::not(self);
+        ArrayOp::new(op, shape)
+    }
+}
 
 #[derive(Clone)]
 pub struct ArrayView<A> {
@@ -633,11 +691,45 @@ impl_op!(Mul, mul, ArrayView<T>, ArrayView<O>);
 impl_op!(Rem, rem, ArrayView<T>, ArrayView<O>);
 impl_op!(Sub, sub, ArrayView<T>, ArrayView<O>);
 
-impl_scalar_op!(Add, add, ArrayView<T>);
-impl_scalar_op!(Div, div, ArrayView<T>);
-impl_scalar_op!(Mul, mul, ArrayView<T>);
-impl_scalar_op!(Rem, rem, ArrayView<T>);
-impl_scalar_op!(Sub, sub, ArrayView<T>);
+macro_rules! impl_view_scalar_op {
+    ($op:ident, $name:ident) => {
+        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArrayView<Op> {
+            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
+
+            fn $name(self, rhs: Op::Out) -> Self::Output {
+                let shape = self.shape.to_vec();
+                let op = ArrayScalar::$name(self, rhs);
+                ArrayOp::new(op, shape)
+            }
+        }
+    };
+}
+
+impl_view_scalar_op!(Add, add);
+impl_view_scalar_op!(Div, div);
+impl_view_scalar_op!(Mul, mul);
+impl_view_scalar_op!(Rem, rem);
+impl_view_scalar_op!(Sub, sub);
+
+impl<A: NDArrayRead> Neg for ArrayView<A> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn neg(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::neg(self);
+        ArrayOp::new(op, shape)
+    }
+}
+
+impl<A: NDArrayRead> Not for ArrayView<A> {
+    type Output = ArrayOp<ArrayUnary<Self>>;
+
+    fn not(self) -> Self::Output {
+        let shape = self.shape.to_vec();
+        let op = ArrayUnary::not(self);
+        ArrayOp::new(op, shape)
+    }
+}
 
 impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
     type Slice = ArraySlice<Self>;

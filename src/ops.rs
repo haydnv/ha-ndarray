@@ -172,6 +172,10 @@ pub struct ArrayUnary<A> {
 }
 
 impl<A> ArrayUnary<A> {
+    pub fn exp(array: A) -> Self {
+        todo!()
+    }
+
     pub fn neg(array: A) -> Self {
         todo!()
     }
@@ -181,8 +185,8 @@ impl<A> ArrayUnary<A> {
     }
 }
 
-impl<T: CDatatype> Op for ArrayUnary<ArrayBase<T>> {
-    type Out = T;
+impl<A: NDArrayRead> Op for ArrayUnary<A> {
+    type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         todo!()
