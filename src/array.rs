@@ -10,8 +10,8 @@ use super::kernels;
 use super::ops::*;
 use super::{
     autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
-    NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar, NDArrayRead, NDArrayReduce,
-    NDArrayTransform, Shape,
+    NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead,
+    NDArrayReduce, NDArrayTransform, NDArrayWrite, Shape,
 };
 
 #[derive(Clone)]
@@ -186,6 +186,8 @@ impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
 
 impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for ArrayBase<T> {}
 
+impl<T: CDatatype> NDArrayNumeric for ArrayBase<T> {}
+
 impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
 
 impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
@@ -198,42 +200,6 @@ macro_rules! impl_op {
             type Output = ArrayOp<ArrayDual<Self, $o>>;
 
             fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs);
-                ArrayOp { op, shape }
-            }
-        }
-
-        impl<'a, T, O> $op<&'a $o> for $t {
-            type Output = ArrayOp<ArrayDual<Self, &'a $o>>;
-
-            fn $name(self, rhs: &'a $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs);
-                ArrayOp { op, shape }
-            }
-        }
-
-        impl<'a, T, O> $op<$o> for &'a $t {
-            type Output = ArrayOp<ArrayDual<Self, $o>>;
-
-            fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs);
-                ArrayOp { op, shape }
-            }
-        }
-
-        impl<'a, T, O> $op<&'a $o> for &'a $t {
-            type Output = ArrayOp<ArrayDual<Self, &'a $o>>;
-
-            fn $name(self, rhs: &'a $o) -> Self::Output {
                 let shape = self.shape().to_vec();
                 assert_eq!(shape, rhs.shape());
 
@@ -308,7 +274,7 @@ impl<T: CDatatype> Not for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> MatrixMath<Self> for ArrayBase<T> {}
+impl<A: NDArrayRead> MatrixMath<A> for ArrayBase<A::Out> {}
 
 impl<T: CDatatype, A: NDArrayRead<Out = T>> NDArrayCompare<A> for ArrayBase<T> {}
 
@@ -329,6 +295,22 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
         buffer.write(data.as_slice()).enq()?;
 
         Ok(buffer)
+    }
+}
+
+impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::Out> {
+    fn write(&self, other: &A) -> Result<(), Error> {
+        if self.shape == other.shape() {
+            let queue = autoqueue(None)?;
+            let buffer = other.read(queue)?;
+            let mut data = self.data.write().expect("data");
+            buffer.read(&mut data[..]).enq().map_err(Error::from)
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot write {:?} to {:?}",
+                other, self
+            )))
+        }
     }
 }
 
@@ -370,15 +352,18 @@ impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
 
 impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
 
-impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> {}
+impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
+
+impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
 where
     Self: Clone,
+    Op: Clone,
 {
     type Broadcast = ArrayView<Self>;
-    type Expand = ArrayView<Self>;
-    type Reshape = ArrayView<Self>;
+    type Expand = Self;
+    type Reshape = Self;
     type Slice = ArraySlice<Self>;
     type Transpose = ArrayView<Self>;
 
@@ -387,7 +372,21 @@ where
     }
 
     fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error> {
-        todo!()
+        if axis > self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot expand axis {} of {:?}",
+                axis, self
+            )));
+        }
+
+        let mut shape = Vec::with_capacity(self.ndim() + 1);
+        shape.extend_from_slice(&self.shape);
+        shape.insert(axis, 1);
+
+        Ok(Self {
+            op: self.op.clone(),
+            shape,
+        })
     }
 
     fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
@@ -403,7 +402,7 @@ where
     }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        todo!()
+        ArrayView::transpose(self.clone(), axes)
     }
 }
 
@@ -631,6 +630,8 @@ where
 
 impl<A: NDArrayRead> NDArrayMathScalar for ArraySlice<A> where Self: Clone {}
 
+impl<A: NDArrayRead> NDArrayNumeric for ArraySlice<A> where Self: Clone {}
+
 impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Mul, mul, ArraySlice<T>, ArrayBase<O>);
@@ -745,6 +746,41 @@ impl<A: NDArray> ArrayView<A> {
 
         Ok(Self::new(source, shape, strides))
     }
+
+    fn transpose(source: A, axes: Option<Vec<usize>>) -> Result<Self, Error>
+    where
+        A: fmt::Debug,
+    {
+        let axes = if let Some(axes) = axes {
+            if axes.len() == source.ndim() && (0..source.ndim()).all(|x| axes.contains(&x)) {
+                Ok(axes)
+            } else {
+                Err(Error::Bounds(format!(
+                    "cannot transpose axes {:?} of {:?}",
+                    axes, source
+                )))
+            }
+        } else {
+            Ok((0..source.ndim()).into_iter().rev().collect())
+        }?;
+
+        let source_strides = strides_for(source.shape(), source.ndim());
+
+        let mut shape = Vec::with_capacity(source.ndim());
+        let mut strides = Vec::with_capacity(source.ndim());
+        for x in axes {
+            shape.push(source.shape()[x]);
+            strides.push(source_strides[x]);
+        }
+
+        debug_assert!(!shape.iter().any(|dim| *dim == 0));
+
+        Ok(Self {
+            source,
+            shape,
+            strides,
+        })
+    }
 }
 
 impl<A> NDArray for ArrayView<A> {
@@ -773,6 +809,8 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
 impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
 
 impl<A: NDArrayRead> NDArrayMathScalar for ArrayView<A> where Self: Clone {}
+
+impl<A: NDArrayRead> NDArrayNumeric for ArrayView<A> where Self: Clone {}
 
 impl_op!(Add, add, ArrayView<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayView<T>, ArrayBase<O>);

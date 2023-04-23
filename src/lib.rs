@@ -143,16 +143,30 @@ pub trait NDArrayMath<O: NDArrayRead<Out = f64>>: NDArrayRead {
 }
 
 pub trait NDArrayMathScalar: NDArrayRead + Clone {
-    fn log(&self, base: f64) -> Result<ArrayOp<ArrayScalar<f64, Self>>, Error> {
+    fn log(&self, base: f64) -> ArrayOp<ArrayScalar<f64, Self>> {
         let shape = self.shape().to_vec();
         let op = ArrayScalar::log(self.clone(), base);
-        Ok(ArrayOp::new(op, shape))
+        ArrayOp::new(op, shape)
     }
 
-    fn pow(&self, exp: f64) -> Result<ArrayOp<ArrayScalar<f64, Self>>, Error> {
+    fn pow(&self, exp: f64) -> ArrayOp<ArrayScalar<f64, Self>> {
         let shape = self.shape().to_vec();
         let op = ArrayScalar::pow(self.clone(), exp);
-        Ok(ArrayOp::new(op, shape))
+        ArrayOp::new(op, shape)
+    }
+}
+
+pub trait NDArrayNumeric: NDArray + Clone {
+    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self>> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::inf(self.clone());
+        ArrayOp::new(op, shape)
+    }
+
+    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self>> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::nan(self.clone());
+        ArrayOp::new(op, shape)
     }
 }
 
@@ -285,7 +299,7 @@ pub trait MatrixMath<O: NDArrayRead>: NDArrayRead {
     }
 }
 
-pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
+pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone())?;
@@ -346,7 +360,7 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
             shape
         };
 
-        let op = ArrayReduce::sum(self, axis);
+        let op = ArrayReduce::sum(self.clone(), axis);
 
         Ok(ArrayOp::new(op, shape))
     }

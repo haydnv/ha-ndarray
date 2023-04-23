@@ -48,9 +48,9 @@ impl<L, R> ArrayDual<L, R> {
     }
 
     fn enqueue<T, LA, RA>(
+        queue: Queue,
         left: &LA,
         right: &RA,
-        queue: Queue,
         op: &'static str,
     ) -> Result<Buffer<T>, Error>
     where
@@ -68,51 +68,11 @@ impl<L, R> ArrayDual<L, R> {
     }
 }
 
-impl<T: CDatatype> Op for ArrayDual<ArrayBase<T>, ArrayBase<T>> {
+impl<T: CDatatype, L: NDArrayRead<Out = T>, R: NDArrayRead<Out = T>> Op for ArrayDual<L, R> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDual<ArrayBase<T>, &'a ArrayBase<T>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, ArrayBase<T>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDual<&'a ArrayBase<T>, &'a ArrayBase<T>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, self.right, queue, self.op)
-    }
-}
-
-impl<T: CDatatype, O: Op<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayOp<O>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<T: CDatatype, O: NDArrayRead<Out = T>> Op for ArrayDual<ArrayBase<T>, ArrayView<O>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
+        Self::enqueue(queue, &self.left, &self.right, self.op)
     }
 }
 
@@ -255,46 +215,6 @@ impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
         let left = self.array.read(queue.clone())?;
         let right = self.scalar;
         kernels::elementwise_scalar(self.op, queue, left, right).map_err(Error::from)
-    }
-}
-
-// trigonometry
-
-#[derive(Copy, Clone)]
-pub struct ArrayUnary<A> {
-    array: A,
-    op: &'static str,
-}
-
-impl<A> ArrayUnary<A> {
-    fn new(array: A, op: &'static str) -> Self {
-        Self { array, op }
-    }
-
-    pub fn abs(array: A) -> Self {
-        Self::new(array, "abs")
-    }
-
-    pub fn exp(array: A) -> Self {
-        Self::new(array, "exp")
-    }
-
-    pub fn neg(array: A) -> Self {
-        Self::new(array, "-")
-    }
-
-    pub fn not(array: A) -> Self {
-        Self::new(array, "!")
-    }
-}
-
-// TODO: can this be an in-place operation?
-impl<A: NDArrayRead> Op for ArrayUnary<A> {
-    type Out = A::Out;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        let buffer = self.array.read(queue.clone())?;
-        kernels::unary(self.op, queue, buffer).map_err(Error::from)
     }
 }
 
@@ -505,14 +425,14 @@ impl<'a, O: Op> Op for ArrayCompareScalar<'a, ArrayOp<O>, O::Out> {
 // reduction
 
 #[derive(Copy, Clone)]
-pub struct ArrayReduce<'a, A> {
-    source: &'a A,
+pub struct ArrayReduce<A> {
+    source: A,
     axis: usize,
     reduce: &'static str,
 }
 
-impl<'a, A> ArrayReduce<'a, A> {
-    pub fn sum(source: &'a A, axis: usize) -> Self {
+impl<A> ArrayReduce<A> {
+    pub fn sum(source: A, axis: usize) -> Self {
         Self {
             source,
             axis,
@@ -521,8 +441,8 @@ impl<'a, A> ArrayReduce<'a, A> {
     }
 }
 
-impl<'a, T: CDatatype> Op for ArrayReduce<'a, ArrayBase<T>> {
-    type Out = T;
+impl<A: NDArrayRead> Op for ArrayReduce<A> {
+    type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         assert!(self.axis < self.source.ndim());
@@ -530,16 +450,8 @@ impl<'a, T: CDatatype> Op for ArrayReduce<'a, ArrayBase<T>> {
         let shape = self.source.shape().to_vec();
         let input = (&self.source).read(queue.clone())?;
 
-        kernels::reduce_axis(T::zero(), self.reduce, queue, input, shape, self.axis)
+        kernels::reduce_axis(A::Out::zero(), self.reduce, queue, input, shape, self.axis)
             .map_err(Error::from)
-    }
-}
-
-impl<'a, O: Op> Op for ArrayReduce<'a, ArrayOp<O>> {
-    type Out = O::Out;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        todo!()
     }
 }
 
@@ -549,4 +461,50 @@ impl<'a, O: Op> Op for ArrayReduce<'a, ArrayOp<O>> {
 pub struct ArrayCast<A, O> {
     source: A,
     dtype: PhantomData<O>,
+}
+
+#[derive(Copy, Clone)]
+pub struct ArrayUnary<A> {
+    array: A,
+    op: &'static str,
+}
+
+impl<A> ArrayUnary<A> {
+    fn new(array: A, op: &'static str) -> Self {
+        Self { array, op }
+    }
+
+    pub fn abs(array: A) -> Self {
+        Self::new(array, "abs")
+    }
+
+    pub fn exp(array: A) -> Self {
+        Self::new(array, "exp")
+    }
+
+    pub fn inf(array: A) -> Self {
+        Self::new(array, "isinf")
+    }
+
+    pub fn nan(array: A) -> Self {
+        Self::new(array, "isnan")
+    }
+
+    pub fn neg(array: A) -> Self {
+        Self::new(array, "-")
+    }
+
+    pub fn not(array: A) -> Self {
+        Self::new(array, "!")
+    }
+}
+
+// TODO: can this be an in-place operation?
+impl<A: NDArrayRead> Op for ArrayUnary<A> {
+    type Out = A::Out;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let buffer = self.array.read(queue.clone())?;
+        kernels::unary(self.op, queue, buffer).map_err(Error::from)
+    }
 }
