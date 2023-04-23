@@ -90,6 +90,7 @@ pub fn elementwise_inplace<T: CDatatype>(
     Ok(left)
 }
 
+// TODO: optimize to use integer modulo and +=, -=, etc. when possible
 pub fn elementwise_scalar<IT, OT>(
     op: &'static str,
     queue: Queue,
@@ -102,9 +103,29 @@ where
 {
     let src = format!(
         r#"
+        inline {otype} add({otype} left, const {itype} right) {{
+            return left + right;
+        }}
+
+        inline {otype} div({otype} left, const {itype} right) {{
+            return left / right;
+        }}
+
+        inline {otype} mul({otype} left, const {itype} right) {{
+            return left * right;
+        }}
+
+        inline {otype} pow_({otype} left, const double right) {{
+            return pow((double) left, right);
+        }}
+
+        inline {otype} sub({otype} left, const {itype} right) {{
+            return left - right;
+        }}
+
         __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
             const ulong offset = get_global_id(0);
-            left[offset] {op}= right;
+            left[offset] = {op}(left[offset], right);
         }}
         "#,
         itype = IT::TYPE_STR,
@@ -167,4 +188,34 @@ pub fn scalar_cmp<T: CDatatype>(
     unsafe { kernel.enq()? }
 
     Ok(output)
+}
+
+pub fn unary<T: CDatatype>(
+    op: &'static str,
+    queue: Queue,
+    buffer: Buffer<T>,
+) -> Result<Buffer<T>, Error> {
+    let src = format!(
+        r#"
+        __kernel void unary(__global {dtype}* buffer) {{
+            const ulong offset = get_global_id(0);
+            buffer[offset] = {op}(buffer[offset]);
+        }}
+        "#,
+        dtype = T::TYPE_STR
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let kernel = Kernel::builder()
+        .name("unary")
+        .program(&program)
+        .queue(queue)
+        .global_work_size(buffer.len())
+        .arg(&buffer)
+        .build()?;
+
+    unsafe { kernel.enq()? }
+
+    Ok(buffer)
 }

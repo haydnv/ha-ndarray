@@ -218,23 +218,23 @@ impl<T, A> ArrayScalar<T, A> {
     }
 
     pub fn add(left: A, right: T) -> Self {
-        Self::new(left, right, "+")
+        Self::new(left, right, "add")
     }
 
     pub fn div(left: A, right: T) -> Self {
-        Self::new(left, right, "/")
+        Self::new(left, right, "div")
     }
 
     pub fn mul(left: A, right: T) -> Self {
-        Self::new(left, right, "*")
+        Self::new(left, right, "mul")
     }
 
     pub fn rem(left: A, right: T) -> Self {
-        Self::new(left, right, "%")
+        Self::new(left, right, "fmod")
     }
 
     pub fn sub(left: A, right: T) -> Self {
-        Self::new(left, right, "-")
+        Self::new(left, right, "sub")
     }
 }
 
@@ -244,7 +244,7 @@ impl<A> ArrayScalar<f64, A> {
     }
 
     pub fn pow(left: A, right: f64) -> Self {
-        Self::new(left, right, "pow")
+        Self::new(left, right, "pow_")
     }
 }
 
@@ -288,11 +288,13 @@ impl<A> ArrayUnary<A> {
     }
 }
 
+// TODO: can this be an in-place operation?
 impl<A: NDArrayRead> Op for ArrayUnary<A> {
     type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        todo!()
+        let buffer = self.array.read(queue.clone())?;
+        kernels::unary(self.op, queue, buffer).map_err(Error::from)
     }
 }
 

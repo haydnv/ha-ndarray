@@ -137,7 +137,7 @@ pub trait NDArrayMath<O: NDArrayRead<Out = f64>>: NDArrayRead {
 
     fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
         let shape = check_shape(self.shape(), exp.shape())?;
-        let op = ArrayDualFloat::log(self, exp);
+        let op = ArrayDualFloat::pow(self, exp);
         Ok(ArrayOp::new(op, shape))
     }
 }
