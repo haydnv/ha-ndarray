@@ -225,16 +225,8 @@ impl<T, A> ArrayScalar<T, A> {
         Self::new(left, right, "/")
     }
 
-    pub fn log(left: A, right: T) -> Self {
-        todo!()
-    }
-
     pub fn mul(left: A, right: T) -> Self {
         Self::new(left, right, "*")
-    }
-
-    pub fn pow(left: A, right: T) -> Self {
-        todo!()
     }
 
     pub fn rem(left: A, right: T) -> Self {
@@ -243,6 +235,16 @@ impl<T, A> ArrayScalar<T, A> {
 
     pub fn sub(left: A, right: T) -> Self {
         Self::new(left, right, "-")
+    }
+}
+
+impl<A> ArrayScalar<f64, A> {
+    pub fn log(left: A, right: f64) -> Self {
+        Self::new(left, right, "log")
+    }
+
+    pub fn pow(left: A, right: f64) -> Self {
+        Self::new(left, right, "pow")
     }
 }
 
@@ -265,20 +267,24 @@ pub struct ArrayUnary<A> {
 }
 
 impl<A> ArrayUnary<A> {
+    fn new(array: A, op: &'static str) -> Self {
+        Self { array, op }
+    }
+
     pub fn abs(array: A) -> Self {
-        todo!()
+        Self::new(array, "abs")
     }
 
     pub fn exp(array: A) -> Self {
-        todo!()
+        Self::new(array, "exp")
     }
 
     pub fn neg(array: A) -> Self {
-        todo!()
+        Self::new(array, "-")
     }
 
     pub fn not(array: A) -> Self {
-        todo!()
+        Self::new(array, "!")
     }
 }
 

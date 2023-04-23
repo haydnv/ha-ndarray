@@ -353,53 +353,26 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
 }
 
 pub trait NDArrayTransform: NDArray + fmt::Debug {
+    type Broadcast: NDArray;
+    type Expand: NDArray;
+    type Reshape: NDArray;
     type Slice: NDArray;
-    type View: NDArray;
+    type Transpose: NDArray;
 
-    fn broadcast<'a>(&'a self, shape: Shape) -> Result<Self::View, Error>;
+    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error>;
 
-    fn expand_dim(&self, axis: usize) -> Result<Self, Error> {
-        if axis > self.ndim() {
-            return Err(Error::Bounds(format!(
-                "cannot expand axis {} of {:?}",
-                axis, self
-            )));
-        }
+    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error>;
 
-        let mut shape = Vec::with_capacity(self.ndim() + 1);
-        shape.extend_from_slice(self.shape());
-        shape.insert(axis, 1);
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error>;
 
-        self.reshape(shape)
-    }
-
-    fn expand_dims(&self, mut axes: Vec<usize>) -> Result<Self, Error> {
-        if axes.iter().any(|x| *x > self.ndim()) {
-            return Err(Error::Bounds(format!(
-                "cannot expand axes {:?} of {:?}",
-                axes, self
-            )));
-        }
-
-        axes.sort();
-
-        let mut shape = Vec::with_capacity(self.ndim() + axes.len());
-        shape.extend_from_slice(self.shape());
-
-        for x in axes.into_iter().rev() {
-            shape.insert(x, 1);
-        }
-
-        self.reshape(shape)
-    }
-
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error>;
-
-    fn reshape(&self, shape: Shape) -> Result<Self, Error>;
+    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error>;
 
     fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error>;
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error>;
 }
 
+#[derive(Clone)]
 pub enum AxisBound {
     At(usize),
     In(usize, usize, usize),

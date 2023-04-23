@@ -109,11 +109,53 @@ impl<'a, T> NDArray for &'a ArrayBase<T> {
 impl<T: CDatatype> NDArrayExp for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
+    type Broadcast = ArrayView<Self>;
+    type Expand = Self;
+    type Reshape = Self;
     type Slice = ArraySlice<Self>;
-    type View = ArrayView<Self>;
+    type Transpose = ArrayView<Self>;
 
     fn broadcast(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
         ArrayView::broadcast(self.clone(), shape)
+    }
+
+    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error> {
+        if axis > self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot expand axis {} of {:?}",
+                axis, self
+            )));
+        }
+
+        let mut shape = Vec::with_capacity(self.ndim() + 1);
+        shape.extend_from_slice(&self.shape);
+        shape.insert(axis, 1);
+
+        let data = self.data.clone();
+
+        Ok(Self { data, shape })
+    }
+
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == self.size() {
+            Ok(Self {
+                shape,
+                data: self.data.clone(),
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot reshape from {:?} to {:?}",
+                self.shape, shape
+            )))
+        }
+    }
+
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
+        ArraySlice::new(self.clone(), bounds)
     }
 
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
@@ -137,24 +179,6 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
         let strides = axes.into_iter().map(|x| source_strides[x]).collect();
 
         Ok(ArrayView::new(self.clone(), shape, strides))
-    }
-
-    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
-        if shape.iter().product::<usize>() == self.size() {
-            Ok(Self {
-                shape,
-                data: self.data.clone(),
-            })
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot reshape from {:?} to {:?}",
-                self.shape, shape
-            )))
-        }
-    }
-
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
-        ArraySlice::new(self.clone(), bounds)
     }
 }
 
@@ -352,22 +376,33 @@ impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
 where
     Self: Clone,
 {
+    type Broadcast = ArrayView<Self>;
+    type Expand = ArrayView<Self>;
+    type Reshape = ArrayView<Self>;
     type Slice = ArraySlice<Self>;
-    type View = ArrayView<Self>;
+    type Transpose = ArrayView<Self>;
 
-    fn broadcast<'a>(&'a self, shape: Shape) -> Result<Self::View, Error> {
+    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
         ArrayView::broadcast(self.clone(), shape)
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error> {
+    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error> {
         todo!()
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error> {
         todo!()
     }
 
     fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        ArraySlice::new(self.clone(), bounds)
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
         todo!()
     }
 }
@@ -451,6 +486,7 @@ impl<Op: super::ops::Op> fmt::Debug for ArrayOp<Op> {
     }
 }
 
+#[derive(Clone)]
 pub struct ArraySlice<A> {
     source: A,
     bounds: Vec<AxisBound>,
@@ -535,6 +571,54 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     }
 }
 
+impl<A: NDArray + fmt::Debug> NDArrayTransform for ArraySlice<A>
+where
+    Self: Clone,
+{
+    type Broadcast = ArrayView<Self>;
+    type Expand = ArrayView<Self>;
+    type Reshape = ArrayView<Self>;
+    type Slice = Self;
+    type Transpose = ArrayView<Self>;
+
+    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
+        todo!()
+    }
+
+    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error> {
+        if axis > self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot expand axis {} of {:?}",
+                axis, self
+            )));
+        }
+
+        let mut shape = Vec::with_capacity(self.ndim() + 1);
+        shape.extend_from_slice(&self.shape);
+        shape.insert(axis, 1);
+
+        let strides = strides_for(&shape, shape.len());
+
+        Ok(ArrayView::new(self.clone(), shape, strides))
+    }
+
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
+        todo!()
+    }
+
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        todo!()
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
+        todo!()
+    }
+}
+
 impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
 
 impl<T, A, O> MatrixMath<O> for ArraySlice<A>
@@ -608,6 +692,12 @@ impl<A: NDArrayRead> Not for ArraySlice<A> {
         let shape = self.shape.to_vec();
         let op = ArrayUnary::not(self);
         ArrayOp::new(op, shape)
+    }
+}
+
+impl<A: fmt::Debug> fmt::Debug for ArraySlice<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "slice of {:?} with shape {:?}", self.source, self.shape)
     }
 }
 
@@ -749,22 +839,33 @@ impl<A: NDArrayRead> Not for ArrayView<A> {
 }
 
 impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
+    type Broadcast = Self;
+    type Expand = Self;
+    type Reshape = ArrayView<Self>;
     type Slice = ArraySlice<Self>;
-    type View = Self;
+    type Transpose = Self;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::View, Error> {
+    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
         todo!()
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::View, Error> {
+    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error> {
         todo!()
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self::View, Error> {
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        todo!()
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error> {
         todo!()
     }
 
     fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        todo!()
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
         todo!()
     }
 }
