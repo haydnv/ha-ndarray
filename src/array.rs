@@ -9,7 +9,7 @@ use rand::Rng;
 use super::kernels;
 use super::ops::*;
 use super::{
-    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayCompare,
+    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayBoolean, NDArrayCompare,
     NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead,
     NDArrayReduce, NDArrayTransform, NDArrayWrite, Shape,
 };
@@ -182,6 +182,8 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     }
 }
 
+impl<A: NDArrayRead> NDArrayBoolean<A> for ArrayBase<A::Out> {}
+
 impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
 
 impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for ArrayBase<T> {}
@@ -340,8 +342,6 @@ impl<Op> NDArray for ArrayOp<Op> {
     }
 }
 
-impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
-
 impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
     type Out = Op::Out;
 
@@ -349,12 +349,6 @@ impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
         self.op.enqueue(queue)
     }
 }
-
-impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
-
-impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
-
-impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
 where
@@ -406,7 +400,22 @@ where
     }
 }
 
+impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
+
+impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
+
+impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
+
+impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
+
 impl<Op: super::ops::Op, O: NDArrayRead<Out = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
+
+impl<A, Op> NDArrayBoolean<A> for ArrayOp<Op>
+where
+    A: NDArrayRead,
+    Op: super::ops::Op<Out = A::Out>,
+{
+}
 
 impl<Op: super::ops::Op> NDArrayMathScalar for ArrayOp<Op> where Self: Clone {}
 
@@ -618,6 +627,13 @@ where
     }
 }
 
+impl<A, O> NDArrayBoolean<O> for ArraySlice<A>
+where
+    A: NDArrayRead,
+    O: NDArrayRead<Out = A::Out>,
+{
+}
+
 impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
 
 impl<T, A, O> MatrixMath<O> for ArraySlice<A>
@@ -804,6 +820,13 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
                 .map_err(Error::from)
         }
     }
+}
+
+impl<A, O> NDArrayBoolean<O> for ArrayView<A>
+where
+    A: NDArrayRead,
+    O: NDArrayRead<Out = A::Out>,
+{
 }
 
 impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}

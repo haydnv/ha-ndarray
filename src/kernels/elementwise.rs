@@ -2,6 +2,58 @@ use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
+pub fn elementwise_boolean<T: CDatatype>(
+    cmp: &'static str,
+    queue: Queue,
+    left: &Buffer<T>,
+    right: &Buffer<T>,
+    ewait: &Event,
+) -> Result<Buffer<u8>, Error> {
+    assert_eq!(left.len(), right.len());
+
+    let src = format!(
+        r#"
+        __kernel void elementwise_boolean(
+            __global const {dtype}* restrict left,
+            __global const {dtype}* restrict right,
+            __global uchar* output)
+        {{
+            const ulong offset = get_global_id(0);
+            const bool left = left[offset] != 0;
+            const bool right = right[offset] != 0;
+
+            if (left {cmp} right) {{
+                output[offset] = 1;
+            }} else {{
+                output[offset] = 0;
+            }}
+        }}
+        "#,
+        dtype = T::TYPE_STR,
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(left.len())
+        .build()?;
+
+    let kernel = Kernel::builder()
+        .name("elementwise_boolean")
+        .program(&program)
+        .queue(queue)
+        .global_work_size(output.len())
+        .arg(left)
+        .arg(right)
+        .arg(&output)
+        .build()?;
+
+    unsafe { kernel.cmd().ewait(ewait).enq()? }
+
+    Ok(output)
+}
+
 pub fn elementwise_cmp<T: CDatatype>(
     cmp: &'static str,
     queue: Queue,

@@ -110,8 +110,35 @@ pub trait NDArrayRead: NDArray {
     fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
 }
 
-pub trait NDArrayWrite<O>: NDArray {
+pub trait NDArrayWrite<O: NDArrayRead>: NDArray {
     fn write(&self, other: &O) -> Result<(), Error>;
+}
+
+pub trait NDArrayWriteScalar: NDArrayRead {
+    fn write(&self, scalar: Self::Out) -> Result<(), Error>;
+}
+
+pub trait NDArrayBoolean<O>: NDArrayRead
+where
+    O: NDArrayRead<Out = Self::Out>,
+{
+    fn and<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        let op = ArrayBoolean::and(self, other);
+        Ok(ArrayOp::new(op, shape))
+    }
+
+    fn or<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        let op = ArrayBoolean::or(self, other);
+        Ok(ArrayOp::new(op, shape))
+    }
+
+    fn xor<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+        let shape = check_shape(self.shape(), other.shape())?;
+        let op = ArrayBoolean::xor(self, other);
+        Ok(ArrayOp::new(op, shape))
+    }
 }
 
 pub trait NDArrayAbs: NDArray + Clone {

@@ -262,6 +262,52 @@ impl<'a, T: CDatatype, L: NDArrayRead<Out = T>, R: NDArrayRead<Out = T>> Op for 
 // comparison
 
 #[derive(Copy, Clone)]
+pub struct ArrayBoolean<'a, L, R> {
+    left: &'a L,
+    right: &'a R,
+    cmp: &'static str,
+}
+
+impl<'a, L, R> ArrayBoolean<'a, L, R> {
+    fn new(left: &'a L, right: &'a R, cmp: &'static str) -> Self {
+        Self { left, right, cmp }
+    }
+
+    pub fn and(left: &'a L, right: &'a R) -> Self {
+        Self::new(left, right, "&&")
+    }
+
+    pub fn or(left: &'a L, right: &'a R) -> Self {
+        Self::new(left, right, "||")
+    }
+
+    pub fn xor(left: &'a L, right: &'a R) -> Self {
+        Self::new(left, right, "^")
+    }
+}
+
+impl<'a, L, R> Op for ArrayBoolean<'a, L, R>
+where
+    L: NDArrayRead,
+    R: NDArrayRead<Out = L::Out>,
+{
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        assert_eq!(self.left.shape(), self.right.shape());
+
+        let right_queue = autoqueue(Some(queue.context()))?;
+        let right = self.right.read(right_queue.clone())?;
+        let event = right_queue.enqueue_marker::<Event>(None)?;
+
+        let left = self.left.read(queue.clone())?;
+
+        kernels::elementwise_boolean(self.cmp, queue, &left, &right, &event).map_err(Error::from)
+    }
+}
+
+// TODO: remove the lifetime parameter
+#[derive(Copy, Clone)]
 pub struct ArrayCompare<'a, L, R> {
     left: &'a L,
     right: &'a R,
@@ -308,7 +354,7 @@ impl<'a, L, R> ArrayCompare<'a, L, R> {
         L: NDArrayRead<Out = T>,
         R: NDArrayRead<Out = T>,
     {
-        assert_eq!(left.shape(), right.shape());
+        debug_assert_eq!(left.shape(), right.shape());
 
         let right_queue = autoqueue(Some(queue.context()))?;
         let right = right.read(right_queue.clone())?;
