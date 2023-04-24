@@ -46,7 +46,7 @@ impl std::error::Error for Error {}
 
 pub type Shape = Vec<usize>;
 
-pub trait CDatatype: OclPrm + Add<Output = Self> + AddAssign + Sum {
+pub trait CDatatype: OclPrm + Add<Output = Self> + AddAssign + PartialOrd + Sum {
     const TYPE_STR: &'static str;
 
     fn one() -> Self;
@@ -218,7 +218,11 @@ pub trait NDArrayTrig: NDArray {
 }
 
 pub trait NDArrayCast<O>: NDArray {
-    fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error>;
+    fn cast(&self) -> ArrayOp<ArrayCast<Self, O>> {
+        let shape = self.shape().to_vec();
+        let op = ArrayCast::new(self);
+        ArrayOp::new(op, shape)
+    }
 }
 
 pub trait NDArrayCompare<O: NDArray>: NDArray {
@@ -254,34 +258,34 @@ pub trait NDArrayCompare<O: NDArray>: NDArray {
 }
 
 pub trait NDArrayCompareScalar<T>: NDArray {
-    fn eq(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn eq_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::eq(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::eq(self, other), shape)
     }
 
-    fn gt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn gt_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::gt(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::gt(self, other), shape)
     }
 
-    fn gte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn gte_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::gte(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::gte(self, other), shape)
     }
 
-    fn lt(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn lt_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::lt(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::lt(self, other), shape)
     }
 
-    fn lte(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn lte_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::lte(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::lte(self, other), shape)
     }
 
-    fn ne(&self, other: T) -> Result<ArrayOp<ArrayCompareScalar<Self, T>>, Error> {
+    fn ne_scalar(&self, other: T) -> ArrayOp<ArrayCompareScalar<Self, T>> {
         let shape = self.shape().to_vec();
-        Ok(ArrayOp::new(ArrayCompareScalar::ne(self, other), shape))
+        ArrayOp::new(ArrayCompareScalar::ne(self, other), shape)
     }
 }
 
@@ -340,7 +344,16 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn max(&self) -> Result<Self::Out, Error> {
-        todo!()
+        let queue = autoqueue(None)?;
+        let input = self.read(queue.clone())?;
+        kernels::reduce(Self::Out::zero(), "max", queue, input, |l, r| {
+            if r > l {
+                r
+            } else {
+                l
+            }
+        })
+        .map_err(Error::from)
     }
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
@@ -366,8 +379,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn sum(&self) -> Result<Self::Out, Error> {
         let queue = autoqueue(None)?;
         let input = self.read(queue.clone())?;
-        kernels::reduce(Self::Out::zero(), "+", queue, input, std::iter::Sum::sum)
-            .map_err(Error::from)
+        kernels::reduce(Self::Out::zero(), "add", queue, input, Add::add).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {

@@ -3,8 +3,7 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Event, Queue};
 
 use super::{
-    autoqueue, kernels, ArrayBase, ArrayOp, ArraySlice, ArrayView, CDatatype, Error, NDArray,
-    NDArrayRead,
+    autoqueue, kernels, ArrayBase, ArrayOp, ArraySlice, ArrayView, CDatatype, Error, NDArrayRead,
 };
 
 pub trait Op {
@@ -189,6 +188,7 @@ impl<T, A> ArrayScalar<T, A> {
         Self::new(left, right, "mul")
     }
 
+    // TODO: replace with mod for integer types
     pub fn rem(left: A, right: T) -> Self {
         Self::new(left, right, "fmod")
     }
@@ -504,9 +504,27 @@ impl<A: NDArrayRead> Op for ArrayReduce<A> {
 // other unary ops
 
 #[derive(Copy, Clone)]
-pub struct ArrayCast<A, O> {
-    source: A,
+pub struct ArrayCast<'a, A, O> {
+    source: &'a A,
     dtype: PhantomData<O>,
+}
+
+impl<'a, A, O> ArrayCast<'a, A, O> {
+    pub fn new(source: &'a A) -> Self {
+        Self {
+            source,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
+    type Out = O;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let input = self.source.read(queue.clone())?;
+        kernels::cast(queue, &input).map_err(Error::from)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -520,8 +538,9 @@ impl<A> ArrayUnary<A> {
         Self { array, op }
     }
 
+    // TODO: replace with abs for integer types
     pub fn abs(array: A) -> Self {
-        Self::new(array, "abs")
+        Self::new(array, "fabs")
     }
 
     pub fn exp(array: A) -> Self {

@@ -87,16 +87,20 @@ pub fn reduce<T: CDatatype>(
     reduce: &'static str,
     queue: Queue,
     mut buffer: Buffer<T>,
-    collector: impl Fn(std::vec::IntoIter<T>) -> T,
+    collector: impl Fn(T, T) -> T,
 ) -> Result<T, Error> {
     if buffer.len() < MIN_SIZE {
         let mut result = vec![init; buffer.len()];
         buffer.read(&mut result).enq()?;
-        return Ok((collector)(result.into_iter()));
+        return Ok(result.into_iter().fold(init, collector));
     }
 
     let src = format!(
         r#"
+        inline {dtype} add({dtype} left, const {dtype} right) {{
+            return left + right;
+        }}
+
         __kernel void reduce(
                 const ulong size,
                 __global const {dtype}* input,
@@ -122,7 +126,7 @@ pub fn reduce<T: CDatatype>(
                 if (offset + stride < size) {{
                     uint next = b + stride;
                     if (next < group_size) {{
-                        partials[b] {reduce}= partials[b + stride];
+                        partials[b] = {reduce}(partials[b], partials[b + stride]);
                     }}
                 }}
             }}
@@ -168,7 +172,7 @@ pub fn reduce<T: CDatatype>(
 
     queue.finish()?;
 
-    Ok((collector)(result.into_iter()))
+    Ok(result.into_iter().fold(init, collector))
 }
 
 pub fn reduce_axis<T: CDatatype>(
@@ -197,6 +201,10 @@ pub fn reduce_axis<T: CDatatype>(
 
     let src = format!(
         r#"
+        inline {dtype} add({dtype} left, const {dtype} right) {{
+            return left + right;
+        }}
+
         __kernel void reduce_axis(
                 {dtype} init,
                 __global const {dtype}* input,
@@ -218,7 +226,7 @@ pub fn reduce_axis<T: CDatatype>(
 
                 uint next = b + stride;
                 if (next < reduce_dim) {{
-                    partials[b] {reduce}= partials[next];
+                    partials[b] = {reduce}(partials[b], partials[next]);
                 }}
             }}
 
@@ -280,6 +288,10 @@ fn fold_axis<T: CDatatype>(
 
     let src = format!(
         r#"
+        inline {dtype} add({dtype} left, const {dtype} right) {{
+            return left + right;
+        }}
+
         __kernel void fold_axis(
             ulong reduce_dim,
             ulong target_dim,
@@ -302,7 +314,7 @@ fn fold_axis<T: CDatatype>(
             {dtype} reduced = init;
 
             for (uint stride = i_offset; stride < (a + 1) * reduce_dim; stride += target_dim) {{
-                reduced {reduce}= input[stride];
+                reduced = {reduce}(reduced, input[stride]);
             }}
 
             output[o_offset] = reduced;

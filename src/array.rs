@@ -9,9 +9,9 @@ use rand::Rng;
 use super::kernels;
 use super::ops::*;
 use super::{
-    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayBoolean, NDArrayCompare,
-    NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead,
-    NDArrayReduce, NDArrayTransform, NDArrayWrite, Shape,
+    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayAbs, NDArrayBoolean,
+    NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar,
+    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite, Shape,
 };
 
 #[derive(Clone)]
@@ -106,6 +106,8 @@ impl<'a, T> NDArray for &'a ArrayBase<T> {
     }
 }
 
+impl<T: CDatatype> NDArrayAbs for ArrayBase<T> {}
+
 impl<T: CDatatype> NDArrayExp for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
@@ -183,6 +185,8 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
 }
 
 impl<A: NDArrayRead> NDArrayBoolean<A> for ArrayBase<A::Out> {}
+
+impl<I: CDatatype, O: CDatatype> NDArrayCast<O> for ArrayBase<I> {}
 
 impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
 
@@ -402,6 +406,8 @@ where
 
 impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
 
+impl<Op: super::ops::Op> NDArrayAbs for ArrayOp<Op> where Self: Clone {}
+
 impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
@@ -409,6 +415,8 @@ impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
 impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op, O: NDArrayRead<Out = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
+
+impl<Op: super::ops::Op, O: CDatatype> NDArrayCast<O> for ArrayOp<Op> {}
 
 impl<A, Op> NDArrayBoolean<A> for ArrayOp<Op>
 where
@@ -627,12 +635,16 @@ where
     }
 }
 
+impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArraySlice<A> {}
+
 impl<A, O> NDArrayBoolean<O> for ArraySlice<A>
 where
     A: NDArrayRead,
     O: NDArrayRead<Out = A::Out>,
 {
 }
+
+impl<A: NDArray> NDArrayAbs for ArraySlice<A> where Self: Clone {}
 
 impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
 
@@ -674,10 +686,10 @@ impl_op!(Sub, sub, ArraySlice<T>, ArrayView<O>);
 
 macro_rules! impl_slice_scalar_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArraySlice<Op> {
-            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
+        impl<T: CDatatype, A: NDArrayRead<Out = T>> $op<T> for ArraySlice<A> {
+            type Output = ArrayOp<ArrayScalar<T, Self>>;
 
-            fn $name(self, rhs: Op::Out) -> Self::Output {
+            fn $name(self, rhs: T) -> Self::Output {
                 let shape = self.shape.to_vec();
                 let op = ArrayScalar::$name(self, rhs);
                 ArrayOp::new(op, shape)
@@ -822,12 +834,16 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     }
 }
 
+impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArrayView<A> {}
+
 impl<A, O> NDArrayBoolean<O> for ArrayView<A>
 where
     A: NDArrayRead,
     O: NDArrayRead<Out = A::Out>,
 {
 }
+
+impl<A: NDArray> NDArrayAbs for ArrayView<A> where Self: Clone {}
 
 impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
 
@@ -861,10 +877,10 @@ impl_op!(Sub, sub, ArrayView<T>, ArrayView<O>);
 
 macro_rules! impl_view_scalar_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArrayView<Op> {
-            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
+        impl<T: CDatatype, A: NDArrayRead<Out = T>> $op<T> for ArrayView<A> {
+            type Output = ArrayOp<ArrayScalar<T, Self>>;
 
-            fn $name(self, rhs: Op::Out) -> Self::Output {
+            fn $name(self, rhs: T) -> Self::Output {
                 let shape = self.shape.to_vec();
                 let op = ArrayScalar::$name(self, rhs);
                 ArrayOp::new(op, shape)

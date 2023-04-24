@@ -2,6 +2,45 @@ use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
 use crate::CDatatype;
 
+pub fn cast<I: CDatatype, O: CDatatype>(
+    queue: Queue,
+    input: &Buffer<I>,
+) -> Result<Buffer<O>, Error> {
+    let src = format!(
+        r#"
+        __kernel void cast(
+            __global const {itype}* restrict input,
+            __global {otype}* restrict output)
+        {{
+            const ulong offset = get_global_id(0);
+            output[offset] = ({otype}) input[offset];
+        }}
+        "#,
+        itype = I::TYPE_STR,
+        otype = O::TYPE_STR
+    );
+
+    let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(input.len())
+        .build()?;
+
+    let kernel = Kernel::builder()
+        .name("cast")
+        .program(&program)
+        .queue(queue)
+        .global_work_size(input.len())
+        .arg(input)
+        .arg(&output)
+        .build()?;
+
+    unsafe { kernel.enq()? };
+
+    Ok(output)
+}
+
 pub fn elementwise_boolean<T: CDatatype>(
     cmp: &'static str,
     queue: Queue,
@@ -19,10 +58,10 @@ pub fn elementwise_boolean<T: CDatatype>(
             __global uchar* output)
         {{
             const ulong offset = get_global_id(0);
-            const bool left = left[offset] != 0;
-            const bool right = right[offset] != 0;
+            const bool left_bool = left[offset] != 0;
+            const bool right_bool = right[offset] != 0;
 
-            if (left {cmp} right) {{
+            if (left_bool {cmp} right_bool) {{
                 output[offset] = 1;
             }} else {{
                 output[offset] = 0;
