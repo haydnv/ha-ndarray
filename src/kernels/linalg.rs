@@ -17,9 +17,9 @@ pub fn matmul<T: CDatatype>(
 ) -> Result<Buffer<T>, Error> {
     let (a, b, c) = dims;
 
-    debug_assert!(batch_size > 0);
-    debug_assert_eq!(batch_size * a * b, left.len());
-    debug_assert_eq!(batch_size * b * c, right.len());
+    assert!(batch_size > 0);
+    assert_eq!(batch_size * a * b, left.len());
+    assert_eq!(batch_size * b * c, right.len());
 
     debug_assert_eq!(TILE_SIZE * TILE_SIZE, WG_SIZE);
 

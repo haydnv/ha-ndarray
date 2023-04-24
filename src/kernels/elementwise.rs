@@ -181,7 +181,6 @@ pub fn elementwise_inplace<T: CDatatype>(
     Ok(left)
 }
 
-// TODO: optimize to use integer modulo and +=, -=, etc. when possible
 pub fn elementwise_scalar<IT, OT>(
     op: &'static str,
     queue: Queue,
@@ -194,29 +193,29 @@ where
 {
     let src = format!(
         r#"
-        inline {otype} add({otype} left, const {itype} right) {{
-            return left + right;
+        inline void add({otype}* left, const {itype} right) {{
+            *left += right;
         }}
 
-        inline {otype} div({otype} left, const {itype} right) {{
-            return left / right;
+        inline void div({otype}* left, const {itype} right) {{
+            *left /= right;
         }}
 
-        inline {otype} mul({otype} left, const {itype} right) {{
-            return left * right;
+        inline void mul({otype}* left, const {itype} right) {{
+            *left *= right;
         }}
 
-        inline {otype} pow_({otype} left, const double right) {{
-            return pow((double) left, right);
+        inline void pow_({otype}* left, const double right) {{
+            *left = pow((double) *left, right);
         }}
 
-        inline {otype} sub({otype} left, const {itype} right) {{
-            return left - right;
+        inline void sub({otype}* left, const {itype} right) {{
+            *left -= right;
         }}
 
         __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
             const ulong offset = get_global_id(0);
-            left[offset] = {op}(left[offset], right);
+            {op}(&left[offset], right);
         }}
         "#,
         itype = IT::TYPE_STR,

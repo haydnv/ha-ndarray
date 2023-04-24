@@ -12,7 +12,7 @@ pub fn reorder_inplace<T: CDatatype>(
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
     let ndim = shape.len();
-    debug_assert_eq!(strides.len(), ndim);
+    assert_eq!(strides.len(), ndim);
 
     let source_ndim = source_strides.len();
 
@@ -79,7 +79,7 @@ pub fn reorder<T: CDatatype>(
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
     let ndim = shape.len();
-    debug_assert_eq!(strides.len(), ndim);
+    assert_eq!(strides.len(), ndim);
 
     let source_ndim = source_strides.len();
 

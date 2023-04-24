@@ -471,6 +471,10 @@ impl fmt::Debug for AxisBound {
     }
 }
 
+pub fn autobuffer<T: CDatatype>(queue: Queue, size: usize) -> Result<Buffer<T>, ocl::Error> {
+    Buffer::builder().queue(queue).len(size).build()
+}
+
 pub fn autoqueue(context: Option<Context>) -> Result<Queue, ocl::Error> {
     // TODO: select CPUs for small data, GPUs for medium data, accelerators for large data
     // TODO: rotate the device selection

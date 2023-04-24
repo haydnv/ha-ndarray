@@ -188,7 +188,6 @@ impl<T, A> ArrayScalar<T, A> {
         Self::new(left, right, "mul")
     }
 
-    // TODO: replace with mod for integer types
     pub fn rem(left: A, right: T) -> Self {
         Self::new(left, right, "fmod")
     }

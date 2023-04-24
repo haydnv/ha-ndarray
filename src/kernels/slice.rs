@@ -76,10 +76,10 @@ pub fn slice<T: CDatatype>(
     source_strides: &[usize],
 ) -> Result<Buffer<T>, Error> {
     let ndim = shape.len();
-    debug_assert_eq!(ndim, strides.len());
+    assert_eq!(ndim, strides.len());
 
     let source_ndim = axes.len();
-    debug_assert_eq!(source_ndim, source_strides.len());
+    assert_eq!(source_ndim, source_strides.len());
 
     let dims = ArrayFormat::from(shape);
     let strides = ArrayFormat::from(strides);
