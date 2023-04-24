@@ -471,23 +471,27 @@ impl<'a, O: Op> Op for ArrayCompareScalar<'a, ArrayOp<O>, O::Out> {
 // reduction
 
 #[derive(Copy, Clone)]
-pub struct ArrayReduce<A> {
-    source: A,
+pub struct ArrayReduce<'a, A> {
+    source: &'a A,
     axis: usize,
     reduce: &'static str,
 }
 
-impl<A> ArrayReduce<A> {
-    pub fn sum(source: A, axis: usize) -> Self {
+impl<'a, A> ArrayReduce<'a, A> {
+    fn new(source: &'a A, axis: usize, reduce: &'static str) -> Self {
         Self {
             source,
             axis,
-            reduce: "+",
+            reduce,
         }
+    }
+
+    pub fn sum(source: &'a A, axis: usize) -> Self {
+        Self::new(source, axis, "add")
     }
 }
 
-impl<A: NDArrayRead> Op for ArrayReduce<A> {
+impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
     type Out = A::Out;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {

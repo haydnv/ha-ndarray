@@ -399,7 +399,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             shape
         };
 
-        let op = ArrayReduce::sum(self.clone(), axis);
+        let op = ArrayReduce::sum(self, axis);
 
         Ok(ArrayOp::new(op, shape))
     }
