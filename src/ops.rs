@@ -1,14 +1,13 @@
+use ocl::Buffer;
 use std::marker::PhantomData;
 
-use ocl::{Buffer, Event};
-
 use super::kernels;
-use super::{ArrayBase, ArrayOp, ArraySlice, ArrayView, CDatatype, Error, NDArrayRead, Queue};
+use super::{CDatatype, Error, NDArrayRead, Queue};
 
 pub trait Op {
     type Out: CDatatype;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
 }
 
 // arithmetic
@@ -50,7 +49,7 @@ impl<L, R> ArrayDual<L, R> {
         left: &LA,
         right: &RA,
         op: &'static str,
-    ) -> Result<Buffer<T>, Error>
+    ) -> Result<ocl::Buffer<T>, Error>
     where
         T: CDatatype,
         LA: NDArrayRead<DType = T>,
@@ -61,7 +60,7 @@ impl<L, R> ArrayDual<L, R> {
         let right_queue = queue.context().queue(left.size())?;
         let right_cl_queue = right_queue.cl_queue().clone();
         let right = right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<Event>(None)?;
+        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
         let cl_queue = queue.cl_queue().clone();
         let left = left.read(queue)?;
@@ -73,7 +72,7 @@ impl<L, R> ArrayDual<L, R> {
 impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<L, R> {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         Self::enqueue(queue, &self.left, &self.right, self.op)
     }
 }
@@ -97,76 +96,27 @@ impl<L, R> ArrayDualFloat<L, R> {
     pub fn pow(left: L, right: R) -> Self {
         todo!()
     }
+}
 
-    fn enqueue<T, LA, RA>(
-        left: &LA,
-        right: &RA,
-        queue: Queue,
-        op: &'static str,
-    ) -> Result<Buffer<T>, Error>
-    where
-        T: CDatatype,
-        LA: NDArrayRead<DType = T>,
-        RA: NDArrayRead<DType = f64>,
-    {
-        assert_eq!(left.size(), right.size());
+impl<T, L, R> Op for ArrayDualFloat<L, R>
+where
+    T: CDatatype,
+    L: NDArrayRead<DType = T>,
+    R: NDArrayRead<DType = T>,
+{
+    type Out = T;
 
-        let right_queue = queue.context().queue(left.size())?;
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        debug_assert_eq!(self.left.size(), self.right.size());
+
+        let right_queue = queue.context().queue(self.right.size())?;
         let right_cl_queue = right_queue.cl_queue().clone();
-        let right = right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<Event>(None)?;
+        let right = self.right.read(right_queue)?;
+        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
-        let left = left.read(queue)?;
+        let left = self.left.read(queue)?;
 
         todo!()
-    }
-}
-
-impl<T: CDatatype> Op for ArrayDualFloat<ArrayBase<T>, ArrayBase<f64>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDualFloat<ArrayBase<T>, &'a ArrayBase<f64>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDualFloat<&'a ArrayBase<T>, ArrayBase<f64>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayDualFloat<&'a ArrayBase<T>, &'a ArrayBase<f64>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(self.left, self.right, queue, self.op)
-    }
-}
-
-impl<T: CDatatype, O: Op<Out = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayOp<O>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
-    }
-}
-
-impl<T: CDatatype, O: NDArrayRead<DType = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayView<O>> {
-    type Out = T;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        Self::enqueue(&self.left, &self.right, queue, self.op)
     }
 }
 
@@ -216,7 +166,7 @@ impl<A> ArrayScalar<f64, A> {
 impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
         let left = self.array.read(queue)?;
         let right = self.scalar;
@@ -248,7 +198,7 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
 {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<T>, Error> {
         let ndim = self.left.ndim();
         debug_assert_eq!(ndim, self.right.ndim());
 
@@ -261,7 +211,7 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
         let right_queue = queue.context().queue(ndim * a * c)?;
         let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<Event>(None)?;
+        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
         let cl_queue = queue.cl_queue().clone();
         let left = self.left.read(queue)?;
@@ -304,13 +254,13 @@ where
 {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         assert_eq!(self.left.shape(), self.right.shape());
 
         let right_queue = queue.context().queue(self.left.size())?;
         let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<Event>(None)?;
+        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
         let cl_queue = queue.cl_queue().clone();
         let left = self.left.read(queue)?;
@@ -355,65 +305,28 @@ impl<'a, L, R> ArrayCompare<'a, L, R> {
     pub fn ne(left: &'a L, right: &'a R) -> Self {
         Self::new(left, right, "!=")
     }
+}
 
-    fn enqueue<T>(
-        cmp: &'static str,
-        queue: Queue,
-        left: &'a L,
-        right: &'a R,
-    ) -> Result<Buffer<u8>, Error>
-    where
-        T: CDatatype,
-        L: NDArrayRead<DType = T>,
-        R: NDArrayRead<DType = T>,
-    {
-        debug_assert_eq!(left.shape(), right.shape());
+impl<'a, T, L, R> Op for ArrayCompare<'a, L, R>
+where
+    T: CDatatype,
+    L: NDArrayRead<DType = T>,
+    R: NDArrayRead<DType = T>,
+{
+    type Out = u8;
 
-        let right_queue = queue.context().queue(left.size())?;
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        debug_assert_eq!(self.left.shape(), self.right.shape());
+
+        let right_queue = queue.context().queue(self.right.size())?;
         let right_cl_queue = right_queue.cl_queue().clone();
-        let right = right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<Event>(None)?;
+        let right = self.right.read(right_queue)?;
+        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
         let cl_queue = queue.cl_queue().clone();
-        let left = left.read(queue)?;
+        let left = self.left.read(queue)?;
 
-        kernels::elementwise_cmp(cmp, cl_queue, &left, &right, &event).map_err(Error::from)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayCompare<'a, ArrayBase<T>, ArrayBase<T>> {
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.left, self.right)
-    }
-}
-
-impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<'a, ArrayBase<T>, ArrayOp<O>> {
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, &self.right)
-    }
-}
-
-impl<'a, T: CDatatype, O: NDArrayRead<DType = T>> Op
-    for ArrayCompare<'a, ArrayBase<T>, ArraySlice<O>>
-{
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, &self.right)
-    }
-}
-
-impl<'a, T: CDatatype, O: NDArrayRead<DType = T>> Op
-    for ArrayCompare<'a, ArrayBase<T>, ArrayView<O>>
-{
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.left, &self.right)
+        kernels::elementwise_cmp(self.cmp, cl_queue, &left, &right, &event).map_err(Error::from)
     }
 }
 
@@ -452,35 +365,15 @@ impl<'a, A, T> ArrayCompareScalar<'a, A, T> {
     pub fn ne(array: &'a A, scalar: T) -> Self {
         Self::new(array, scalar, "!=")
     }
+}
 
-    fn enqueue(
-        cmp: &'static str,
-        queue: Queue,
-        array: &'a A,
-        scalar: A::DType,
-    ) -> Result<Buffer<u8>, Error>
-    where
-        A: NDArrayRead,
-    {
+impl<'a, A: NDArrayRead> Op for ArrayCompareScalar<'a, A, A::DType> {
+    type Out = u8;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
-        let input = array.read(queue)?;
-        kernels::scalar_cmp(cmp, cl_queue, &input, scalar).map_err(Error::from)
-    }
-}
-
-impl<'a, T: CDatatype> Op for ArrayCompareScalar<'a, ArrayBase<T>, T> {
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, &self.array, self.scalar)
-    }
-}
-
-impl<'a, O: Op> Op for ArrayCompareScalar<'a, ArrayOp<O>, O::Out> {
-    type Out = u8;
-
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<u8>, Error> {
-        Self::enqueue(self.cmp, queue, self.array, self.scalar)
+        let input = self.array.read(queue)?;
+        kernels::scalar_cmp(self.cmp, cl_queue, &input, self.scalar).map_err(Error::from)
     }
 }
 
@@ -510,7 +403,7 @@ impl<'a, A> ArrayReduce<'a, A> {
 impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         assert!(self.axis < self.source.ndim());
 
         let shape = self.source.shape().to_vec();
@@ -549,7 +442,7 @@ impl<'a, A, O> ArrayCast<'a, A, O> {
 impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
     type Out = O;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
         let input = self.source.read(queue)?;
         kernels::cast(cl_queue, &input).map_err(Error::from)
@@ -597,7 +490,7 @@ impl<A> ArrayUnary<A> {
 impl<A: NDArrayRead> Op for ArrayUnary<A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
         let buffer = self.array.read(queue)?;
         kernels::unary(self.op, cl_queue, buffer).map_err(Error::from)
