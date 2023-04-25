@@ -240,6 +240,8 @@ impl Queue {
 }
 
 pub trait NDArray: Sized {
+    type DType: CDatatype;
+
     fn ndim(&self) -> usize {
         self.shape().len()
     }
@@ -252,35 +254,33 @@ pub trait NDArray: Sized {
 }
 
 pub trait NDArrayRead: NDArray {
-    type Out: CDatatype;
-
-    fn copy(&self) -> Result<ArrayBase<Self::Out>, Error> {
+    fn copy(&self) -> Result<ArrayBase<Self::DType>, Error> {
         let shape = self.shape().to_vec();
 
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
 
-        let mut data = vec![Self::Out::zero(); self.size()];
+        let mut data = vec![Self::DType::zero(); self.size()];
         let buffer = self.read(queue)?;
         buffer.read(&mut data).enq()?;
 
         ArrayBase::from_vec(shape, data)
     }
 
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error>;
 }
 
-pub trait NDArrayWrite<O: NDArrayRead>: NDArray {
+pub trait NDArrayWrite<O: NDArray<DType = Self::DType>>: NDArray {
     fn write(&self, other: &O) -> Result<(), Error>;
 }
 
-pub trait NDArrayWriteScalar: NDArrayRead {
-    fn write(&self, scalar: Self::Out) -> Result<(), Error>;
+pub trait NDArrayWriteScalar: NDArray {
+    fn write(&self, scalar: Self::DType) -> Result<(), Error>;
 }
 
-pub trait NDArrayBoolean<O>: NDArrayRead
+pub trait NDArrayBoolean<O>: NDArray
 where
-    O: NDArrayRead<Out = Self::Out>,
+    O: NDArray<DType = Self::DType>,
 {
     fn and<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
@@ -315,7 +315,7 @@ pub trait NDArrayExp: NDArray + Clone {
     }
 }
 
-pub trait NDArrayMath<O: NDArrayRead<Out = f64>>: NDArrayRead {
+pub trait NDArrayMath<O: NDArray<DType = f64>>: NDArrayRead {
     fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
         let shape = check_shape(self.shape(), base.shape())?;
         let op = ArrayDualFloat::log(self, base);
@@ -449,7 +449,7 @@ pub trait NDArrayCompareScalar<T>: NDArray {
     }
 }
 
-pub trait MatrixMath<O: NDArrayRead>: NDArrayRead {
+pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
     fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
@@ -507,7 +507,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         kernels::reduce_any(cl_queue, input).map_err(Error::from)
     }
 
-    fn max(&self) -> Result<Self::Out, Error> {
+    fn max(&self) -> Result<Self::DType, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
         let cl_queue = queue.cl_queue().clone();
@@ -521,14 +521,14 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
         };
 
-        kernels::reduce(Self::Out::zero(), "max", cl_queue, input, collector).map_err(Error::from)
+        kernels::reduce(Self::DType::zero(), "max", cl_queue, input, collector).map_err(Error::from)
     }
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
         todo!()
     }
 
-    fn min(&self) -> Result<Self::Out, Error> {
+    fn min(&self) -> Result<Self::DType, Error> {
         todo!()
     }
 
@@ -536,7 +536,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         todo!()
     }
 
-    fn product(&self) -> Result<Self::Out, Error> {
+    fn product(&self) -> Result<Self::DType, Error> {
         todo!()
     }
 
@@ -544,12 +544,12 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         todo!()
     }
 
-    fn sum(&self) -> Result<Self::Out, Error> {
+    fn sum(&self) -> Result<Self::DType, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
         let cl_queue = queue.cl_queue().clone();
         let input = self.read(queue)?;
-        kernels::reduce(Self::Out::zero(), "add", cl_queue, input, Add::add).map_err(Error::from)
+        kernels::reduce(Self::DType::zero(), "add", cl_queue, input, Add::add).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {

@@ -3,7 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
-use ocl::{Buffer, OclPrm};
+use ocl::Buffer;
 use rand::Rng;
 
 use super::kernels;
@@ -20,7 +20,7 @@ pub struct ArrayBase<T> {
     shape: Shape,
 }
 
-impl<T: OclPrm + CDatatype> ArrayBase<T> {
+impl<T: CDatatype> ArrayBase<T> {
     fn new(shape: Shape, data: Vec<T>) -> Self {
         Self {
             data: Arc::new(RwLock::new(data)),
@@ -96,13 +96,9 @@ impl ArrayBase<f32> {
     }
 }
 
-impl<T> NDArray for ArrayBase<T> {
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-}
+impl<T: CDatatype> NDArray for ArrayBase<T> {
+    type DType = T;
 
-impl<'a, T> NDArray for &'a ArrayBase<T> {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -186,7 +182,7 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     }
 }
 
-impl<A: NDArrayRead> NDArrayBoolean<A> for ArrayBase<A::Out> {}
+impl<A: NDArrayRead> NDArrayBoolean<A> for ArrayBase<A::DType> {}
 
 impl<I: CDatatype, O: CDatatype> NDArrayCast<O> for ArrayBase<I> {}
 
@@ -196,15 +192,19 @@ impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for A
 
 impl<T: CDatatype> NDArrayNumeric for ArrayBase<T> {}
 
-impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArray<DType = f64>> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
 
-impl<T: CDatatype, A: NDArrayRead<Out = f64>> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArray<DType = f64>> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
 macro_rules! impl_op {
     ($op:ident, $name:ident, $t:ty, $o:ty) => {
-        impl<T, O> $op<$o> for $t {
+        impl<T, O> $op<$o> for $t
+        where
+            Self: NDArray,
+            $o: NDArray,
+        {
             type Output = ArrayOp<ArrayDual<Self, $o>>;
 
             fn $name(self, rhs: $o) -> Self::Output {
@@ -282,15 +282,13 @@ impl<T: CDatatype> Not for ArrayBase<T> {
     }
 }
 
-impl<A: NDArrayRead> MatrixMath<A> for ArrayBase<A::Out> {}
+impl<A: NDArrayRead> MatrixMath<A> for ArrayBase<A::DType> {}
 
-impl<T: CDatatype, A: NDArrayRead<Out = T>> NDArrayCompare<A> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayCompareScalar<T> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
-    type Out = T;
-
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
@@ -302,7 +300,7 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     }
 }
 
-impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::Out> {
+impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
     fn write(&self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
             let context = Context::default()?;
@@ -339,15 +337,15 @@ impl<Op> ArrayOp<Op> {
     }
 }
 
-impl<Op> NDArray for ArrayOp<Op> {
+impl<Op: super::ops::Op> NDArray for ArrayOp<Op> {
+    type DType = Op::Out;
+
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
 impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
-    type Out = Op::Out;
-
     fn read(&self, queue: Queue) -> Result<Buffer<Op::Out>, Error> {
         self.op.enqueue(queue)
     }
@@ -413,14 +411,14 @@ impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
 
-impl<Op: super::ops::Op, O: NDArrayRead<Out = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
+impl<Op: super::ops::Op, O: NDArray<DType = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
 
 impl<Op: super::ops::Op, O: CDatatype> NDArrayCast<O> for ArrayOp<Op> {}
 
 impl<A, Op> NDArrayBoolean<A> for ArrayOp<Op>
 where
-    A: NDArrayRead,
-    Op: super::ops::Op<Out = A::Out>,
+    A: NDArray,
+    Op: super::ops::Op<Out = A::DType>,
 {
 }
 
@@ -560,16 +558,16 @@ impl<A: NDArray> ArraySlice<A> {
     }
 }
 
-impl<A> NDArray for ArraySlice<A> {
+impl<A: NDArray> NDArray for ArraySlice<A> {
+    type DType = A::DType;
+
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
-    type Out = A::Out;
-
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
         let cl_queue = queue.cl_queue().clone();
         let buffer = self.source.read(queue)?;
         let strides = strides_for(self.shape(), self.ndim());
@@ -639,8 +637,8 @@ impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArraySlice<A> {}
 
 impl<A, O> NDArrayBoolean<O> for ArraySlice<A>
 where
-    A: NDArrayRead,
-    O: NDArrayRead<Out = A::Out>,
+    A: NDArray,
+    O: NDArray<DType = A::DType>,
 {
 }
 
@@ -651,8 +649,8 @@ impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
 impl<T, A, O> MatrixMath<O> for ArraySlice<A>
 where
     T: CDatatype,
-    A: NDArrayRead<Out = T>,
-    O: NDArrayRead<Out = T>,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T>,
 {
 }
 
@@ -686,7 +684,7 @@ impl_op!(Sub, sub, ArraySlice<T>, ArrayView<O>);
 
 macro_rules! impl_slice_scalar_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype, A: NDArrayRead<Out = T>> $op<T> for ArraySlice<A> {
+        impl<T: CDatatype, A: NDArray<DType = T>> $op<T> for ArraySlice<A> {
             type Output = ArrayOp<ArrayScalar<T, Self>>;
 
             fn $name(self, rhs: T) -> Self::Output {
@@ -811,16 +809,16 @@ impl<A: NDArray> ArrayView<A> {
     }
 }
 
-impl<A> NDArray for ArrayView<A> {
+impl<A: NDArray> NDArray for ArrayView<A> {
+    type DType = A::DType;
+
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
-    type Out = A::Out;
-
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
         let cl_queue = queue.cl_queue().clone();
         let buffer = self.source.read(queue)?;
         let strides = strides_for(&self.shape, self.ndim());
@@ -839,8 +837,8 @@ impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArrayView<A> {}
 
 impl<A, O> NDArrayBoolean<O> for ArrayView<A>
 where
-    A: NDArrayRead,
-    O: NDArrayRead<Out = A::Out>,
+    A: NDArray,
+    O: NDArray<DType = A::DType>,
 {
 }
 
@@ -878,7 +876,7 @@ impl_op!(Sub, sub, ArrayView<T>, ArrayView<O>);
 
 macro_rules! impl_view_scalar_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype, A: NDArrayRead<Out = T>> $op<T> for ArrayView<A> {
+        impl<T: CDatatype, A: NDArray<DType = T>> $op<T> for ArrayView<A> {
             type Output = ArrayOp<ArrayScalar<T, Self>>;
 
             fn $name(self, rhs: T) -> Self::Output {
@@ -951,8 +949,8 @@ impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
 impl<T, A, O> MatrixMath<O> for ArrayView<A>
 where
     T: CDatatype,
-    A: NDArrayRead<Out = T>,
-    O: NDArrayRead<Out = T>,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T>,
 {
 }
 
@@ -962,20 +960,22 @@ impl<A: fmt::Debug> fmt::Debug for ArrayView<A> {
     }
 }
 
-pub enum Array<T: OclPrm> {
+pub enum Array<T: CDatatype> {
     Base(ArrayBase<T>),
     Slice(ArraySlice<Box<Self>>),
     View(ArrayView<Box<Self>>),
     Op(ArrayOp<Box<dyn super::ops::Op<Out = T>>>),
 }
 
-impl<T: OclPrm> NDArray for Array<T> {
+impl<T: CDatatype> NDArray for Array<T> {
+    type DType = T;
+
     fn shape(&self) -> &[usize] {
         match self {
-            Self::Base(base) => base.shape(),
-            Self::Slice(slice) => slice.shape(),
-            Self::View(view) => view.shape(),
-            Self::Op(op) => op.shape(),
+            Self::Base(base) => &base.shape,
+            Self::Slice(slice) => &slice.shape,
+            Self::View(view) => &view.shape,
+            Self::Op(op) => &op.shape,
         }
     }
 }

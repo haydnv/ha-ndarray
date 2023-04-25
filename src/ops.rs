@@ -53,8 +53,8 @@ impl<L, R> ArrayDual<L, R> {
     ) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
-        LA: NDArrayRead<Out = T>,
-        RA: NDArrayRead<Out = T>,
+        LA: NDArrayRead<DType = T>,
+        RA: NDArrayRead<DType = T>,
     {
         assert_eq!(left.size(), right.size());
 
@@ -70,7 +70,7 @@ impl<L, R> ArrayDual<L, R> {
     }
 }
 
-impl<T: CDatatype, L: NDArrayRead<Out = T>, R: NDArrayRead<Out = T>> Op for ArrayDual<L, R> {
+impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<L, R> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -106,8 +106,8 @@ impl<L, R> ArrayDualFloat<L, R> {
     ) -> Result<Buffer<T>, Error>
     where
         T: CDatatype,
-        LA: NDArrayRead<Out = T>,
-        RA: NDArrayRead<Out = f64>,
+        LA: NDArrayRead<DType = T>,
+        RA: NDArrayRead<DType = f64>,
     {
         assert_eq!(left.size(), right.size());
 
@@ -162,7 +162,7 @@ impl<T: CDatatype, O: Op<Out = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayOp
     }
 }
 
-impl<T: CDatatype, O: NDArrayRead<Out = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayView<O>> {
+impl<T: CDatatype, O: NDArrayRead<DType = f64>> Op for ArrayDualFloat<ArrayBase<T>, ArrayView<O>> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -214,7 +214,7 @@ impl<A> ArrayScalar<f64, A> {
 }
 
 impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
-    type Out = A::Out;
+    type Out = A::DType;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
@@ -243,7 +243,9 @@ impl<'a, L, R> MatMul<'a, L, R> {
     }
 }
 
-impl<'a, T: CDatatype, L: NDArrayRead<Out = T>, R: NDArrayRead<Out = T>> Op for MatMul<'a, L, R> {
+impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
+    for MatMul<'a, L, R>
+{
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
@@ -298,7 +300,7 @@ impl<'a, L, R> ArrayBoolean<'a, L, R> {
 impl<'a, L, R> Op for ArrayBoolean<'a, L, R>
 where
     L: NDArrayRead,
-    R: NDArrayRead<Out = L::Out>,
+    R: NDArrayRead<DType = L::DType>,
 {
     type Out = u8;
 
@@ -362,8 +364,8 @@ impl<'a, L, R> ArrayCompare<'a, L, R> {
     ) -> Result<Buffer<u8>, Error>
     where
         T: CDatatype,
-        L: NDArrayRead<Out = T>,
-        R: NDArrayRead<Out = T>,
+        L: NDArrayRead<DType = T>,
+        R: NDArrayRead<DType = T>,
     {
         debug_assert_eq!(left.shape(), right.shape());
 
@@ -395,7 +397,7 @@ impl<'a, T: CDatatype, O: Op<Out = T>> Op for ArrayCompare<'a, ArrayBase<T>, Arr
     }
 }
 
-impl<'a, T: CDatatype, O: NDArrayRead<Out = T>> Op
+impl<'a, T: CDatatype, O: NDArrayRead<DType = T>> Op
     for ArrayCompare<'a, ArrayBase<T>, ArraySlice<O>>
 {
     type Out = u8;
@@ -405,7 +407,7 @@ impl<'a, T: CDatatype, O: NDArrayRead<Out = T>> Op
     }
 }
 
-impl<'a, T: CDatatype, O: NDArrayRead<Out = T>> Op
+impl<'a, T: CDatatype, O: NDArrayRead<DType = T>> Op
     for ArrayCompare<'a, ArrayBase<T>, ArrayView<O>>
 {
     type Out = u8;
@@ -455,7 +457,7 @@ impl<'a, A, T> ArrayCompareScalar<'a, A, T> {
         cmp: &'static str,
         queue: Queue,
         array: &'a A,
-        scalar: A::Out,
+        scalar: A::DType,
     ) -> Result<Buffer<u8>, Error>
     where
         A: NDArrayRead,
@@ -506,7 +508,7 @@ impl<'a, A> ArrayReduce<'a, A> {
 }
 
 impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
-    type Out = A::Out;
+    type Out = A::DType;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         assert!(self.axis < self.source.ndim());
@@ -516,7 +518,7 @@ impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
         let input = (&self.source).read(queue)?;
 
         kernels::reduce_axis(
-            A::Out::zero(),
+            A::DType::zero(),
             self.reduce,
             cl_queue,
             input,
@@ -593,7 +595,7 @@ impl<A> ArrayUnary<A> {
 
 // TODO: can this be an in-place operation?
 impl<A: NDArrayRead> Op for ArrayUnary<A> {
-    type Out = A::Out;
+    type Out = A::DType;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let cl_queue = queue.cl_queue().clone();
