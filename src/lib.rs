@@ -6,8 +6,6 @@ use std::ops::{Add, AddAssign, Range};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use ocl::Buffer;
-
 pub use array::*;
 use ops::*;
 
@@ -116,6 +114,24 @@ impl From<Vec<ocl::Device>> for DeviceList {
     }
 }
 
+#[derive(Clone)]
+pub enum Buffer<T: CDatatype> {
+    CL(ocl::Buffer<T>),
+    Host(Vec<T>),
+}
+
+impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
+    fn from(buffer: Vec<T>) -> Self {
+        Self::Host(buffer)
+    }
+}
+
+impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
+    fn from(buffer: ocl::Buffer<T>) -> Self {
+        Self::CL(buffer)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Platform {
     cl_cpus: DeviceList,
@@ -203,35 +219,35 @@ impl Context {
         };
 
         if let Some(device) = device {
-            Queue::new(self.clone(), device)
+            Queue::with_device(self.clone(), device)
         } else {
             todo!("CPU queue")
         }
     }
 }
 
+enum DeviceQueue {
+    CPU,
+    CL(ocl::Queue),
+}
+
 pub struct Queue {
     context: Context,
-    cl_queue: ocl::Queue,
+    device_queue: DeviceQueue,
 }
 
 impl Queue {
-    fn new(context: Context, device: ocl::Device) -> Result<Self, Error> {
-        let cl_queue = ocl::Queue::new(context.cl_context(), device, None).map_err(Error::from)?;
+    fn with_device(context: Context, device: ocl::Device) -> Result<Self, Error> {
+        let cl_queue = ocl::Queue::new(context.cl_context(), device, None)?;
 
-        Ok(Self { context, cl_queue })
+        Ok(Self {
+            context,
+            device_queue: DeviceQueue::CL(cl_queue),
+        })
     }
 
-    fn buffer<T: CDatatype>(&self, size: usize) -> Result<Buffer<T>, Error> {
-        Buffer::builder()
-            .queue(self.cl_queue.clone())
-            .len(size)
-            .build()
-            .map_err(Error::from)
-    }
-
-    fn cl_queue(&self) -> &ocl::Queue {
-        &self.cl_queue
+    fn device_queue(&self) -> &DeviceQueue {
+        &self.device_queue
     }
 
     fn context(&self) -> &Context {
@@ -254,19 +270,6 @@ pub trait NDArray: Sized {
 }
 
 pub trait NDArrayRead: NDArray {
-    fn copy(&self) -> Result<ArrayBase<Self::DType>, Error> {
-        let shape = self.shape().to_vec();
-
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
-
-        let mut data = vec![Self::DType::zero(); self.size()];
-        let buffer = self.read(queue)?;
-        buffer.read(&mut data).enq()?;
-
-        ArrayBase::from_vec(shape, data)
-    }
-
     fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error>;
 }
 
@@ -494,25 +497,41 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let cl_queue = queue.cl_queue().clone();
         let input = self.read(queue)?;
-        kernels::reduce_all(cl_queue, input).map_err(Error::from)
+
+        match input {
+            Buffer::CL(buffer) => {
+                let cl_queue = buffer.default_queue().expect("queue").clone();
+                kernels::reduce_all(cl_queue, buffer).map_err(Error::from)
+            }
+            Buffer::Host(buffer) => {
+                let zero = Self::DType::zero();
+                Ok(buffer.into_iter().all(|n| n != zero))
+            }
+        }
     }
 
     fn any(&self) -> Result<bool, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let cl_queue = queue.cl_queue().clone();
         let input = self.read(queue)?;
-        kernels::reduce_any(cl_queue, input).map_err(Error::from)
+
+        match input {
+            Buffer::CL(buffer) => {
+                let cl_queue = buffer.default_queue().expect("queue").clone();
+                kernels::reduce_any(cl_queue, buffer).map_err(Error::from)
+            }
+            Buffer::Host(buffer) => {
+                let zero = Self::DType::zero();
+                Ok(buffer.into_iter().any(|n| n != zero))
+            }
+        }
     }
 
     fn max(&self) -> Result<Self::DType, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let cl_queue = queue.cl_queue().clone();
         let input = self.read(queue)?;
-
         let collector = |l, r| {
             if r > l {
                 r
@@ -521,7 +540,17 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
         };
 
-        kernels::reduce(Self::DType::zero(), "max", cl_queue, input, collector).map_err(Error::from)
+        match input {
+            Buffer::CL(buffer) => {
+                let cl_queue = buffer.default_queue().expect("queue").clone();
+                kernels::reduce(Self::DType::zero(), "max", cl_queue, buffer, collector)
+                    .map_err(Error::from)
+            }
+            Buffer::Host(buffer) => {
+                let zero = Self::DType::zero();
+                Ok(buffer.into_iter().fold(zero, collector))
+            }
+        }
     }
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
@@ -547,9 +576,19 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn sum(&self) -> Result<Self::DType, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let cl_queue = queue.cl_queue().clone();
         let input = self.read(queue)?;
-        kernels::reduce(Self::DType::zero(), "add", cl_queue, input, Add::add).map_err(Error::from)
+
+        match input {
+            Buffer::CL(buffer) => {
+                let cl_queue = buffer.default_queue().expect("queue").clone();
+                kernels::reduce(Self::DType::zero(), "add", cl_queue, buffer, Add::add)
+                    .map_err(Error::from)
+            }
+            Buffer::Host(buffer) => {
+                let zero = Self::DType::zero();
+                Ok(buffer.into_iter().fold(zero, Add::add))
+            }
+        }
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {

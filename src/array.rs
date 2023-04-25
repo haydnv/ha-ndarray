@@ -3,15 +3,15 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
-use ocl::Buffer;
 use rand::Rng;
 
 use super::kernels;
 use super::ops::*;
 use super::{
-    AxisBound, CDatatype, Context, Error, MatrixMath, NDArray, NDArrayAbs, NDArrayBoolean,
-    NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar,
-    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite, Queue, Shape,
+    AxisBound, Buffer, CDatatype, Context, DeviceQueue, Error, MatrixMath, NDArray, NDArrayAbs,
+    NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath,
+    NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite,
+    Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -21,6 +21,26 @@ pub struct ArrayBase<T> {
 }
 
 impl<T: CDatatype> ArrayBase<T> {
+    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
+        let shape = other.shape().to_vec();
+
+        let context = Context::default()?;
+        let queue = context.queue(other.size())?;
+        let data = match other.read(queue)? {
+            Buffer::CL(buffer) => {
+                let mut data = vec![T::zero(); other.size()];
+                buffer.read(&mut data).enq()?;
+                data
+            }
+            Buffer::Host(data) => data,
+        };
+
+        Ok(Self {
+            data: Arc::new(RwLock::new(data)),
+            shape,
+        })
+    }
+
     fn new(shape: Shape, data: Vec<T>) -> Self {
         Self {
             data: Arc::new(RwLock::new(data)),
@@ -64,18 +84,26 @@ impl ArrayBase<f32> {
         });
 
         let size = shape.iter().product();
+        let mut data = vec![0.; size];
+
         let context = Context::default()?;
         let queue = context.queue(size)?;
-        let buffer = kernels::random_normal(queue.cl_queue().clone(), seed, size)?;
 
-        let mut data = vec![0.; size];
-        buffer.read(&mut data[..]).enq()?;
-
-        queue.cl_queue().finish()?;
+        match queue.device_queue() {
+            DeviceQueue::CL(cl_queue) => {
+                let buffer = kernels::random_normal(cl_queue.clone(), seed, size)?;
+                buffer.read(&mut data[..]).enq()?;
+                cl_queue.finish()?;
+            }
+            DeviceQueue::CPU => {
+                todo!("random uniform on CPU")
+            }
+        }
 
         Self::from_vec(shape, data)
     }
 
+    // TODO: support mean and std_dev parameters
     pub fn random_uniform(shape: Shape, seed: Option<usize>) -> Result<Self, Error> {
         let seed = seed.unwrap_or_else(|| {
             let mut rng = rand::thread_rng();
@@ -83,14 +111,21 @@ impl ArrayBase<f32> {
         });
 
         let size = shape.iter().product();
+        let mut data = vec![0.; size];
+
         let context = Context::default()?;
         let queue = context.queue(size)?;
-        let buffer = kernels::random_uniform(queue.cl_queue().clone(), seed, size)?;
 
-        let mut data = vec![0.; size];
-        buffer.read(&mut data[..]).enq()?;
-
-        queue.cl_queue().finish()?;
+        match queue.device_queue() {
+            DeviceQueue::CL(cl_queue) => {
+                let buffer = kernels::random_uniform(cl_queue.clone(), seed, size)?;
+                buffer.read(&mut data[..]).enq()?;
+                cl_queue.finish()?;
+            }
+            DeviceQueue::CPU => {
+                todo!("random uniform on CPU")
+            }
+        }
 
         Self::from_vec(shape, data)
     }
@@ -292,9 +327,19 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
-        let buffer = queue.buffer(self.size())?;
+        let buffer = match queue.device_queue() {
+            DeviceQueue::CPU => data.to_vec().into(),
+            DeviceQueue::CL(cl_queue) => {
+                let buffer = ocl::Buffer::builder()
+                    .queue(cl_queue.clone())
+                    .len(self.size())
+                    .build()?;
 
-        buffer.write(data.as_slice()).enq()?;
+                buffer.write(data.as_slice()).enq()?;
+
+                buffer.into()
+            }
+        };
 
         Ok(buffer)
     }
@@ -305,9 +350,19 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
         if self.shape == other.shape() {
             let context = Context::default()?;
             let queue = context.queue(self.size())?;
-            let buffer = other.read(queue)?;
-            let mut data = self.data.write().expect("data");
-            buffer.read(&mut data[..]).enq().map_err(Error::from)
+
+            match other.read(queue)? {
+                Buffer::CL(buffer) => {
+                    let mut data = self.data.write().expect("data");
+                    buffer.read(&mut data[..]).enq()?;
+                }
+                Buffer::Host(buffer) => {
+                    let mut data = self.data.write().expect("data");
+                    data.copy_from_slice(&buffer[..]);
+                }
+            }
+
+            Ok(())
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -568,20 +623,29 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
-        let cl_queue = queue.cl_queue().clone();
-        let buffer = self.source.read(queue)?;
-        let strides = strides_for(self.shape(), self.ndim());
-        let source_strides = strides_for(self.source.shape(), self.source.ndim());
+        let buffer = match self.source.read(queue)? {
+            Buffer::CL(source) => {
+                let strides = strides_for(self.shape(), self.ndim());
+                let source_strides = strides_for(self.source.shape(), self.source.ndim());
 
-        kernels::slice(
-            cl_queue,
-            &buffer,
-            self.shape(),
-            &strides,
-            &self.bounds,
-            &source_strides,
-        )
-        .map_err(Error::from)
+                let cl_queue = source.default_queue().expect("queue").clone();
+                let buffer = kernels::slice(
+                    cl_queue,
+                    &source,
+                    self.shape(),
+                    &strides,
+                    &self.bounds,
+                    &source_strides,
+                )?;
+
+                buffer.into()
+            }
+            Buffer::Host(_) => {
+                todo!("slice on CPU")
+            }
+        };
+
+        Ok(buffer)
     }
 }
 
@@ -819,17 +883,24 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
-        let cl_queue = queue.cl_queue().clone();
-        let buffer = self.source.read(queue)?;
-        let strides = strides_for(&self.shape, self.ndim());
+        let source = self.source.read(queue)?;
+        let buffer = match source {
+            Buffer::CL(buffer) => {
+                let cl_queue = buffer.default_queue().expect("queue").clone();
+                let strides = strides_for(&self.shape, self.ndim());
 
-        if self.size() == self.source.size() {
-            kernels::reorder_inplace(cl_queue, buffer, &self.shape, &strides, &self.strides)
-                .map_err(Error::from)
-        } else {
-            kernels::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
-                .map_err(Error::from)
-        }
+                let buffer = if self.size() == self.source.size() {
+                    kernels::reorder_inplace(cl_queue, buffer, &self.shape, &strides, &self.strides)
+                } else {
+                    kernels::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
+                }?;
+
+                buffer.into()
+            }
+            Buffer::Host(_) => todo!("reorder array view on CPU"),
+        };
+
+        Ok(buffer)
     }
 }
 

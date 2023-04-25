@@ -1,13 +1,12 @@
-use ocl::Buffer;
 use std::marker::PhantomData;
 
 use super::kernels;
-use super::{CDatatype, Error, NDArrayRead, Queue};
+use super::{Buffer, CDatatype, Error, NDArrayRead, Queue};
 
 pub trait Op {
     type Out: CDatatype;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
 }
 
 // arithmetic
@@ -43,37 +42,33 @@ impl<L, R> ArrayDual<L, R> {
     pub fn sub(left: L, right: R) -> Self {
         Self::new(left, right, "-")
     }
-
-    fn enqueue<T, LA, RA>(
-        queue: Queue,
-        left: &LA,
-        right: &RA,
-        op: &'static str,
-    ) -> Result<ocl::Buffer<T>, Error>
-    where
-        T: CDatatype,
-        LA: NDArrayRead<DType = T>,
-        RA: NDArrayRead<DType = T>,
-    {
-        assert_eq!(left.size(), right.size());
-
-        let right_queue = queue.context().queue(left.size())?;
-        let right_cl_queue = right_queue.cl_queue().clone();
-        let right = right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-
-        let cl_queue = queue.cl_queue().clone();
-        let left = left.read(queue)?;
-
-        kernels::elementwise_inplace(op, cl_queue, left, &right, &event).map_err(Error::from)
-    }
 }
 
 impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<L, R> {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        Self::enqueue(queue, &self.left, &self.right, self.op)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        assert_eq!(self.left.size(), self.right.size());
+
+        let right_queue = queue.context().queue(self.right.size())?;
+        let right = self.right.read(right_queue)?;
+        let left = self.left.read(queue)?;
+
+        let output = match (left, right) {
+            (Buffer::CL(left), Buffer::CL(right)) => {
+                let right_cl_queue = right.default_queue().expect("right queue").clone();
+                let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
+
+                let cl_queue = left.default_queue().expect("left queue").clone();
+
+                let output = kernels::elementwise_inplace(self.op, cl_queue, left, &right, &event)?;
+
+                output.into()
+            }
+            (_, _) => todo!("dual array ops on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -106,14 +101,11 @@ where
 {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         debug_assert_eq!(self.left.size(), self.right.size());
 
         let right_queue = queue.context().queue(self.right.size())?;
-        let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-
         let left = self.left.read(queue)?;
 
         todo!()
@@ -166,11 +158,20 @@ impl<A> ArrayScalar<f64, A> {
 impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let cl_queue = queue.cl_queue().clone();
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let left = self.array.read(queue)?;
         let right = self.scalar;
-        kernels::elementwise_scalar(self.op, cl_queue, left, right).map_err(Error::from)
+
+        let output = match left {
+            Buffer::CL(left) => {
+                let cl_queue = left.default_queue().expect("queue").clone();
+                let output = kernels::elementwise_scalar(self.op, cl_queue, left, right)?;
+                output.into()
+            }
+            Buffer::Host(_) => todo!("array scalar ops on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -198,7 +199,7 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
 {
     type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<T>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let ndim = self.left.ndim();
         debug_assert_eq!(ndim, self.right.ndim());
 
@@ -209,14 +210,24 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
         debug_assert_eq!(b, self.right.shape()[ndim - 2]);
 
         let right_queue = queue.context().queue(ndim * a * c)?;
-        let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-
-        let cl_queue = queue.cl_queue().clone();
         let left = self.left.read(queue)?;
 
-        kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event).map_err(Error::from)
+        let output = match (left, right) {
+            (Buffer::CL(left), Buffer::CL(right)) => {
+                let right_cl_queue = right.default_queue().expect("right queue").clone();
+                let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
+                let cl_queue = left.default_queue().expect("left queue").clone();
+
+                let output =
+                    kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event)?;
+
+                output.into()
+            }
+            (_, _) => todo!("matmul on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -254,18 +265,28 @@ where
 {
     type Out = u8;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        assert_eq!(self.left.shape(), self.right.shape());
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        debug_assert_eq!(self.left.shape(), self.right.shape());
 
         let right_queue = queue.context().queue(self.left.size())?;
-        let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-
-        let cl_queue = queue.cl_queue().clone();
         let left = self.left.read(queue)?;
 
-        kernels::elementwise_boolean(self.cmp, cl_queue, &left, &right, &event).map_err(Error::from)
+        let output = match (left, right) {
+            (Buffer::CL(left), Buffer::CL(right)) => {
+                let right_cl_queue = right.default_queue().expect("right queue").clone();
+                let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
+                let cl_queue = left.default_queue().expect("left queue").clone();
+
+                let output =
+                    kernels::elementwise_boolean(self.cmp, cl_queue, &left, &right, &event)?;
+
+                output.into()
+            }
+            (_, _) => todo!("array comparison on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -319,14 +340,21 @@ where
         debug_assert_eq!(self.left.shape(), self.right.shape());
 
         let right_queue = queue.context().queue(self.right.size())?;
-        let right_cl_queue = right_queue.cl_queue().clone();
         let right = self.right.read(right_queue)?;
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-
-        let cl_queue = queue.cl_queue().clone();
         let left = self.left.read(queue)?;
 
-        kernels::elementwise_cmp(self.cmp, cl_queue, &left, &right, &event).map_err(Error::from)
+        let output = match (left, right) {
+            (Buffer::CL(left), Buffer::CL(right)) => {
+                let right_cl_queue = right.default_queue().expect("right queue").clone();
+                let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
+                let cl_queue = left.default_queue().expect("left queue").clone();
+                let output = kernels::elementwise_cmp(self.cmp, cl_queue, &left, &right, &event)?;
+                output.into()
+            }
+            (_, _) => todo!("compare arrays on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -371,9 +399,18 @@ impl<'a, A: NDArrayRead> Op for ArrayCompareScalar<'a, A, A::DType> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        let cl_queue = queue.cl_queue().clone();
         let input = self.array.read(queue)?;
-        kernels::scalar_cmp(self.cmp, cl_queue, &input, self.scalar).map_err(Error::from)
+
+        let output = match input {
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                let output = kernels::scalar_cmp(self.cmp, cl_queue, &input, self.scalar)?;
+                output.into()
+            }
+            Buffer::Host(_) => todo!("compare array with scalar on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -403,22 +440,29 @@ impl<'a, A> ArrayReduce<'a, A> {
 impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        assert!(self.axis < self.source.ndim());
-
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        debug_assert!(self.axis < self.source.ndim());
         let shape = self.source.shape().to_vec();
-        let cl_queue = queue.cl_queue().clone();
         let input = (&self.source).read(queue)?;
 
-        kernels::reduce_axis(
-            A::DType::zero(),
-            self.reduce,
-            cl_queue,
-            input,
-            shape,
-            self.axis,
-        )
-        .map_err(Error::from)
+        let output = match input {
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                let output = kernels::reduce_axis(
+                    A::DType::zero(),
+                    self.reduce,
+                    cl_queue,
+                    input,
+                    shape,
+                    self.axis,
+                )?;
+
+                output.into()
+            }
+            Buffer::Host(_) => todo!("reduce axis on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -442,10 +486,17 @@ impl<'a, A, O> ArrayCast<'a, A, O> {
 impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
     type Out = O;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let cl_queue = queue.cl_queue().clone();
-        let input = self.source.read(queue)?;
-        kernels::cast(cl_queue, &input).map_err(Error::from)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let output = match self.source.read(queue)? {
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                let output = kernels::cast(cl_queue, &input)?;
+                output.into()
+            }
+            Buffer::Host(_) => todo!("cast array on CPU"),
+        };
+
+        Ok(output)
     }
 }
 
@@ -490,9 +541,18 @@ impl<A> ArrayUnary<A> {
 impl<A: NDArrayRead> Op for ArrayUnary<A> {
     type Out = A::DType;
 
-    fn enqueue(&self, queue: Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let cl_queue = queue.cl_queue().clone();
-        let buffer = self.array.read(queue)?;
-        kernels::unary(self.op, cl_queue, buffer).map_err(Error::from)
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let input = self.array.read(queue)?;
+
+        let output = match input {
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                let output = kernels::unary(self.op, cl_queue, input)?;
+                output.into()
+            }
+            Buffer::Host(_) => todo!("unary array ops on CPU"),
+        };
+
+        Ok(output)
     }
 }

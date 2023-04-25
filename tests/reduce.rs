@@ -1,4 +1,4 @@
-use ha_ndarray::{ArrayBase, Error, NDArray, NDArrayCompareScalar, NDArrayRead, NDArrayReduce};
+use ha_ndarray::{ArrayBase, Error, NDArray, NDArrayCompareScalar, NDArrayReduce};
 
 #[test]
 fn test_reduce_sum_all() -> Result<(), Error> {
@@ -25,7 +25,7 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
     for shape in shapes {
         let array = ArrayBase::<u32>::constant(shape.to_vec(), 1);
         for x in 0..shape.len() {
-            let sum = array.sum_axis(x)?.copy()?;
+            let sum = array.sum_axis(x)?;
             let eq = sum.eq_scalar(shape[x] as u32);
             assert!(eq.all()?);
         }

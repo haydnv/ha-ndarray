@@ -1,6 +1,4 @@
-use ha_ndarray::{
-    ArrayBase, Error, MatrixMath, NDArray, NDArrayCompareScalar, NDArrayRead, NDArrayReduce,
-};
+use ha_ndarray::{ArrayBase, Error, MatrixMath, NDArray, NDArrayCompareScalar, NDArrayReduce};
 
 #[test]
 fn test_matmul() -> Result<(), Error> {
@@ -19,7 +17,7 @@ fn test_matmul() -> Result<(), Error> {
         let left = ArrayBase::constant(left_shape, 1.);
         let right = ArrayBase::constant(right_shape, 1.);
 
-        let actual = left.matmul(&right)?.copy()?;
+        let actual = left.matmul(&right)?;
         assert_eq!(actual.shape(), output_shape);
 
         let expected = *left.shape().last().unwrap();

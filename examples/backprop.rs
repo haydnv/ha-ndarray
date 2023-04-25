@@ -6,17 +6,18 @@ const NUM_EXAMPLES: usize = 25;
 fn main() -> Result<(), Error> {
     let weights = ArrayBase::random_normal(vec![2, 1], None)?;
 
-    let inputs = (ArrayBase::random_uniform(vec![NUM_EXAMPLES, 2], None)? + 1.).copy()?;
+    let inputs = ArrayBase::copy(&(ArrayBase::random_uniform(vec![NUM_EXAMPLES, 2], None)? + 1.))?;
     let inputs_bool = inputs.lt_scalar(1.0);
-    let labels = inputs_bool
-        .slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?
-        .and(&(inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 1.into()])?))?
-        .expand_dim(1)?
-        .cast()
-        .copy()?;
+    let labels = ArrayBase::copy(
+        &inputs_bool
+            .slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?
+            .and(&(inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 1.into()])?))?
+            .expand_dim(1)?
+            .cast(),
+    )?;
 
     loop {
-        let output = inputs.matmul(&weights)?.copy()?;
+        let output = inputs.matmul(&weights)?;
 
         let loss = (labels.clone() - output.clone()).pow(2.);
         println!("loss: {} (max {})", loss.sum()?, loss.max()?);
