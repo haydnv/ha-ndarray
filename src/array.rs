@@ -3,15 +3,15 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
-use ocl::{Buffer, OclPrm, Queue};
+use ocl::{Buffer, OclPrm};
 use rand::Rng;
 
 use super::kernels;
 use super::ops::*;
 use super::{
-    autoqueue, AxisBound, CDatatype, Error, MatrixMath, NDArray, NDArrayAbs, NDArrayBoolean,
+    AxisBound, CDatatype, Context, Error, MatrixMath, NDArray, NDArrayAbs, NDArrayBoolean,
     NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath, NDArrayMathScalar,
-    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite, Shape,
+    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -64,13 +64,14 @@ impl ArrayBase<f32> {
         });
 
         let size = shape.iter().product();
-        let queue = autoqueue(None)?;
-        let buffer = kernels::random_normal(queue.clone(), seed, size)?;
+        let context = Context::default()?;
+        let queue = context.queue(size)?;
+        let buffer = kernels::random_normal(queue.cl_queue().clone(), seed, size)?;
 
         let mut data = vec![0.; size];
         buffer.read(&mut data[..]).enq()?;
 
-        queue.finish()?;
+        queue.cl_queue().finish()?;
 
         Self::from_vec(shape, data)
     }
@@ -82,13 +83,14 @@ impl ArrayBase<f32> {
         });
 
         let size = shape.iter().product();
-        let queue = autoqueue(None)?;
-        let buffer = kernels::random_uniform(queue.clone(), seed, size)?;
+        let context = Context::default()?;
+        let queue = context.queue(size)?;
+        let buffer = kernels::random_uniform(queue.cl_queue().clone(), seed, size)?;
 
         let mut data = vec![0.; size];
         buffer.read(&mut data[..]).enq()?;
 
-        queue.finish()?;
+        queue.cl_queue().finish()?;
 
         Self::from_vec(shape, data)
     }
@@ -292,11 +294,7 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
-        let buffer = Buffer::<T>::builder()
-            .queue(queue)
-            .len(self.size())
-            .build()
-            .map_err(Error::from)?;
+        let buffer = queue.buffer(self.size())?;
 
         buffer.write(data.as_slice()).enq()?;
 
@@ -307,7 +305,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
 impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::Out> {
     fn write(&self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
-            let queue = autoqueue(None)?;
+            let context = Context::default()?;
+            let queue = context.queue(self.size())?;
             let buffer = other.read(queue)?;
             let mut data = self.data.write().expect("data");
             buffer.read(&mut data[..]).enq().map_err(Error::from)
@@ -571,12 +570,13 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     type Out = A::Out;
 
     fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        let buffer = self.source.read(queue.clone())?;
+        let cl_queue = queue.cl_queue().clone();
+        let buffer = self.source.read(queue)?;
         let strides = strides_for(self.shape(), self.ndim());
         let source_strides = strides_for(self.source.shape(), self.source.ndim());
 
         kernels::slice(
-            queue,
+            cl_queue,
             &buffer,
             self.shape(),
             &strides,
@@ -821,14 +821,15 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     type Out = A::Out;
 
     fn read(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        let buffer = self.source.read(queue.clone())?;
+        let cl_queue = queue.cl_queue().clone();
+        let buffer = self.source.read(queue)?;
         let strides = strides_for(&self.shape, self.ndim());
 
         if self.size() == self.source.size() {
-            kernels::reorder_inplace(queue, buffer, &self.shape, &strides, &self.strides)
+            kernels::reorder_inplace(cl_queue, buffer, &self.shape, &strides, &self.strides)
                 .map_err(Error::from)
         } else {
-            kernels::reorder(queue, buffer, &self.shape, &strides, &self.strides)
+            kernels::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
                 .map_err(Error::from)
         }
     }

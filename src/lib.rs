@@ -3,8 +3,10 @@ extern crate ocl;
 use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, AddAssign, Range};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-use ocl::{Buffer, Context, Device, OclPrm, Platform, Queue};
+use ocl::Buffer;
 
 pub use array::*;
 use ops::*;
@@ -12,6 +14,9 @@ use ops::*;
 mod array;
 mod kernels;
 mod ops;
+
+// TODO: set this to a reasonable value after implementing CPU operations
+const GPU_MIN_DEFAULT: usize = 0;
 
 pub enum Error {
     Bounds(String),
@@ -46,7 +51,7 @@ impl std::error::Error for Error {}
 
 pub type Shape = Vec<usize>;
 
-pub trait CDatatype: OclPrm + Add<Output = Self> + AddAssign + PartialOrd + Sum {
+pub trait CDatatype: ocl::OclPrm + Add<Output = Self> + AddAssign + PartialOrd + Sum {
     const TYPE_STR: &'static str;
 
     fn one() -> Self;
@@ -81,6 +86,159 @@ c_type!(i16, "short", 0, 1);
 c_type!(i32, "int", 0, 1);
 c_type!(i64, "long", 0, 1);
 
+#[derive(Clone, Default)]
+struct DeviceList {
+    devices: Vec<ocl::Device>,
+    next: Arc<AtomicUsize>,
+}
+
+impl DeviceList {
+    fn is_empty(&self) -> bool {
+        self.devices.is_empty()
+    }
+
+    fn next(&self) -> Option<ocl::Device> {
+        if self.devices.is_empty() {
+            None
+        } else {
+            let idx = self.next.fetch_add(1, Ordering::Relaxed);
+            self.devices.get(idx % self.devices.len()).copied()
+        }
+    }
+}
+
+impl From<Vec<ocl::Device>> for DeviceList {
+    fn from(devices: Vec<ocl::Device>) -> Self {
+        Self {
+            devices,
+            next: Arc::new(AtomicUsize::default()),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Platform {
+    cl_cpus: DeviceList,
+    cl_gpus: DeviceList,
+    cl_accs: DeviceList,
+}
+
+impl Platform {
+    fn has_gpu(&self) -> bool {
+        !self.cl_gpus.is_empty()
+    }
+
+    fn next_cpu(&self) -> Option<ocl::Device> {
+        self.cl_cpus.next()
+    }
+
+    fn next_gpu(&self) -> Option<ocl::Device> {
+        self.cl_gpus.next()
+    }
+
+    fn next_acc(&self) -> Option<ocl::Device> {
+        self.cl_accs.next()
+    }
+}
+
+impl TryFrom<ocl::Platform> for Platform {
+    type Error = ocl::Error;
+
+    fn try_from(cl_platform: ocl::Platform) -> Result<Self, Self::Error> {
+        let cl_cpus = ocl::Device::list(cl_platform, Some(ocl::DeviceType::CPU))?;
+        let cl_gpus = ocl::Device::list(cl_platform, Some(ocl::DeviceType::GPU))?;
+        let cl_accs = ocl::Device::list(cl_platform, Some(ocl::DeviceType::ACCELERATOR))?;
+
+        Ok(Self {
+            cl_cpus: cl_cpus.into(),
+            cl_gpus: cl_gpus.into(),
+            cl_accs: cl_accs.into(),
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct Context {
+    platform: Platform,
+    cl_context: ocl::Context,
+    gpu_min: usize,
+    acc_min: usize,
+}
+
+impl Context {
+    pub fn default() -> Result<Self, Error> {
+        let cl_platform = ocl::Platform::first()?;
+        let cl_context = ocl::Context::builder().platform(cl_platform).build()?;
+        let platform = Platform::try_from(cl_platform)?;
+        let acc_min = if platform.has_gpu() {
+            usize::MAX
+        } else {
+            GPU_MIN_DEFAULT
+        };
+
+        Ok(Self {
+            platform,
+            cl_context,
+            gpu_min: GPU_MIN_DEFAULT,
+            acc_min,
+        })
+    }
+
+    fn cl_context(&self) -> &ocl::Context {
+        &self.cl_context
+    }
+
+    pub fn queue(&self, size_hint: usize) -> Result<Queue, Error> {
+        let device = if size_hint < self.gpu_min {
+            self.platform.next_cpu()
+        } else if size_hint < self.acc_min {
+            self.platform
+                .next_gpu()
+                .or_else(|| self.platform.next_cpu())
+        } else {
+            self.platform
+                .next_acc()
+                .or_else(|| self.platform.next_gpu())
+                .or_else(|| self.platform.next_cpu())
+        };
+
+        if let Some(device) = device {
+            Queue::new(self.clone(), device)
+        } else {
+            todo!("CPU queue")
+        }
+    }
+}
+
+pub struct Queue {
+    context: Context,
+    cl_queue: ocl::Queue,
+}
+
+impl Queue {
+    fn new(context: Context, device: ocl::Device) -> Result<Self, Error> {
+        let cl_queue = ocl::Queue::new(context.cl_context(), device, None).map_err(Error::from)?;
+
+        Ok(Self { context, cl_queue })
+    }
+
+    fn buffer<T: CDatatype>(&self, size: usize) -> Result<Buffer<T>, Error> {
+        Buffer::builder()
+            .queue(self.cl_queue.clone())
+            .len(size)
+            .build()
+            .map_err(Error::from)
+    }
+
+    fn cl_queue(&self) -> &ocl::Queue {
+        &self.cl_queue
+    }
+
+    fn context(&self) -> &Context {
+        &self.context
+    }
+}
+
 pub trait NDArray: Sized {
     fn ndim(&self) -> usize {
         self.shape().len()
@@ -99,7 +257,9 @@ pub trait NDArrayRead: NDArray {
     fn copy(&self) -> Result<ArrayBase<Self::Out>, Error> {
         let shape = self.shape().to_vec();
 
-        let queue = autoqueue(None)?;
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+
         let mut data = vec![Self::Out::zero(); self.size()];
         let buffer = self.read(queue)?;
         buffer.read(&mut data).enq()?;
@@ -332,28 +492,36 @@ pub trait MatrixMath<O: NDArrayRead>: NDArrayRead {
 
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
-        let queue = autoqueue(None)?;
-        let input = self.read(queue.clone())?;
-        kernels::reduce_all(queue, input).map_err(Error::from)
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+        let cl_queue = queue.cl_queue().clone();
+        let input = self.read(queue)?;
+        kernels::reduce_all(cl_queue, input).map_err(Error::from)
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let queue = autoqueue(None)?;
-        let input = self.read(queue.clone())?;
-        kernels::reduce_any(queue, input).map_err(Error::from)
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+        let cl_queue = queue.cl_queue().clone();
+        let input = self.read(queue)?;
+        kernels::reduce_any(cl_queue, input).map_err(Error::from)
     }
 
     fn max(&self) -> Result<Self::Out, Error> {
-        let queue = autoqueue(None)?;
-        let input = self.read(queue.clone())?;
-        kernels::reduce(Self::Out::zero(), "max", queue, input, |l, r| {
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+        let cl_queue = queue.cl_queue().clone();
+        let input = self.read(queue)?;
+
+        let collector = |l, r| {
             if r > l {
                 r
             } else {
                 l
             }
-        })
-        .map_err(Error::from)
+        };
+
+        kernels::reduce(Self::Out::zero(), "max", cl_queue, input, collector).map_err(Error::from)
     }
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
@@ -377,9 +545,11 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn sum(&self) -> Result<Self::Out, Error> {
-        let queue = autoqueue(None)?;
-        let input = self.read(queue.clone())?;
-        kernels::reduce(Self::Out::zero(), "add", queue, input, Add::add).map_err(Error::from)
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+        let cl_queue = queue.cl_queue().clone();
+        let input = self.read(queue)?;
+        kernels::reduce(Self::Out::zero(), "add", cl_queue, input, Add::add).map_err(Error::from)
     }
 
     fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self>>, Error> {
@@ -469,36 +639,6 @@ impl fmt::Debug for AxisBound {
             Self::Of(indices) => write!(f, "{:?}", indices),
         }
     }
-}
-
-pub fn autobuffer<T: CDatatype>(queue: Queue, size: usize) -> Result<Buffer<T>, ocl::Error> {
-    Buffer::builder().queue(queue).len(size).build()
-}
-
-pub fn autoqueue(context: Option<Context>) -> Result<Queue, ocl::Error> {
-    // TODO: select CPUs for small data, GPUs for medium data, accelerators for large data
-    // TODO: rotate the device selection
-
-    let (context, device) = if let Some(context) = context {
-        let device = if let Some(platform) = context.platform()? {
-            Device::first(platform)?
-        } else {
-            context.devices()[0]
-        };
-
-        (context, device)
-    } else {
-        let platform = Platform::default();
-        let device = Device::first(platform)?;
-        let context = Context::builder()
-            .platform(platform)
-            .devices(device)
-            .build()?;
-
-        (context, device)
-    };
-
-    Queue::new(&context, device, None)
 }
 
 #[inline]

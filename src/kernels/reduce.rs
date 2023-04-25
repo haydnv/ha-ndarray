@@ -2,7 +2,9 @@ use ocl::{Buffer, Error, Kernel, Program, Queue};
 
 use crate::{CDatatype, Shape};
 
-use super::{div_ceil, MIN_SIZE, WG_SIZE};
+const MIN_SIZE: usize = 1024;
+
+use super::{div_ceil, WG_SIZE};
 
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
     let src = format!(
@@ -293,8 +295,8 @@ fn fold_axis<T: CDatatype>(
         }}
 
         __kernel void fold_axis(
-            ulong reduce_dim,
-            ulong target_dim,
+            const ulong reduce_dim,
+            const ulong target_dim,
             {dtype} init,
             __global const {dtype}* input,
             __global {dtype}* output)
