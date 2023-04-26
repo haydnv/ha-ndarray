@@ -5,7 +5,7 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 use rayon::prelude::*;
 
 use super::kernels;
-use super::{Buffer, CDatatype, Error, NDArrayRead, Queue};
+use super::{Buffer, CDatatype, Error, Float, NDArrayRead, Queue};
 
 pub trait Op: Send + Sync {
     type Out: CDatatype;
@@ -137,46 +137,42 @@ where
 pub struct ArrayScalar<T, A> {
     array: A,
     scalar: T,
-    op: &'static str,
+    host_op: fn(T, T) -> T,
+    kernel_op: &'static str,
 }
 
-impl<T, A> ArrayScalar<T, A> {
-    fn new(array: A, scalar: T, op: &'static str) -> Self {
-        Self { array, scalar, op }
+impl<T: CDatatype, A> ArrayScalar<T, A> {
+    fn new(array: A, scalar: T, host_op: fn(T, T) -> T, kernel_op: &'static str) -> Self {
+        Self {
+            array,
+            scalar,
+            host_op,
+            kernel_op,
+        }
     }
 
     pub fn add(left: A, right: T) -> Self {
-        Self::new(left, right, "add")
+        Self::new(left, right, Add::add, "add")
     }
 
     pub fn div(left: A, right: T) -> Self {
-        Self::new(left, right, "div")
+        Self::new(left, right, Div::div, "div")
     }
 
     pub fn mul(left: A, right: T) -> Self {
-        Self::new(left, right, "mul")
+        Self::new(left, right, Mul::mul, "mul")
     }
 
     pub fn rem(left: A, right: T) -> Self {
-        Self::new(left, right, "fmod")
+        Self::new(left, right, Rem::rem, "fmod")
     }
 
     pub fn sub(left: A, right: T) -> Self {
-        Self::new(left, right, "sub")
+        Self::new(left, right, Sub::sub, "sub")
     }
 }
 
-impl<A> ArrayScalar<f64, A> {
-    pub fn log(left: A, right: f64) -> Self {
-        Self::new(left, right, "log")
-    }
-
-    pub fn pow(left: A, right: f64) -> Self {
-        Self::new(left, right, "pow_")
-    }
-}
-
-impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
+impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
     type Out = A::DType;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -186,10 +182,80 @@ impl<T: CDatatype, A: NDArrayRead> Op for ArrayScalar<T, A> {
         let output = match left {
             Buffer::CL(left) => {
                 let cl_queue = left.default_queue().expect("queue").clone();
-                let output = kernels::elementwise_scalar(self.op, cl_queue, left, right)?;
-                output.into()
+                let output = kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right)?;
+                Buffer::CL(output)
             }
-            Buffer::Host(_) => todo!("array scalar ops on CPU"),
+            Buffer::Host(left) => {
+                let output = left
+                    .into_par_iter()
+                    .chunks(8)
+                    .map(|chunk| {
+                        chunk
+                            .into_iter()
+                            .map(|l| (self.host_op)(l, self.scalar))
+                            .collect::<Vec<T>>()
+                    })
+                    .flatten()
+                    .collect();
+
+                Buffer::Host(output)
+            }
+        };
+
+        Ok(output)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct ArrayScalarFloat<T, A> {
+    array: A,
+    scalar: f64,
+    host_op: fn(T, f64) -> T,
+    kernel_op: &'static str,
+}
+
+impl<T, A> ArrayScalarFloat<T, A> {
+    fn new(array: A, scalar: f64, host_op: fn(T, f64) -> T, kernel_op: &'static str) -> Self {
+        Self {
+            array,
+            scalar,
+            host_op,
+            kernel_op,
+        }
+    }
+}
+
+impl<T: CDatatype, A> ArrayScalarFloat<T, A> {
+    pub fn log(left: A, right: f64) -> Self {
+        Self::new(left, right, T::log, "log")
+    }
+
+    pub fn pow(left: A, right: f64) -> Self {
+        Self::new(left, right, T::pow, "pow_")
+    }
+}
+
+impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
+    type Out = T;
+
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+        let left = self.array.read(queue)?;
+        let right = self.scalar;
+
+        let output = match left {
+            Buffer::CL(left) => {
+                let cl_queue = left.default_queue().expect("queue").clone();
+                let output = kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right)?;
+                Buffer::CL(output)
+            }
+            Buffer::Host(left) => {
+                let output = left
+                    .into_par_iter()
+                    .map(|l| (self.host_op)(l, self.scalar))
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -312,34 +378,57 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
 // comparison
 
 #[derive(Copy, Clone)]
-pub struct ArrayBoolean<'a, L, R> {
+pub struct ArrayBoolean<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
-    cmp: &'static str,
+    host_cmp: fn(T, T) -> bool,
+    kernel_cmp: &'static str,
 }
 
-impl<'a, L, R> ArrayBoolean<'a, L, R> {
-    fn new(left: &'a L, right: &'a R, cmp: &'static str) -> Self {
-        Self { left, right, cmp }
+impl<'a, T: CDatatype, L, R> ArrayBoolean<'a, T, L, R> {
+    fn new(
+        left: &'a L,
+        right: &'a R,
+        host_cmp: fn(T, T) -> bool,
+        kernel_cmp: &'static str,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            host_cmp,
+            kernel_cmp,
+        }
     }
 
     pub fn and(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "&&")
+        fn and<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) && (r != T::zero())
+        }
+
+        Self::new(left, right, and, "&&")
     }
 
     pub fn or(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "||")
+        fn or<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) || (r != T::zero())
+        }
+
+        Self::new(left, right, or, "||")
     }
 
     pub fn xor(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "^")
+        fn xor<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) ^ (r != T::zero())
+        }
+
+        Self::new(left, right, xor, "^")
     }
 }
 
-impl<'a, L, R> Op for ArrayBoolean<'a, L, R>
+impl<'a, T: CDatatype, L, R> Op for ArrayBoolean<'a, T, L, R>
 where
-    L: NDArrayRead,
-    R: NDArrayRead<DType = L::DType>,
+    L: NDArrayRead<DType = T>,
+    R: NDArrayRead<DType = T>,
 {
     type Out = u8;
 
@@ -350,18 +439,27 @@ where
         let right = self.right.read(right_queue)?;
         let left = self.left.read(queue)?;
 
-        let output = match (left, right) {
-            (Buffer::CL(left), Buffer::CL(right)) => {
+        let output = match sync_device(left, right)? {
+            Buffers::CL(left, right) => {
                 let right_cl_queue = right.default_queue().expect("right queue").clone();
                 let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
                 let cl_queue = left.default_queue().expect("left queue").clone();
 
                 let output =
-                    kernels::elementwise_boolean(self.cmp, cl_queue, &left, &right, &event)?;
+                    kernels::elementwise_boolean(self.kernel_cmp, cl_queue, &left, &right, &event)?;
 
-                output.into()
+                Buffer::CL(output)
             }
-            (_, _) => todo!("array comparison on CPU"),
+            Buffers::Host(left, right) => {
+                let output = left
+                    .into_par_iter()
+                    .zip(right.into_par_iter())
+                    .map(|(l, r)| (self.host_cmp)(l, r))
+                    .map(|cmp| if cmp { 1 } else { 0 })
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -594,7 +692,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduce<'a, T, A> {
 
                 let output = input
                     .par_chunks_exact(reduce_dim)
-                    .map(|mut chunk| {
+                    .map(|chunk| {
                         // encourage the compiler to vectorize the reduction
                         let reduced = chunk
                             .chunks(8)
@@ -647,9 +745,17 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
             Buffer::CL(input) => {
                 let cl_queue = input.default_queue().expect("queue").clone();
                 let output = kernels::cast(cl_queue, &input)?;
-                output.into()
+                Buffer::CL(output)
             }
-            Buffer::Host(_) => todo!("cast array on CPU"),
+            Buffer::Host(input) => {
+                let output = input
+                    .into_par_iter()
+                    .map(|n| n.to_f64())
+                    .map(|float| O::from_f64(float))
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -657,45 +763,57 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
 }
 
 #[derive(Copy, Clone)]
-pub struct ArrayUnary<A> {
+pub struct ArrayUnary<IT, OT, A> {
     array: A,
-    op: &'static str,
+    host_op: fn(IT) -> OT,
+    kernel_op: &'static str,
 }
 
-impl<A> ArrayUnary<A> {
-    fn new(array: A, op: &'static str) -> Self {
-        Self { array, op }
+impl<IT, OT, A> ArrayUnary<IT, OT, A> {
+    fn new(array: A, host_op: fn(IT) -> OT, kernel_op: &'static str) -> Self {
+        Self {
+            array,
+            host_op,
+            kernel_op,
+        }
     }
+}
 
-    // TODO: replace with abs for integer types
+impl<T: CDatatype, A> ArrayUnary<T, T, A> {
     pub fn abs(array: A) -> Self {
-        Self::new(array, "fabs")
+        // TODO: replace "fabs" with "abs" for integer types
+        Self::new(array, T::abs, "fabs")
     }
 
     pub fn exp(array: A) -> Self {
-        Self::new(array, "exp")
-    }
-
-    pub fn inf(array: A) -> Self {
-        Self::new(array, "isinf")
-    }
-
-    pub fn nan(array: A) -> Self {
-        Self::new(array, "isnan")
-    }
-
-    pub fn neg(array: A) -> Self {
-        Self::new(array, "-")
-    }
-
-    pub fn not(array: A) -> Self {
-        Self::new(array, "!")
+        Self::new(array, T::exp, "exp")
     }
 }
 
-// TODO: can this be an in-place operation?
-impl<A: NDArrayRead> Op for ArrayUnary<A> {
-    type Out = A::DType;
+impl<T: CDatatype, A> ArrayUnary<T, T::Neg, A> {
+    pub fn neg(array: A) -> Self {
+        Self::new(array, T::neg, "-")
+    }
+}
+
+impl<IT: CDatatype, A> ArrayUnary<IT, u8, A> {
+    pub fn not(array: A) -> Self {
+        Self::new(array, IT::not, "!")
+    }
+}
+
+impl<IT: Float, A> ArrayUnary<IT, u8, A> {
+    pub fn inf(array: A) -> Self {
+        Self::new(array, IT::is_inf, "isinf")
+    }
+
+    pub fn nan(array: A) -> Self {
+        Self::new(array, IT::is_nan, "isnan")
+    }
+}
+
+impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary<IT, OT, A> {
+    type Out = OT;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
         let input = self.array.read(queue)?;
@@ -703,10 +821,13 @@ impl<A: NDArrayRead> Op for ArrayUnary<A> {
         let output = match input {
             Buffer::CL(input) => {
                 let cl_queue = input.default_queue().expect("queue").clone();
-                let output = kernels::unary(self.op, cl_queue, input)?;
-                output.into()
+                let output = kernels::unary(self.kernel_op, cl_queue, &input)?;
+                Buffer::CL(output)
             }
-            Buffer::Host(_) => todo!("unary array ops on CPU"),
+            Buffer::Host(input) => {
+                let output = input.into_par_iter().map(|n| (self.host_op)(n)).collect();
+                Buffer::Host(output)
+            },
         };
 
         Ok(output)

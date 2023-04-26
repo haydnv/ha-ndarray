@@ -6,7 +6,7 @@ const NUM_EXAMPLES: usize = 25;
 fn main() -> Result<(), Error> {
     let weights = ArrayBase::random_normal(vec![2, 1], None)?;
 
-    let inputs = ArrayBase::copy(&(ArrayBase::random_uniform(vec![NUM_EXAMPLES, 2], None)? + 1.))?;
+    let inputs = ArrayBase::copy(&(ArrayBase::random_uniform(vec![NUM_EXAMPLES, 2], None)? * 2.))?;
     let inputs_bool = inputs.lt_scalar(1.0);
     let labels = ArrayBase::copy(
         &inputs_bool
@@ -18,14 +18,14 @@ fn main() -> Result<(), Error> {
 
     loop {
         let output = inputs.matmul(&weights)?;
-
-        let loss = (labels.clone() - output.clone()).pow(2.);
+        let error = labels.clone() - output;
+        let loss = error.pow(2.);
         println!("loss: {} (max {})", loss.sum()?, loss.max()?);
 
         if loss.lt_scalar(1.0).all()? {
             return Ok(());
         } else {
-            let d_loss = (labels.clone() - output) * 2.;
+            let d_loss = error * 2.;
             let weights_t = weights.transpose(None)?;
             let gradient = d_loss.matmul(&weights_t)?;
             let deltas = gradient.sum_axis(0)?.expand_dim(1)?;

@@ -280,32 +280,39 @@ pub fn scalar_cmp<T: CDatatype>(
     Ok(output)
 }
 
-pub fn unary<T: CDatatype>(
+pub fn unary<IT: CDatatype, OT: CDatatype>(
     op: &'static str,
     queue: Queue,
-    buffer: Buffer<T>,
-) -> Result<Buffer<T>, Error> {
+    input: &Buffer<IT>,
+) -> Result<Buffer<OT>, Error> {
     let src = format!(
         r#"
-        __kernel void unary(__global {dtype}* buffer) {{
+        __kernel void unary(__global const {itype}* input, __global {otype}* output) {{
             const ulong offset = get_global_id(0);
-            buffer[offset] = {op}(buffer[offset]);
+            output[offset] = {op}(input[offset]);
         }}
         "#,
-        dtype = T::TYPE_STR
+        itype = IT::TYPE_STR,
+        otype = OT::TYPE_STR,
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;
+
+    let output = Buffer::builder()
+        .queue(queue.clone())
+        .len(input.len())
+        .build()?;
 
     let kernel = Kernel::builder()
         .name("unary")
         .program(&program)
         .queue(queue)
-        .global_work_size(buffer.len())
-        .arg(&buffer)
+        .global_work_size(output.len())
+        .arg(input)
+        .arg(&output)
         .build()?;
 
     unsafe { kernel.enq()? }
 
-    Ok(buffer)
+    Ok(output)
 }

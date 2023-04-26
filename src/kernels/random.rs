@@ -105,7 +105,7 @@ pub fn random_uniform(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f
 
         __kernel void random_uniform(const ulong seed, __global float* output) {{
             const ulong offset = get_global_id(0);
-            output[offset] = random(seed, offset) * 2. - 1.;
+            output[offset] = random(seed, offset);
         }}
     "#
     );

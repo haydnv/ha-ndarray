@@ -1,5 +1,6 @@
 extern crate ocl;
 
+use std::convert::identity;
 use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Range, Rem, Sub};
@@ -63,15 +64,47 @@ pub trait CDatatype:
 {
     const TYPE_STR: &'static str;
 
+    type Float: Float;
+    type Neg: CDatatype;
+
     fn one() -> Self;
 
     fn zero() -> Self;
+
+    fn from_f64(float: f64) -> Self;
+
+    fn abs(self) -> Self;
+
+    fn exp(self) -> Self;
+
+    fn log(self, base: f64) -> Self {
+        Self::from_f64(self.to_f64().log(base))
+    }
+
+    fn neg(self) -> Self::Neg;
+
+    fn not(self) -> u8 {
+        if self == Self::zero() {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn pow(self, exp: f64) -> Self {
+        Self::from_f64(self.to_f64().powf(exp))
+    }
+
+    fn to_f64(self) -> f64;
 }
 
 macro_rules! c_type {
-    ($t:ty, $ct:expr, $zero:expr, $one:expr) => {
+    ($t:ty, $ct:expr, $zero:expr, $one:expr, $abs:expr, $float:ty, $neg:ty) => {
         impl CDatatype for $t {
             const TYPE_STR: &'static str = $ct;
+
+            type Float = $float;
+            type Neg = $neg;
 
             fn one() -> Self {
                 $one
@@ -80,20 +113,86 @@ macro_rules! c_type {
             fn zero() -> Self {
                 $zero
             }
+
+            fn from_f64(float: f64) -> Self {
+                float as $t
+            }
+
+            fn abs(self) -> Self {
+                $abs(self)
+            }
+
+            fn exp(self) -> Self {
+                Self::from_f64(std::f64::consts::E.pow(self.to_f64()))
+            }
+
+            fn neg(self) -> Self::Neg {
+                if self >= Self::zero() {
+                    self as $neg
+                } else {
+                    -(self as $neg)
+                }
+            }
+
+            fn to_f64(self) -> f64 {
+                self as f64
+            }
         }
     };
 }
 
-c_type!(f32, "float", 0., 1.);
-c_type!(f64, "double", 0., 1.);
-c_type!(u8, "uchar", 0, 1);
-c_type!(u16, "ushort", 0, 1);
-c_type!(u32, "uint", 0, 1);
-c_type!(u64, "ulong", 0, 1);
-c_type!(i8, "char", 0, 1);
-c_type!(i16, "short", 0, 1);
-c_type!(i32, "int", 0, 1);
-c_type!(i64, "long", 0, 1);
+c_type!(f32, "float", 0., 1., f32::abs, f32, f32);
+c_type!(f64, "double", 0., 1., f64::abs, f64, f64);
+c_type!(u8, "uchar", 0, 1, identity, f32, i8);
+c_type!(u16, "ushort", 0, 1, identity, f32, i16);
+c_type!(u32, "uint", 0, 1, identity, f32, i32);
+c_type!(u64, "ulong", 0, 1, identity, f64, i64);
+c_type!(i8, "char", 0, 1, i8::abs, f32, i8);
+c_type!(i16, "short", 0, 1, i16::abs, f32, i16);
+c_type!(i32, "int", 0, 1, i32::abs, f32, i32);
+c_type!(i64, "long", 0, 1, i64::abs, f64, i64);
+
+pub trait Float: CDatatype {
+    fn is_inf(self) -> u8;
+
+    fn is_nan(self) -> u8;
+}
+
+impl Float for f32 {
+    fn is_inf(self) -> u8 {
+        if f32::is_infinite(self) {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn is_nan(self) -> u8 {
+        if f32::is_nan(self) {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+impl Float for f64 {
+    fn is_inf(self) -> u8 {
+        if f64::is_infinite(self) {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn is_nan(self) -> u8 {
+        if f64::is_nan(self) {
+            1
+        } else {
+            0
+        }
+    }
+}
 
 #[derive(Clone, Default)]
 struct DeviceList {
@@ -301,19 +400,28 @@ pub trait NDArrayBoolean<O>: NDArray
 where
     O: NDArray<DType = Self::DType>,
 {
-    fn and<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+    fn and<'a>(
+        &'a self,
+        other: &'a O,
+    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::and(self, other);
         Ok(ArrayOp::new(op, shape))
     }
 
-    fn or<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+    fn or<'a>(
+        &'a self,
+        other: &'a O,
+    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::or(self, other);
         Ok(ArrayOp::new(op, shape))
     }
 
-    fn xor<'a>(&'a self, other: &'a O) -> Result<ArrayOp<ArrayBoolean<'a, Self, O>>, Error> {
+    fn xor<'a>(
+        &'a self,
+        other: &'a O,
+    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::xor(self, other);
         Ok(ArrayOp::new(op, shape))
@@ -321,14 +429,14 @@ where
 }
 
 pub trait NDArrayAbs: NDArray + Clone {
-    fn abs(&self) -> ArrayOp<ArrayUnary<Self>> {
+    fn abs(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
         let op = ArrayUnary::abs(self.clone());
         ArrayOp::new(op, self.shape().to_vec())
     }
 }
 
 pub trait NDArrayExp: NDArray + Clone {
-    fn exp(&self) -> ArrayOp<ArrayUnary<Self>> {
+    fn exp(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
         let op = ArrayUnary::exp(self.clone());
         ArrayOp::new(op, self.shape().to_vec())
     }
@@ -349,51 +457,43 @@ pub trait NDArrayMath<O: NDArray<DType = f64>>: NDArrayRead {
 }
 
 pub trait NDArrayMathScalar: NDArrayRead + Clone {
-    fn log(&self, base: f64) -> ArrayOp<ArrayScalar<f64, Self>> {
+    fn log(&self, base: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        let op = ArrayScalar::log(self.clone(), base);
+        let op = ArrayScalarFloat::log(self.clone(), base);
         ArrayOp::new(op, shape)
     }
 
-    fn pow(&self, exp: f64) -> ArrayOp<ArrayScalar<f64, Self>> {
+    fn pow(&self, exp: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        let op = ArrayScalar::pow(self.clone(), exp);
+        let op = ArrayScalarFloat::pow(self.clone(), exp);
         ArrayOp::new(op, shape)
     }
 }
 
 pub trait NDArrayNumeric: NDArray + Clone {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self>> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(op, shape)
-    }
+    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>>;
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self>> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(op, shape)
-    }
+    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>>;
 }
 
 pub trait NDArrayTrig: NDArray {
-    fn asin(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn asin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn sin(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn sin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn sinh(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn sinh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn acos(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn acos(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn cos(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn cos(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn cosh(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn cosh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn atan(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn atan(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn tan(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn tan(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
-    fn tanh(&self) -> ArrayOp<ArrayUnary<Self>>;
+    fn tanh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 }
 
 pub trait NDArrayCast<O>: NDArray {
