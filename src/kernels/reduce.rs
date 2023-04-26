@@ -1,4 +1,5 @@
 use ocl::{Buffer, Error, Kernel, Program, Queue};
+use rayon::prelude::*;
 
 use crate::{CDatatype, Shape};
 
@@ -89,12 +90,12 @@ pub fn reduce<T: CDatatype>(
     reduce: &'static str,
     queue: Queue,
     mut buffer: Buffer<T>,
-    collector: impl Fn(T, T) -> T,
+    collector: impl Fn(T, T) -> T + Send + Sync,
 ) -> Result<T, Error> {
     if buffer.len() < MIN_SIZE {
         let mut result = vec![init; buffer.len()];
         buffer.read(&mut result).enq()?;
-        return Ok(result.into_iter().fold(init, collector));
+        return Ok(result.into_par_iter().reduce(|| init, collector));
     }
 
     let src = format!(
@@ -174,7 +175,7 @@ pub fn reduce<T: CDatatype>(
 
     queue.finish()?;
 
-    Ok(result.into_iter().fold(init, collector))
+    Ok(result.into_par_iter().reduce(|| init, collector))
 }
 
 pub fn reduce_axis<T: CDatatype>(

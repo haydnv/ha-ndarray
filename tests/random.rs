@@ -20,8 +20,8 @@ fn test_random_uniform() -> Result<(), Error> {
 
     assert!(!array.eq_scalar(0.).any()?);
     assert_eq!(array.sum()? as usize / size, 0);
-    assert!(array.gte_scalar(-1.).all()?);
-    assert!(array.lte_scalar(1.).all()?);
+    assert!(array.ge_scalar(-1.).all()?);
+    assert!(array.le_scalar(1.).all()?);
 
     Ok(())
 }

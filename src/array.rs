@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
 use rand::Rng;
+use rayon::prelude::*;
 
 use super::kernels;
 use super::ops::*;
@@ -235,12 +236,12 @@ impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
 macro_rules! impl_op {
     ($op:ident, $name:ident, $t:ty, $o:ty) => {
-        impl<T, O> $op<$o> for $t
+        impl<T: CDatatype, O> $op<$o> for $t
         where
             Self: NDArray,
             $o: NDArray,
         {
-            type Output = ArrayOp<ArrayDual<Self, $o>>;
+            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
 
             fn $name(self, rhs: $o) -> Self::Output {
                 let shape = self.shape().to_vec();
@@ -321,7 +322,7 @@ impl<A: NDArrayRead> MatrixMath<A> for ArrayBase<A::DType> {}
 
 impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
 
-impl<T: CDatatype> NDArrayCompareScalar<T> for ArrayBase<T> {}
+impl<T: CDatatype> NDArrayCompareScalar for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
@@ -456,7 +457,7 @@ where
     }
 }
 
-impl<Op: super::ops::Op> NDArrayCompareScalar<Op::Out> for ArrayOp<Op> {}
+impl<Op: super::ops::Op> NDArrayCompareScalar for ArrayOp<Op> {}
 
 impl<Op: super::ops::Op> NDArrayAbs for ArrayOp<Op> where Self: Clone {}
 
@@ -623,11 +624,12 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
+        let dims = self.shape();
+        let strides = strides_for(self.shape(), self.ndim());
+        let source_strides = strides_for(self.source.shape(), self.source.ndim());
+
         let buffer = match self.source.read(queue)? {
             Buffer::CL(source) => {
-                let strides = strides_for(self.shape(), self.ndim());
-                let source_strides = strides_for(self.source.shape(), self.source.ndim());
-
                 let cl_queue = source.default_queue().expect("queue").clone();
                 let buffer = kernels::slice(
                     cl_queue,
@@ -638,10 +640,44 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
                     &source_strides,
                 )?;
 
-                buffer.into()
+                Buffer::CL(buffer)
             }
-            Buffer::Host(_) => {
-                todo!("slice on CPU")
+            Buffer::Host(source) => {
+                let output = (0..self.size())
+                    .into_par_iter()
+                    .map(|offset_out| {
+                        let coord = strides
+                            .iter()
+                            .zip(dims)
+                            .map(|(stride, dim)| (offset_out / stride) % dim)
+                            .collect::<Vec<usize>>();
+
+                        let mut offset_in = 0;
+                        let mut x = 0;
+                        for (stride, bound) in source_strides.iter().zip(self.bounds.iter()) {
+                            let i = match bound {
+                                AxisBound::At(i) => *i,
+                                AxisBound::In(start, stop, step) => {
+                                    let i = start + (coord[x] * step);
+                                    debug_assert!(i < *stop);
+                                    x += 1;
+                                    i
+                                }
+                                AxisBound::Of(indices) => {
+                                    let i = indices[coord[x]];
+                                    x += 1;
+                                    i
+                                }
+                            };
+
+                            offset_in += i * stride;
+                        }
+
+                        source[offset_in]
+                    })
+                    .collect();
+
+                Buffer::Host(output)
             }
         };
 
@@ -895,9 +931,31 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
                     kernels::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
                 }?;
 
-                buffer.into()
+                Buffer::CL(buffer)
             }
-            Buffer::Host(_) => todo!("reorder array view on CPU"),
+            Buffer::Host(buffer) => {
+                let source_strides = &self.strides;
+                let strides = strides_for(self.shape(), self.ndim());
+                let dims = self.shape();
+                debug_assert_eq!(strides.len(), dims.len());
+
+                let buffer = (0..self.size())
+                    .into_par_iter()
+                    .map(|offset| {
+                        strides
+                            .iter()
+                            .copied()
+                            .zip(dims.iter().copied())
+                            .map(|(stride, dim)| (offset / stride) % dim) // coord
+                            .zip(source_strides.iter().copied())
+                            .map(|(i, source_stride)| i * source_stride) // source offset
+                            .sum::<usize>()
+                    })
+                    .map(|source_offset| buffer[source_offset])
+                    .collect();
+
+                Buffer::Host(buffer)
+            }
         };
 
         Ok(buffer)

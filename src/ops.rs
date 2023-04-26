@@ -1,9 +1,13 @@
+use std::cmp::{PartialEq, PartialOrd};
 use std::marker::PhantomData;
+use std::ops::{Add, Div, Mul, Rem, Sub};
+
+use rayon::prelude::*;
 
 use super::kernels;
 use super::{Buffer, CDatatype, Error, NDArrayRead, Queue};
 
-pub trait Op {
+pub trait Op: Send + Sync {
     type Out: CDatatype;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error>;
@@ -12,60 +16,77 @@ pub trait Op {
 // arithmetic
 
 #[derive(Copy, Clone)]
-pub struct ArrayDual<L, R> {
+pub struct ArrayDual<T, L, R> {
     left: L,
     right: R,
-    op: &'static str,
+    cpu_op: fn(T, T) -> T,
+    kernel_op: &'static str,
 }
 
-impl<L, R> ArrayDual<L, R> {
-    fn new(left: L, right: R, op: &'static str) -> Self {
-        Self { left, right, op }
+impl<T: CDatatype, L, R> ArrayDual<T, L, R> {
+    fn new(left: L, right: R, cpu_op: fn(T, T) -> T, kernel_op: &'static str) -> Self {
+        Self {
+            left,
+            right,
+            cpu_op,
+            kernel_op,
+        }
     }
 
     pub fn add(left: L, right: R) -> Self {
-        Self::new(left, right, "+")
+        Self::new(left, right, Add::add, "+")
     }
 
     pub fn div(left: L, right: R) -> Self {
-        Self::new(left, right, "/")
+        Self::new(left, right, Div::div, "/")
     }
 
     pub fn mul(left: L, right: R) -> Self {
-        Self::new(left, right, "*")
+        Self::new(left, right, Mul::mul, "*")
     }
 
     pub fn rem(left: L, right: R) -> Self {
-        Self::new(left, right, "%")
+        Self::new(left, right, Rem::rem, "%")
     }
 
     pub fn sub(left: L, right: R) -> Self {
-        Self::new(left, right, "-")
+        Self::new(left, right, Sub::sub, "-")
     }
 }
 
-impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<L, R> {
+impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<T, L, R> {
     type Out = T;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
-        assert_eq!(self.left.size(), self.right.size());
+        debug_assert_eq!(self.left.size(), self.right.size());
 
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.read(right_queue)?;
         let left = self.left.read(queue)?;
 
-        let output = match (left, right) {
-            (Buffer::CL(left), Buffer::CL(right)) => {
+        let output = match sync_device(left, right)? {
+            Buffers::CL(left, right) => {
                 let right_cl_queue = right.default_queue().expect("right queue").clone();
                 let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
 
                 let cl_queue = left.default_queue().expect("left queue").clone();
 
-                let output = kernels::elementwise_inplace(self.op, cl_queue, left, &right, &event)?;
+                let output =
+                    kernels::elementwise_inplace(self.kernel_op, cl_queue, left, &right, &event)?;
 
-                output.into()
+                Buffer::CL(output)
             }
-            (_, _) => todo!("dual array ops on CPU"),
+            Buffers::Host(left, right) => {
+                debug_assert_eq!(left.len(), right.len());
+
+                let output = left
+                    .into_par_iter()
+                    .zip(right.into_par_iter())
+                    .map(|(l, r)| (self.cpu_op)(l, r))
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -203,8 +224,13 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
         let ndim = self.left.ndim();
         debug_assert_eq!(ndim, self.right.ndim());
 
-        let num_matrices = self.left.shape()[..ndim - 2].iter().product();
-        let a = *self.left.shape().iter().nth(ndim - 2).expect("a");
+        let num_matrices = self.left.shape().iter().take(ndim - 2).product();
+        debug_assert_eq!(
+            num_matrices,
+            self.right.shape().iter().take(ndim - 2).product()
+        );
+
+        let a = *self.left.shape().iter().rev().nth(1).expect("a");
         let b = *self.left.shape().last().expect("b");
         let c = *self.right.shape().last().expect("c");
         debug_assert_eq!(b, self.right.shape()[ndim - 2]);
@@ -213,8 +239,8 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
         let right = self.right.read(right_queue)?;
         let left = self.left.read(queue)?;
 
-        let output = match (left, right) {
-            (Buffer::CL(left), Buffer::CL(right)) => {
+        let output = match sync_device(left, right)? {
+            Buffers::CL(left, right) => {
                 let right_cl_queue = right.default_queue().expect("right queue").clone();
                 let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
                 let cl_queue = left.default_queue().expect("left queue").clone();
@@ -222,9 +248,61 @@ impl<'a, T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op
                 let output =
                     kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event)?;
 
-                output.into()
+                Buffer::CL(output)
             }
-            (_, _) => todo!("matmul on CPU"),
+            Buffers::Host(left, right) => {
+                // transpose the right matrices
+                let right_size = b * c;
+                let right_matrices = (0..num_matrices).into_par_iter().map(|n| {
+                    let start = n * right_size;
+                    let stop = start + right_size;
+                    let mut right_t = vec![T::zero(); right_size];
+                    transpose::transpose(&right[start..stop], &mut right_t[..], b, c);
+                    right_t
+                });
+
+                let left_size = a * b;
+                let left_matrices = left.par_chunks_exact(left_size);
+
+                let output_size = a * c;
+                let mut output = Vec::<T>::with_capacity(num_matrices * output_size);
+                let output_matrices = left_matrices
+                    .zip(right_matrices)
+                    .map(|(lm, rm)| {
+                        let mut out = Vec::<T>::with_capacity(output_size);
+
+                        let product = lm
+                            .par_chunks_exact(b)
+                            .map(|row| {
+                                rm.par_chunks_exact(b).map(move |col| {
+                                    // chunk the dot product to encourage the compiler to vectorize
+                                    let col = col.chunks(8).map(|cc| cc.into_iter().copied());
+
+                                    row.chunks(8)
+                                        .zip(col)
+                                        .map(|(rc, cc)| {
+                                            rc.into_iter()
+                                                .copied()
+                                                .zip(cc)
+                                                .map(|(r, c)| r * c)
+                                                .sum()
+                                        })
+                                        .sum::<T>()
+                                })
+                            })
+                            .flatten();
+
+                        out.par_extend(product);
+                        out
+                    })
+                    .flatten();
+
+                output.par_extend(output_matrices);
+
+                debug_assert_eq!(output.len(), num_matrices * output_size);
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -290,45 +368,55 @@ where
     }
 }
 
-// TODO: remove the lifetime parameter
 #[derive(Copy, Clone)]
-pub struct ArrayCompare<'a, L, R> {
+pub struct ArrayCompare<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
-    cmp: &'static str,
+    host_cmp: fn(&T, &T) -> bool,
+    kernel_cmp: &'static str,
 }
 
-impl<'a, L, R> ArrayCompare<'a, L, R> {
-    fn new(left: &'a L, right: &'a R, cmp: &'static str) -> Self {
-        Self { left, right, cmp }
+impl<'a, T: CDatatype, L, R> ArrayCompare<'a, T, L, R> {
+    fn new(
+        left: &'a L,
+        right: &'a R,
+        host_cmp: fn(&T, &T) -> bool,
+        kernel_cmp: &'static str,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            host_cmp,
+            kernel_cmp,
+        }
     }
 
     pub fn eq(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "==")
+        Self::new(left, right, PartialEq::eq, "==")
     }
 
     pub fn gt(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, ">")
+        Self::new(left, right, PartialOrd::gt, ">")
     }
 
     pub fn gte(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, ">=")
+        Self::new(left, right, PartialOrd::ge, ">=")
     }
 
     pub fn lt(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "<")
+        Self::new(left, right, PartialOrd::lt, "<")
     }
 
     pub fn lte(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "<=")
+        Self::new(left, right, PartialOrd::le, "<=")
     }
 
     pub fn ne(left: &'a L, right: &'a R) -> Self {
-        Self::new(left, right, "!=")
+        Self::new(left, right, PartialEq::ne, "!=")
     }
 }
 
-impl<'a, T, L, R> Op for ArrayCompare<'a, L, R>
+impl<'a, T, L, R> Op for ArrayCompare<'a, T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
@@ -343,15 +431,29 @@ where
         let right = self.right.read(right_queue)?;
         let left = self.left.read(queue)?;
 
-        let output = match (left, right) {
-            (Buffer::CL(left), Buffer::CL(right)) => {
+        let output = match sync_device(left, right)? {
+            Buffers::CL(left, right) => {
                 let right_cl_queue = right.default_queue().expect("right queue").clone();
                 let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
                 let cl_queue = left.default_queue().expect("left queue").clone();
-                let output = kernels::elementwise_cmp(self.cmp, cl_queue, &left, &right, &event)?;
-                output.into()
+
+                let output =
+                    kernels::elementwise_cmp(self.kernel_cmp, cl_queue, &left, &right, &event)?;
+
+                Buffer::CL(output)
             }
-            (_, _) => todo!("compare arrays on CPU"),
+            Buffers::Host(left, right) => {
+                debug_assert_eq!(left.len(), right.len());
+
+                let output = left
+                    .par_iter()
+                    .zip(right.par_iter())
+                    .map(|(l, r)| (self.host_cmp)(l, r))
+                    .map(|cmp| if cmp { 1 } else { 0 })
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -359,43 +461,54 @@ where
 }
 
 #[derive(Copy, Clone)]
-pub struct ArrayCompareScalar<'a, A, T> {
+pub struct ArrayCompareScalar<'a, T, A> {
     array: &'a A,
     scalar: T,
-    cmp: &'static str,
+    host_cmp: fn(&T, &T) -> bool,
+    kernel_cmp: &'static str,
 }
 
-impl<'a, A, T> ArrayCompareScalar<'a, A, T> {
-    fn new(array: &'a A, scalar: T, cmp: &'static str) -> Self {
-        Self { array, scalar, cmp }
+impl<'a, T: CDatatype, A> ArrayCompareScalar<'a, T, A> {
+    fn new(
+        array: &'a A,
+        scalar: T,
+        host_cmp: fn(&T, &T) -> bool,
+        kernel_cmp: &'static str,
+    ) -> Self {
+        Self {
+            array,
+            scalar,
+            host_cmp,
+            kernel_cmp,
+        }
     }
 
     pub fn eq(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, "==")
+        Self::new(array, scalar, PartialEq::eq, "==")
     }
 
     pub fn gt(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, ">")
+        Self::new(array, scalar, PartialOrd::gt, ">")
     }
 
     pub fn gte(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, ">=")
+        Self::new(array, scalar, PartialOrd::ge, ">=")
     }
 
     pub fn lt(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, "<")
+        Self::new(array, scalar, PartialOrd::lt, "<")
     }
 
     pub fn lte(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, "<=")
+        Self::new(array, scalar, PartialOrd::le, "<=")
     }
 
     pub fn ne(array: &'a A, scalar: T) -> Self {
-        Self::new(array, scalar, "!=")
+        Self::new(array, scalar, PartialEq::ne, "!=")
     }
 }
 
-impl<'a, A: NDArrayRead> Op for ArrayCompareScalar<'a, A, A::DType> {
+impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, T, A> {
     type Out = u8;
 
     fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
@@ -404,10 +517,18 @@ impl<'a, A: NDArrayRead> Op for ArrayCompareScalar<'a, A, A::DType> {
         let output = match input {
             Buffer::CL(input) => {
                 let cl_queue = input.default_queue().expect("queue").clone();
-                let output = kernels::scalar_cmp(self.cmp, cl_queue, &input, self.scalar)?;
-                output.into()
+                let output = kernels::scalar_cmp(self.kernel_cmp, cl_queue, &input, self.scalar)?;
+                Buffer::CL(output)
             }
-            Buffer::Host(_) => todo!("compare array with scalar on CPU"),
+            Buffer::Host(input) => {
+                let output = input
+                    .par_iter()
+                    .map(|n| (self.host_cmp)(n, &self.scalar))
+                    .map(|cmp| if cmp { 1 } else { 0 })
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -417,49 +538,84 @@ impl<'a, A: NDArrayRead> Op for ArrayCompareScalar<'a, A, A::DType> {
 // reduction
 
 #[derive(Copy, Clone)]
-pub struct ArrayReduce<'a, A> {
+pub struct ArrayReduce<'a, T, A> {
     source: &'a A,
     axis: usize,
-    reduce: &'static str,
+    host_reduce: fn(T, T) -> T,
+    kernel_reduce: &'static str,
 }
 
-impl<'a, A> ArrayReduce<'a, A> {
-    fn new(source: &'a A, axis: usize, reduce: &'static str) -> Self {
+impl<'a, T: CDatatype, A> ArrayReduce<'a, T, A> {
+    fn new(
+        source: &'a A,
+        axis: usize,
+        host_reduce: fn(T, T) -> T,
+        kernel_reduce: &'static str,
+    ) -> Self {
         Self {
             source,
             axis,
-            reduce,
+            host_reduce,
+            kernel_reduce,
         }
     }
 
     pub fn sum(source: &'a A, axis: usize) -> Self {
-        Self::new(source, axis, "add")
+        Self::new(source, axis, Add::add, "add")
     }
 }
 
-impl<'a, A: NDArrayRead> Op for ArrayReduce<'a, A> {
-    type Out = A::DType;
+impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduce<'a, T, A> {
+    type Out = T;
 
-    fn enqueue(&self, queue: Queue) -> Result<Buffer<Self::Out>, Error> {
+    fn enqueue(&self, queue: Queue) -> Result<Buffer<T>, Error> {
         debug_assert!(self.axis < self.source.ndim());
         let shape = self.source.shape().to_vec();
-        let input = (&self.source).read(queue)?;
+        let input = self.source.read(queue)?;
 
         let output = match input {
             Buffer::CL(input) => {
                 let cl_queue = input.default_queue().expect("queue").clone();
                 let output = kernels::reduce_axis(
                     A::DType::zero(),
-                    self.reduce,
+                    self.kernel_reduce,
                     cl_queue,
                     input,
                     shape,
                     self.axis,
                 )?;
 
-                output.into()
+                Buffer::CL(output)
             }
-            Buffer::Host(_) => todo!("reduce axis on CPU"),
+            Buffer::Host(input) => {
+                debug_assert!(!input.is_empty());
+
+                let reduce_dim = self.source.shape()[self.axis];
+
+                let output = input
+                    .par_chunks_exact(reduce_dim)
+                    .map(|mut chunk| {
+                        // encourage the compiler to vectorize the reduction
+                        let reduced = chunk
+                            .chunks(8)
+                            .map(|cc| {
+                                let reduced = cc
+                                    .into_iter()
+                                    .copied()
+                                    .reduce(self.host_reduce)
+                                    .expect("reduce chunk");
+
+                                reduced
+                            })
+                            .reduce(self.host_reduce)
+                            .expect("reduce");
+
+                        reduced
+                    })
+                    .collect();
+
+                Buffer::Host(output)
+            }
         };
 
         Ok(output)
@@ -554,5 +710,41 @@ impl<A: NDArrayRead> Op for ArrayUnary<A> {
         };
 
         Ok(output)
+    }
+}
+
+enum Buffers<LT: CDatatype, RT: CDatatype> {
+    CL(ocl::Buffer<LT>, ocl::Buffer<RT>),
+    Host(Vec<LT>, Vec<RT>),
+}
+
+#[inline]
+fn sync_device<LT: CDatatype, RT: CDatatype>(
+    left: Buffer<LT>,
+    right: Buffer<RT>,
+) -> Result<Buffers<LT, RT>, ocl::Error> {
+    match (left, right) {
+        (Buffer::Host(left), Buffer::Host(right)) => Ok(Buffers::Host(left, right)),
+        (Buffer::CL(left), Buffer::CL(right)) => Ok(Buffers::CL(left, right)),
+        (Buffer::Host(left), Buffer::CL(right)) => {
+            let cl_queue = right.default_queue().expect("queue").clone();
+            let left_cl = ocl::Buffer::builder()
+                .queue(cl_queue)
+                .len(left.len())
+                .copy_host_slice(&left[..])
+                .build()?;
+
+            Ok(Buffers::CL(left_cl, right))
+        }
+        (Buffer::CL(left), Buffer::Host(right)) => {
+            let cl_queue = left.default_queue().expect("queue").clone();
+            let right_cl = ocl::Buffer::builder()
+                .queue(cl_queue)
+                .len(left.len())
+                .copy_host_slice(&right[..])
+                .build()?;
+
+            Ok(Buffers::CL(left, right_cl))
+        }
     }
 }

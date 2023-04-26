@@ -42,10 +42,10 @@ fn test_gte() -> Result<(), Error> {
     let zeros = ArrayBase::constant(vec![5, 2], 0.);
     let ones = ArrayBase::constant(vec![5, 2], 1.);
 
-    assert!(zeros.gte(&zeros)?.all()?);
-    assert!(ones.gte(&ones)?.all()?);
-    assert!(!zeros.gte(&ones)?.any()?);
-    assert!(ones.gte(&zeros)?.all()?);
+    assert!(zeros.ge(&zeros)?.all()?);
+    assert!(ones.ge(&ones)?.all()?);
+    assert!(!zeros.ge(&ones)?.any()?);
+    assert!(ones.ge(&zeros)?.all()?);
 
     Ok(())
 }
@@ -68,10 +68,10 @@ fn test_lte() -> Result<(), Error> {
     let zeros = ArrayBase::constant(vec![5, 2], 0.);
     let ones = ArrayBase::constant(vec![5, 2], 1.);
 
-    assert!(zeros.lte(&zeros)?.all()?);
-    assert!(ones.lte(&ones)?.all()?);
-    assert!(zeros.lte(&ones)?.all()?);
-    assert!(!ones.lte(&zeros)?.any()?);
+    assert!(zeros.le(&zeros)?.all()?);
+    assert!(ones.le(&ones)?.all()?);
+    assert!(zeros.le(&ones)?.all()?);
+    assert!(!ones.le(&zeros)?.any()?);
 
     Ok(())
 }
