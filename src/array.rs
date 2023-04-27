@@ -28,7 +28,7 @@ impl<T: CDatatype> ArrayBase<T> {
 
         let context = Context::default()?;
         let queue = context.queue(other.size())?;
-        let data = match other.read(queue)? {
+        let data = match other.read(&queue)? {
             Buffer::CL(buffer) => {
                 let mut data = vec![T::zero(); other.size()];
                 buffer.read(&mut data).enq()?;
@@ -98,7 +98,7 @@ impl ArrayBase<f32> {
                 buffer.read(&mut data[..]).enq()?;
                 data
             }
-            DeviceQueue::CPU => {
+            DeviceQueue::Host => {
                 let mut u1 = vec![0.0f32; size];
                 rand::thread_rng().fill(&mut u1[..]);
 
@@ -138,7 +138,7 @@ impl ArrayBase<f32> {
 
                 buffer.read(&mut data[..]).enq()?;
             }
-            DeviceQueue::CPU => rand::thread_rng().fill(&mut data[..]),
+            DeviceQueue::Host => rand::thread_rng().fill(&mut data[..]),
         }
 
         Self::from_vec(shape, data)
@@ -364,11 +364,11 @@ impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
 impl<T: CDatatype> NDArrayCompareScalar for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
-    fn read(&self, queue: Queue) -> Result<Buffer<T>, Error> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
         let buffer = match queue.device_queue() {
-            DeviceQueue::CPU => data.to_vec().into(),
+            DeviceQueue::Host => data.to_vec().into(),
             DeviceQueue::CL(cl_queue) => {
                 let buffer = ocl::Buffer::builder()
                     .queue(cl_queue.clone())
@@ -391,7 +391,7 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
             let context = Context::default()?;
             let queue = context.queue(self.size())?;
 
-            match other.read(queue)? {
+            match other.read(&queue)? {
                 Buffer::CL(buffer) => {
                     let mut data = self.data.write().expect("data");
                     buffer.read(&mut data[..]).enq()?;
@@ -441,7 +441,7 @@ impl<Op: super::ops::Op> NDArray for ArrayOp<Op> {
 }
 
 impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
-    fn read(&self, queue: Queue) -> Result<Buffer<Op::Out>, Error> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<Op::Out>, Error> {
         self.op.enqueue(queue)
     }
 }
@@ -678,7 +678,7 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let dims = self.shape();
         let strides = strides_for(self.shape(), self.ndim());
         let source_strides = strides_for(self.source.shape(), self.source.ndim());
@@ -992,7 +992,7 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let source = self.source.read(queue)?;
         let buffer = match source {
             Buffer::CL(buffer) => {

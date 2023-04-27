@@ -1,7 +1,7 @@
 use ocl::{Buffer, Error, Kernel, Program, Queue};
 use rayon::prelude::*;
 
-use crate::{CDatatype, Shape};
+use crate::CDatatype;
 
 const MIN_SIZE: usize = 1024;
 
@@ -183,7 +183,7 @@ pub fn reduce_axis<T: CDatatype>(
     reduce: &'static str,
     queue: Queue,
     mut buffer: Buffer<T>,
-    shape: Shape,
+    shape: &[usize],
     axis: usize,
 ) -> Result<Buffer<T>, Error> {
     assert!(axis < shape.len());

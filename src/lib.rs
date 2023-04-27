@@ -7,6 +7,9 @@ use std::ops::{Add, Div, Mul, Range, Rem, Sub};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use rayon::prelude::*;
+use safecast::{as_type, AsType};
+
 pub use array::*;
 use ops::*;
 
@@ -18,12 +21,13 @@ const GPU_MIN_DEFAULT: usize = 1024;
 
 pub enum Error {
     Bounds(String),
-    Platform(ocl::Error),
+    Interface(String),
+    OCL(ocl::Error),
 }
 
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
-        Self::Platform(cause)
+        Self::OCL(cause)
     }
 }
 
@@ -31,7 +35,8 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Platform(cause) => cause.fmt(f),
+            Self::Interface(cause) => f.write_str(cause),
+            Self::OCL(cause) => cause.fmt(f),
         }
     }
 }
@@ -40,7 +45,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Platform(cause) => cause.fmt(f),
+            Self::Interface(cause) => f.write_str(cause),
+            Self::OCL(cause) => cause.fmt(f),
         }
     }
 }
@@ -230,15 +236,61 @@ pub enum Buffer<T: CDatatype> {
     Host(Vec<T>),
 }
 
-impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
-    fn from(buffer: Vec<T>) -> Self {
-        Self::Host(buffer)
+impl<T: CDatatype> AsType<ocl::Buffer<T>> for Buffer<T> {
+    fn as_type(&self) -> Option<&ocl::Buffer<T>> {
+        match self {
+            Self::CL(buffer) => Some(buffer),
+            _ => None,
+        }
+    }
+
+    fn as_type_mut(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        match self {
+            Self::CL(buffer) => Some(buffer),
+            _ => None,
+        }
+    }
+
+    fn into_type(self) -> Option<ocl::Buffer<T>> {
+        match self {
+            Self::CL(buffer) => Some(buffer),
+            _ => None,
+        }
+    }
+}
+
+impl<T: CDatatype> AsType<Vec<T>> for Buffer<T> {
+    fn as_type(&self) -> Option<&Vec<T>> {
+        match self {
+            Self::Host(buffer) => Some(buffer),
+            _ => None,
+        }
+    }
+
+    fn as_type_mut(&mut self) -> Option<&mut Vec<T>> {
+        match self {
+            Self::Host(buffer) => Some(buffer),
+            _ => None,
+        }
+    }
+
+    fn into_type(self) -> Option<Vec<T>> {
+        match self {
+            Self::Host(buffer) => Some(buffer),
+            _ => None,
+        }
     }
 }
 
 impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
     fn from(buffer: ocl::Buffer<T>) -> Self {
         Self::CL(buffer)
+    }
+}
+
+impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
+    fn from(buffer: Vec<T>) -> Self {
+        Self::Host(buffer)
     }
 }
 
@@ -310,10 +362,6 @@ impl Context {
         })
     }
 
-    fn cl_context(&self) -> &ocl::Context {
-        &self.cl_context
-    }
-
     pub fn queue(&self, size_hint: usize) -> Result<Queue, Error> {
         if let Some(device) = if size_hint < self.gpu_min {
             self.platform.next_cpu()
@@ -332,12 +380,41 @@ impl Context {
 
         Ok(Queue::default(self.clone()))
     }
+
+    fn cl_queue(&self, device_queue: &DeviceQueue, size_hint: usize) -> Result<ocl::Queue, Error> {
+        if let DeviceQueue::CL(cl_queue) = device_queue {
+            return Ok(cl_queue.clone());
+        }
+
+        if let Some(device) = if size_hint < self.gpu_min {
+            self.platform
+                .next_cpu()
+                .or_else(|| self.platform.next_gpu())
+                .or_else(|| self.platform.next_acc())
+        } else if size_hint < self.acc_min {
+            self.platform
+                .next_gpu()
+                .or_else(|| self.platform.next_cpu())
+                .or_else(|| self.platform.next_acc())
+        } else {
+            self.platform
+                .next_acc()
+                .or_else(|| self.platform.next_gpu())
+                .or_else(|| self.platform.next_cpu())
+        } {
+            ocl::Queue::new(&self.cl_context, device, None).map_err(Error::from)
+        } else {
+            Err(Error::Interface("no OpenCL devices available".to_string()))
+        }
+    }
 }
 
 enum DeviceQueue {
-    CPU,
+    Host,
     CL(ocl::Queue),
 }
+
+as_type!(DeviceQueue, CL, ocl::Queue);
 
 pub struct Queue {
     context: Context,
@@ -348,12 +425,12 @@ impl Queue {
     fn default(context: Context) -> Self {
         Self {
             context,
-            device_queue: DeviceQueue::CPU,
+            device_queue: DeviceQueue::Host,
         }
     }
 
     fn with_device(context: Context, device: ocl::Device) -> Result<Self, Error> {
-        let cl_queue = ocl::Queue::new(context.cl_context(), device, None)?;
+        let cl_queue = ocl::Queue::new(&context.cl_context, device, None)?;
 
         Ok(Self {
             context,
@@ -385,7 +462,36 @@ pub trait NDArray: Send + Sync + Sized {
 }
 
 pub trait NDArrayRead: NDArray {
-    fn read(&self, queue: Queue) -> Result<Buffer<Self::DType>, Error>;
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
+
+    fn to_vec(&self, queue: &Queue) -> Result<Vec<Self::DType>, Error> {
+        match self.read(queue)? {
+            Buffer::Host(buffer) => Ok(buffer),
+            Buffer::CL(cl_buffer) => {
+                let mut buffer = vec![Self::DType::zero(); cl_buffer.len()];
+                cl_buffer.read(&mut buffer[..]).enq()?;
+                Ok(buffer)
+            }
+        }
+    }
+
+    fn to_cl_buffer(&self, queue: &Queue) -> Result<ocl::Buffer<Self::DType>, Error> {
+        match self.read(queue)? {
+            Buffer::CL(buffer) => Ok(buffer),
+            Buffer::Host(host_buffer) => {
+                let cl_queue = queue
+                    .context()
+                    .cl_queue(queue.device_queue(), self.size())?;
+
+                ocl::Buffer::builder()
+                    .queue(cl_queue.clone())
+                    .len(host_buffer.len())
+                    .copy_host_slice(&host_buffer[..])
+                    .build()
+                    .map_err(Error::from)
+            }
+        }
+    }
 }
 
 pub trait NDArrayWrite<O: NDArray<DType = Self::DType>>: NDArray {
@@ -631,16 +737,15 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let input = self.read(queue)?;
-
-        match input {
-            Buffer::CL(buffer) => {
-                let cl_queue = buffer.default_queue().expect("queue").clone();
-                kernels::reduce_all(cl_queue, buffer).map_err(Error::from)
-            }
-            Buffer::Host(buffer) => {
+        match queue.device_queue() {
+            DeviceQueue::Host => {
+                let input = self.to_vec(&queue)?;
                 let zero = Self::DType::zero();
-                Ok(buffer.into_iter().all(|n| n != zero))
+                Ok(input.into_par_iter().all(|n| n != zero))
+            }
+            DeviceQueue::CL(cl_queue) => {
+                let input = self.to_cl_buffer(&queue)?;
+                kernels::reduce_all(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
@@ -648,24 +753,21 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn any(&self) -> Result<bool, Error> {
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let input = self.read(queue)?;
-
-        match input {
-            Buffer::CL(buffer) => {
-                let cl_queue = buffer.default_queue().expect("queue").clone();
-                kernels::reduce_any(cl_queue, buffer).map_err(Error::from)
-            }
-            Buffer::Host(buffer) => {
+        match queue.device_queue() {
+            DeviceQueue::Host => {
+                let input = self.to_vec(&queue)?;
                 let zero = Self::DType::zero();
-                Ok(buffer.into_iter().any(|n| n != zero))
+                Ok(input.into_par_iter().any(|n| n != zero))
+            }
+            DeviceQueue::CL(cl_queue) => {
+                let input = self.to_cl_buffer(&queue)?;
+                kernels::reduce_any(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
 
     fn max(&self) -> Result<Self::DType, Error> {
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
-        let input = self.read(queue)?;
+        let zero = Self::DType::zero();
         let collector = |l, r| {
             if r > l {
                 r
@@ -674,20 +776,22 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
         };
 
-        match input {
-            Buffer::CL(buffer) => {
-                let cl_queue = buffer.default_queue().expect("queue").clone();
-                kernels::reduce(Self::DType::zero(), "max", cl_queue, buffer, collector)
-                    .map_err(Error::from)
+        let context = Context::default()?;
+        let queue = context.queue(self.size())?;
+        match queue.device_queue() {
+            DeviceQueue::Host => {
+                let input = self.to_vec(&queue)?;
+                Ok(input.into_par_iter().reduce(|| zero, collector))
             }
-            Buffer::Host(buffer) => {
-                let zero = Self::DType::zero();
-                Ok(buffer.into_iter().fold(zero, collector))
+            DeviceQueue::CL(cl_queue) => {
+                let input = self.to_cl_buffer(&queue)?;
+                kernels::reduce(zero, "max", cl_queue.clone(), input, collector)
+                    .map_err(Error::from)
             }
         }
     }
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self::DType, Self>>, Error> {
+    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         todo!()
     }
 
@@ -695,7 +799,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         todo!()
     }
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self::DType, Self>>, Error> {
+    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         todo!()
     }
 
@@ -703,29 +807,31 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         todo!()
     }
 
-    fn product_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self::DType, Self>>, Error> {
+    fn product_axis(
+        &self,
+        axis: usize,
+    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         todo!()
     }
 
     fn sum(&self) -> Result<Self::DType, Error> {
+        let zero = Self::DType::zero();
         let context = Context::default()?;
         let queue = context.queue(self.size())?;
-        let input = self.read(queue)?;
 
-        match input {
-            Buffer::CL(buffer) => {
-                let cl_queue = buffer.default_queue().expect("queue").clone();
-                kernels::reduce(Self::DType::zero(), "add", cl_queue, buffer, Add::add)
-                    .map_err(Error::from)
+        match queue.device_queue() {
+            DeviceQueue::Host => {
+                let input = self.to_vec(&queue)?;
+                Ok(input.into_par_iter().reduce(|| zero, Add::add))
             }
-            Buffer::Host(buffer) => {
-                let zero = Self::DType::zero();
-                Ok(buffer.into_iter().fold(zero, Add::add))
+            DeviceQueue::CL(cl_queue) => {
+                let input = self.to_cl_buffer(&queue)?;
+                kernels::reduce(zero, "add", cl_queue.clone(), input, Add::add).map_err(Error::from)
             }
         }
     }
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduce<Self::DType, Self>>, Error> {
+    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         if axis >= self.ndim() {
             return Err(Error::Bounds(format!(
                 "axis {} is out of bounds for {:?}",
@@ -742,7 +848,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             shape
         };
 
-        let op = ArrayReduce::sum(self, axis);
+        let op = ArrayReduceAxis::sum(self, axis);
 
         Ok(ArrayOp::new(op, shape))
     }
