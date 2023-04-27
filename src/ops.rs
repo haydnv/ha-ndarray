@@ -1,14 +1,19 @@
 use std::cmp::{PartialEq, PartialOrd};
+use std::f32::consts::PI;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
+use crate::div_ceil;
+use rand::Rng;
 use rayon::prelude::*;
 
-use super::kernels;
-use super::{Buffer, CDatatype, DeviceQueue, Error, Float, NDArray, NDArrayRead, Queue};
+use super::cl_kernels;
+use super::{Buffer, CDatatype, Context, DeviceQueue, Error, Float, NDArray, NDArrayRead, Queue};
 
 pub trait Op: Send + Sync {
     type Out: CDatatype;
+
+    fn context(&self) -> &Context;
 
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
         match queue.device_queue() {
@@ -20,6 +25,108 @@ pub trait Op: Send + Sync {
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error>;
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
+}
+
+// constructors
+
+#[derive(Clone)]
+pub struct RandomNormal {
+    context: Context,
+    size: usize,
+}
+
+impl RandomNormal {
+    pub fn new(size: usize) -> Result<Self, Error> {
+        let context = Context::default()?;
+        Ok(Self { context, size })
+    }
+
+    pub fn with_context(size: usize, context: Context) -> Self {
+        Self { context, size }
+    }
+}
+
+impl Op for RandomNormal {
+    type Out = f32;
+
+    fn context(&self) -> &Context {
+        &self.context
+    }
+
+    fn enqueue_cpu(&self, _queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let mut u = vec![
+            0.0f32;
+            if self.size % 2 == 0 {
+                self.size
+            } else {
+                self.size + 1
+            }
+        ];
+
+        rand::thread_rng().fill(&mut u[..]);
+
+        let mut output = u
+            .par_chunks_exact(2)
+            .map(|mut u| {
+                let [u1, u2]: [f32; 2] = u.try_into().expect("u");
+                let r = (u1.ln() * -2.).sqrt();
+                let theta = 2. * PI * u2;
+                [r * theta.cos(), r * theta.sin()]
+            })
+            .flatten()
+            .collect::<Vec<f32>>();
+
+        if output.len() > self.size {
+            output.pop();
+        }
+
+        debug_assert_eq!(output.len(), self.size);
+
+        Ok(output)
+    }
+
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
+        let seed = rand::thread_rng().gen();
+        cl_kernels::random_normal(cl_queue, seed, self.size).map_err(Error::from)
+    }
+}
+
+#[derive(Clone)]
+pub struct RandomUniform {
+    context: Context,
+    size: usize,
+}
+
+impl RandomUniform {
+    pub fn new(size: usize) -> Result<Self, Error> {
+        let context = Context::default()?;
+        Ok(Self { context, size })
+    }
+
+    pub fn with_context(size: usize, context: Context) -> Self {
+        Self { context, size }
+    }
+}
+
+impl Op for RandomUniform {
+    type Out = f32;
+
+    fn context(&self) -> &Context {
+        &self.context
+    }
+
+    fn enqueue_cpu(&self, _queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let mut data = vec![0.; self.size];
+        rand::thread_rng().fill(&mut data[..]);
+        Ok(data)
+    }
+
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let seed = rand::thread_rng().gen();
+        let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
+        cl_kernels::random_uniform(cl_queue, seed, self.size).map_err(Error::from)
+    }
 }
 
 // arithmetic
@@ -66,6 +173,10 @@ impl<T: CDatatype, L, R> ArrayDual<T, L, R> {
 impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for ArrayDual<T, L, R> {
     type Out = T;
 
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<T>, Error> {
         let left = self.left.to_vec(queue)?;
         let right = self.right.to_vec(queue)?;
@@ -88,7 +199,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
         let right_cl_queue = right.default_queue().expect("right queue").clone();
         let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
-        kernels::elementwise_inplace(self.kernel_op, cl_queue, left, &right, &event)
+        cl_kernels::elementwise_inplace(self.kernel_op, cl_queue, left, &right, &event)
             .map_err(Error::from)
     }
 }
@@ -121,6 +232,10 @@ where
     R: NDArrayRead<DType = T>,
 {
     type Out = T;
+
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         todo!()
@@ -177,6 +292,10 @@ impl<T: CDatatype, A> ArrayScalar<T, A> {
 impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
     type Out = A::DType;
 
+    fn context(&self) -> &Context {
+        self.array.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let left = self.array.to_vec(queue)?;
         let right = self.scalar;
@@ -201,7 +320,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
         let cl_queue = left.default_queue().expect("queue").clone();
-        kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
+        cl_kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
     }
 }
 
@@ -237,6 +356,10 @@ impl<T: CDatatype, A> ArrayScalarFloat<T, A> {
 impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
     type Out = T;
 
+    fn context(&self) -> &Context {
+        self.array.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let left = self.array.to_vec(queue)?;
         let right = self.scalar;
@@ -253,7 +376,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
         let cl_queue = left.default_queue().expect("queue").clone();
-        kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
+        cl_kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
     }
 }
 
@@ -304,6 +427,10 @@ where
     R: NDArrayRead<DType = T>,
 {
     type Out = T;
+
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let [num_matrices, a, b, c] = self.dims();
@@ -372,7 +499,8 @@ where
         let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
 
-        kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event).map_err(Error::from)
+        cl_kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event)
+            .map_err(Error::from)
     }
 }
 
@@ -435,8 +563,12 @@ where
 {
     type Out = u8;
 
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.left.size())?;
+        let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_vec(&right_queue)?;
         let left = self.left.to_vec(queue)?;
 
@@ -451,7 +583,7 @@ where
     }
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.left.size())?;
+        let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
 
@@ -459,7 +591,7 @@ where
         let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
 
-        kernels::elementwise_boolean(self.kernel_cmp, cl_queue, &left, &right, &event)
+        cl_kernels::elementwise_boolean(self.kernel_cmp, cl_queue, &left, &right, &event)
             .map_err(Error::from)
     }
 }
@@ -522,6 +654,10 @@ where
 {
     type Out = u8;
 
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_vec(&right_queue)?;
@@ -547,7 +683,7 @@ where
         let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
 
-        kernels::elementwise_cmp(self.kernel_cmp, cl_queue, &left, &right, &event)
+        cl_kernels::elementwise_cmp(self.kernel_cmp, cl_queue, &left, &right, &event)
             .map_err(Error::from)
     }
 }
@@ -603,6 +739,10 @@ impl<'a, T: CDatatype, A> ArrayCompareScalar<'a, T, A> {
 impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, T, A> {
     type Out = u8;
 
+    fn context(&self) -> &Context {
+        self.array.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.array.to_vec(queue)?;
 
@@ -618,7 +758,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        kernels::scalar_cmp(self.kernel_cmp, cl_queue, &input, self.scalar).map_err(Error::from)
+        cl_kernels::scalar_cmp(self.kernel_cmp, cl_queue, &input, self.scalar).map_err(Error::from)
     }
 }
 
@@ -657,6 +797,10 @@ impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
 impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, A> {
     type Out = T;
 
+    fn context(&self) -> &Context {
+        self.source.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.source.to_vec(queue)?;
 
@@ -692,7 +836,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        let output = kernels::reduce_axis(
+        let output = cl_kernels::reduce_axis(
             A::DType::zero(),
             self.kernel_reduce,
             cl_queue,
@@ -725,6 +869,10 @@ impl<'a, A, O> ArrayCast<'a, A, O> {
 impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
     type Out = O;
 
+    fn context(&self) -> &Context {
+        self.source.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.source.to_vec(queue)?;
 
@@ -740,7 +888,7 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        kernels::cast(cl_queue, &input).map_err(Error::from)
+        cl_kernels::cast(cl_queue, &input).map_err(Error::from)
     }
 }
 
@@ -797,6 +945,10 @@ impl<IT: Float, A> ArrayUnary<IT, u8, A> {
 impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary<IT, OT, A> {
     type Out = OT;
 
+    fn context(&self) -> &Context {
+        self.array.context()
+    }
+
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.array.to_vec(queue)?;
         let output = input.into_par_iter().map(|n| (self.host_op)(n)).collect();
@@ -806,6 +958,6 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        kernels::unary(self.kernel_op, cl_queue, &input).map_err(Error::from)
+        cl_kernels::unary(self.kernel_op, cl_queue, &input).map_err(Error::from)
     }
 }

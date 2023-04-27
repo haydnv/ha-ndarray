@@ -5,7 +5,9 @@ use crate::CDatatype;
 
 const MIN_SIZE: usize = 1024;
 
-use super::{div_ceil, WG_SIZE};
+use crate::div_ceil;
+
+use super::WG_SIZE;
 
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
     let src = format!(

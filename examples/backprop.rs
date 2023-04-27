@@ -1,12 +1,18 @@
+use ha_ndarray::construct::{RandomNormal, RandomUniform};
 use ha_ndarray::*;
 
 const LEARNING_RATE: f32 = 0.0001;
 const NUM_EXAMPLES: usize = 25;
 
 fn main() -> Result<(), Error> {
-    let weights = ArrayBase::random_normal(vec![2, 1], None)?;
+    let weights = RandomNormal::new(2)?;
+    let weights = (ArrayOp::new(vec![2, 1], weights) - 0.5) * 2.;
+    let weights = ArrayBase::copy(&weights)?;
 
-    let inputs = ArrayBase::copy(&(ArrayBase::random_uniform(vec![NUM_EXAMPLES, 2], None)? * 2.))?;
+    let inputs = RandomUniform::new(NUM_EXAMPLES * 2)?;
+    let inputs = ArrayOp::new(vec![NUM_EXAMPLES, 2], inputs) * 2.;
+    let inputs = ArrayBase::copy(&inputs)?;
+
     let inputs_bool = inputs.lt_scalar(1.0);
     let labels = ArrayBase::copy(
         &inputs_bool
@@ -21,6 +27,7 @@ fn main() -> Result<(), Error> {
         let error = labels.clone() - output;
         let loss = error.pow(2.);
         println!("loss: {} (max {})", loss.sum()?, loss.max()?);
+        assert!(!loss.is_inf().any()?, "diverged");
 
         if loss.lt_scalar(1.0).all()? {
             return Ok(());

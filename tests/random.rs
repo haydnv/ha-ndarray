@@ -1,9 +1,11 @@
-use ha_ndarray::{ArrayBase, Error, NDArrayCompareScalar, NDArrayReduce};
+use ha_ndarray::construct::{RandomNormal, RandomUniform};
+use ha_ndarray::{ArrayOp, Error, NDArrayCompareScalar, NDArrayReduce};
 
 #[test]
 fn test_random_normal() -> Result<(), Error> {
     let size = 1_000_000;
-    let array = ArrayBase::random_normal(vec![size], None)?;
+    let op = RandomNormal::new(size)?;
+    let array = ArrayOp::new(vec![size], op);
 
     assert!(!array.eq_scalar(0.).any()?);
     assert_eq!(array.sum()? as usize / size, 0);
@@ -16,7 +18,8 @@ fn test_random_normal() -> Result<(), Error> {
 #[test]
 fn test_random_uniform() -> Result<(), Error> {
     let size = 1_000_000;
-    let array = ArrayBase::random_uniform(vec![1_000_000], None)?;
+    let op = RandomUniform::new(size)?;
+    let array = ArrayOp::new(vec![size], op);
 
     assert!(!array.eq_scalar(0.).any()?);
     assert_eq!(array.sum()? as usize / size, 0);

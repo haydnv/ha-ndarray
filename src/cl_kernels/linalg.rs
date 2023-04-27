@@ -1,9 +1,9 @@
 use ocl::core::Ulong4;
 use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
 
-use crate::CDatatype;
+use crate::{div_ceil, CDatatype};
 
-use super::{div_ceil, WG_SIZE};
+use super::WG_SIZE;
 
 const TILE_SIZE: usize = 8;
 

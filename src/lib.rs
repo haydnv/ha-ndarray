@@ -14,8 +14,12 @@ pub use array::*;
 use ops::*;
 
 mod array;
-mod kernels;
+mod cl_kernels;
 mod ops;
+
+pub mod construct {
+    pub use super::ops::{RandomNormal, RandomUniform};
+}
 
 const GPU_MIN_DEFAULT: usize = 1024;
 
@@ -27,6 +31,9 @@ pub enum Error {
 
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
+        #[cfg(debug_assertions)]
+        panic!("{}", cause);
+
         Self::OCL(cause)
     }
 }
@@ -338,9 +345,10 @@ impl TryFrom<ocl::Platform> for Platform {
 #[derive(Clone)]
 pub struct Context {
     platform: Platform,
-    cl_context: ocl::Context,
     gpu_min: usize,
     acc_min: usize,
+
+    cl_context: ocl::Context,
 }
 
 impl Context {
@@ -356,9 +364,9 @@ impl Context {
 
         Ok(Self {
             platform,
-            cl_context,
             gpu_min: GPU_MIN_DEFAULT,
             acc_min,
+            cl_context,
         })
     }
 
@@ -383,10 +391,8 @@ impl Context {
 
     fn cl_queue(&self, device_queue: &DeviceQueue, size_hint: usize) -> Result<ocl::Queue, Error> {
         if let DeviceQueue::CL(cl_queue) = device_queue {
-            return Ok(cl_queue.clone());
-        }
-
-        if let Some(device) = if size_hint < self.gpu_min {
+            Ok(cl_queue.clone())
+        } else if let Some(device) = if size_hint < self.gpu_min {
             self.platform
                 .next_cpu()
                 .or_else(|| self.platform.next_gpu())
@@ -450,6 +456,8 @@ impl Queue {
 pub trait NDArray: Send + Sync + Sized {
     type DType: CDatatype;
 
+    fn context(&self) -> &Context;
+
     fn ndim(&self) -> usize {
         self.shape().len()
     }
@@ -466,8 +474,13 @@ pub trait NDArrayRead: NDArray {
 
     fn to_vec(&self, queue: &Queue) -> Result<Vec<Self::DType>, Error> {
         match self.read(queue)? {
-            Buffer::Host(buffer) => Ok(buffer),
+            Buffer::Host(buffer) => {
+                debug_assert_eq!(buffer.len(), self.size());
+                Ok(buffer)
+            }
             Buffer::CL(cl_buffer) => {
+                debug_assert_eq!(cl_buffer.len(), self.size());
+
                 let mut buffer = vec![Self::DType::zero(); cl_buffer.len()];
                 cl_buffer.read(&mut buffer[..]).enq()?;
                 Ok(buffer)
@@ -477,14 +490,18 @@ pub trait NDArrayRead: NDArray {
 
     fn to_cl_buffer(&self, queue: &Queue) -> Result<ocl::Buffer<Self::DType>, Error> {
         match self.read(queue)? {
-            Buffer::CL(buffer) => Ok(buffer),
+            Buffer::CL(buffer) => {
+                debug_assert_eq!(buffer.len(), self.size());
+                Ok(buffer)
+            }
             Buffer::Host(host_buffer) => {
+                debug_assert_eq!(host_buffer.len(), self.size());
+
                 let cl_queue = queue
                     .context()
                     .cl_queue(queue.device_queue(), self.size())?;
-
                 ocl::Buffer::builder()
-                    .queue(cl_queue.clone())
+                    .queue(cl_queue)
                     .len(host_buffer.len())
                     .copy_host_slice(&host_buffer[..])
                     .build()
@@ -512,7 +529,7 @@ where
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::and(self, other);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn or<'a>(
@@ -521,7 +538,7 @@ where
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::or(self, other);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn xor<'a>(
@@ -530,21 +547,21 @@ where
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::xor(self, other);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayAbs: NDArray + Clone {
     fn abs(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
         let op = ArrayUnary::abs(self.clone());
-        ArrayOp::new(op, self.shape().to_vec())
+        ArrayOp::new(self.shape().to_vec(), op)
     }
 }
 
 pub trait NDArrayExp: NDArray + Clone {
     fn exp(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
         let op = ArrayUnary::exp(self.clone());
-        ArrayOp::new(op, self.shape().to_vec())
+        ArrayOp::new(self.shape().to_vec(), op)
     }
 }
 
@@ -552,13 +569,13 @@ pub trait NDArrayMath<O: NDArray<DType = f64>>: NDArrayRead {
     fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
         let shape = check_shape(self.shape(), base.shape())?;
         let op = ArrayDualFloat::log(self, base);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
         let shape = check_shape(self.shape(), exp.shape())?;
         let op = ArrayDualFloat::pow(self, exp);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -566,13 +583,13 @@ pub trait NDArrayMathScalar: NDArrayRead + Clone {
     fn log(&self, base: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::log(self.clone(), base);
-        ArrayOp::new(op, shape)
+        ArrayOp::new(shape, op)
     }
 
     fn pow(&self, exp: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::pow(self.clone(), exp);
-        ArrayOp::new(op, shape)
+        ArrayOp::new(shape, op)
     }
 }
 
@@ -606,7 +623,7 @@ pub trait NDArrayCast<O>: NDArray {
     fn cast(&self) -> ArrayOp<ArrayCast<Self, O>> {
         let shape = self.shape().to_vec();
         let op = ArrayCast::new(self);
-        ArrayOp::new(op, shape)
+        ArrayOp::new(shape, op)
     }
 }
 
@@ -616,7 +633,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::eq(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::eq(self, other)))
     }
 
     fn gt<'a>(
@@ -624,7 +641,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::gt(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::gt(self, other)))
     }
 
     fn ge<'a>(
@@ -632,7 +649,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::gte(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::gte(self, other)))
     }
 
     fn lt<'a>(
@@ -640,7 +657,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::lt(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::lt(self, other)))
     }
 
     fn le<'a>(
@@ -648,7 +665,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::lte(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::lte(self, other)))
     }
 
     fn ne<'a>(
@@ -656,39 +673,39 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(ArrayCompare::ne(self, other), shape))
+        Ok(ArrayOp::new(shape, ArrayCompare::ne(self, other)))
     }
 }
 
 pub trait NDArrayCompareScalar: NDArray {
     fn eq_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::eq(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::eq(self, other))
     }
 
     fn gt_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::gt(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::gt(self, other))
     }
 
     fn ge_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::gte(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::gte(self, other))
     }
 
     fn lt_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::lt(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::lt(self, other))
     }
 
     fn le_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::lte(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::lte(self, other))
     }
 
     fn ne_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(ArrayCompareScalar::ne(self, other), shape)
+        ArrayOp::new(shape, ArrayCompareScalar::ne(self, other))
     }
 }
 
@@ -729,14 +746,13 @@ pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
         shape.push(c);
 
         let op = MatMul::new(self, other);
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
+        let queue = self.context().queue(self.size())?;
         match queue.device_queue() {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
@@ -745,14 +761,13 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                kernels::reduce_all(cl_queue.clone(), input).map_err(Error::from)
+                cl_kernels::reduce_all(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
+        let queue = self.context().queue(self.size())?;
         match queue.device_queue() {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
@@ -761,7 +776,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                kernels::reduce_any(cl_queue.clone(), input).map_err(Error::from)
+                cl_kernels::reduce_any(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
@@ -776,8 +791,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
         };
 
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
+        let queue = self.context().queue(self.size())?;
         match queue.device_queue() {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
@@ -785,7 +799,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                kernels::reduce(zero, "max", cl_queue.clone(), input, collector)
+                cl_kernels::reduce(zero, "max", cl_queue.clone(), input, collector)
                     .map_err(Error::from)
             }
         }
@@ -816,8 +830,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 
     fn sum(&self) -> Result<Self::DType, Error> {
         let zero = Self::DType::zero();
-        let context = Context::default()?;
-        let queue = context.queue(self.size())?;
+        let queue = self.context().queue(self.size())?;
 
         match queue.device_queue() {
             DeviceQueue::Host => {
@@ -826,7 +839,8 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                kernels::reduce(zero, "add", cl_queue.clone(), input, Add::add).map_err(Error::from)
+                cl_kernels::reduce(zero, "add", cl_queue.clone(), input, Add::add)
+                    .map_err(Error::from)
             }
         }
     }
@@ -850,7 +864,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 
         let op = ArrayReduceAxis::sum(self, axis);
 
-        Ok(ArrayOp::new(op, shape))
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -921,7 +935,7 @@ impl fmt::Debug for AxisBound {
 }
 
 #[inline]
-fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
+pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     if left.is_empty() || right.is_empty() {
         return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
     } else if left.len() < right.len() {
@@ -965,5 +979,14 @@ fn check_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
             "{} but found {:?} and {:?} ({})",
             MSG, left, right, HINT
         )))
+    }
+}
+
+#[inline]
+fn div_ceil(num: usize, denom: usize) -> usize {
+    if num % denom == 0 {
+        num / denom
+    } else {
+        (num / denom) + 1
     }
 }

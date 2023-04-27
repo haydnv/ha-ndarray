@@ -4,7 +4,7 @@ use ha_ndarray::{ArrayBase, Error, NDArray, NDArrayCompareScalar, NDArrayReduce}
 fn test_reduce_sum_all() -> Result<(), Error> {
     for x in 1..9 {
         let data = vec![1; 10_usize.pow(x)];
-        let array = ArrayBase::<i32>::from_vec(vec![data.len()], data)?;
+        let array = ArrayBase::<i32>::new(vec![data.len()], data)?;
         assert_eq!(array.size() as i32, array.sum()?);
     }
 
@@ -23,7 +23,8 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
     ];
 
     for shape in shapes {
-        let array = ArrayBase::<u32>::constant(shape.to_vec(), 1);
+        let size = shape.iter().product();
+        let array = ArrayBase::<u32>::new(shape.to_vec(), vec![1; size])?;
         for x in 0..shape.len() {
             let sum = array.sum_axis(x)?;
             let eq = sum.eq_scalar(shape[x] as u32);

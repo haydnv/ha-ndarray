@@ -1,6 +1,8 @@
 use ocl::{Buffer, Error, Kernel, Program, Queue};
 
-use super::{div_ceil, WG_SIZE};
+use crate::div_ceil;
+
+use super::WG_SIZE;
 
 const LIB: &'static str = r#"
 const float pi = 3.14159;
@@ -46,7 +48,7 @@ pub fn random_normal(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f3
 
         __kernel void random_normal(
                 const ulong seed,
-                __global float* output,
+                __global float* buffer,
                 __local float* normal)
         {{
             const ulong global_offset = get_global_id(0);
@@ -61,13 +63,13 @@ pub fn random_normal(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f3
                 float u2 = normal[local_offset + 1];
                 float r = sqrt(-2 * log(u1));
                 float theta = 2 * pi * u2;
-                output[global_offset] = r * cos(theta);
+                buffer[global_offset] = r * cos(theta);
             }} else {{
                 float u1 = normal[local_offset - 1];
                 float u2 = normal[local_offset];
                 float r = sqrt(-2 * log(u1));
                 float theta = 2 * pi * u2;
-                output[global_offset] = r * sin(theta);
+                buffer[global_offset] = r * sin(theta);
             }}
         }}
     "#
@@ -75,25 +77,31 @@ pub fn random_normal(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f3
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    let output = Buffer::builder()
+    let buffer = Buffer::builder()
         .queue(queue.clone())
         .len(WG_SIZE * div_ceil(size, WG_SIZE))
         .build()?;
 
     let kernel = Kernel::builder()
         .name("random_normal")
-        .queue(queue)
+        .queue(queue.clone())
         .program(&program)
-        .global_work_size(output.len())
+        .global_work_size(buffer.len())
         .local_work_size(WG_SIZE)
         .arg(u64::try_from(seed).expect("seed"))
-        .arg(&output)
+        .arg(&buffer)
         .arg_local::<f32>(WG_SIZE)
         .build()?;
 
     unsafe { kernel.enq()? }
 
-    Ok(output)
+    if buffer.len() == size {
+        Ok(buffer)
+    } else {
+        let output = Buffer::builder().queue(queue).len(size).build()?;
+        buffer.copy(&output, Some(0), Some(size)).enq()?;
+        Ok(output)
+    }
 }
 
 pub fn random_uniform(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f32>, Error> {

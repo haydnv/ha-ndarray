@@ -14,8 +14,10 @@ fn test_matmul() -> Result<(), Error> {
     ];
 
     for (left_shape, right_shape, output_shape) in shapes {
-        let left = ArrayBase::constant(left_shape, 1.);
-        let right = ArrayBase::constant(right_shape, 1.);
+        let left = vec![1.; left_shape.iter().product()];
+        let left = ArrayBase::new(left_shape, left)?;
+        let right = vec![1.; right_shape.iter().product()];
+        let right = ArrayBase::new(right_shape, right)?;
 
         let actual = left.matmul(&right)?;
         assert_eq!(actual.shape(), output_shape);

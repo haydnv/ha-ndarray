@@ -37,12 +37,3 @@ impl<'a, T: fmt::Display> fmt::Display for ArrayFormat<'a, T> {
         f.write_str(" }")
     }
 }
-
-#[inline]
-fn div_ceil(num: usize, denom: usize) -> usize {
-    if num % denom == 0 {
-        num / denom
-    } else {
-        (num / denom) + 1
-    }
-}
