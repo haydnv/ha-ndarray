@@ -5,7 +5,6 @@ use std::{fmt, iter};
 
 use rayon::prelude::*;
 
-use super::cl_programs; // TODO: depend on ops for slice & view instead of using this module directly
 use super::ops::*;
 use super::{
     AxisBound, Buffer, CDatatype, Context, Error, Float, MatrixMath, NDArray, NDArrayAbs,
@@ -297,13 +296,14 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
             let queue = self.context.queue(self.size())?;
 
             match other.read(&queue)? {
-                Buffer::CL(buffer) => {
-                    let mut data = self.data.write().expect("data");
-                    buffer.read(&mut data[..]).enq()?;
-                }
                 Buffer::Host(buffer) => {
                     let mut data = self.data.write().expect("data");
                     data.copy_from_slice(&buffer[..]);
+                }
+                #[cfg(feature = "opencl")]
+                Buffer::CL(buffer) => {
+                    let mut data = self.data.write().expect("data");
+                    buffer.read(&mut data[..]).enq()?;
                 }
             }
 
@@ -526,6 +526,7 @@ pub struct ArraySlice<A> {
     shape: Shape,
     strides: Vec<usize>,
     source_strides: Vec<usize>,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
@@ -575,7 +576,9 @@ impl<A: NDArray> ArraySlice<A> {
 
         let strides = strides_for(&shape, shape.len());
         let source_strides = strides_for(source.shape(), source.ndim());
-        let kernel_op = cl_programs::slice::<A::DType>(
+
+        #[cfg(feature = "opencl")]
+        let kernel_op = crate::cl_programs::slice::<A::DType>(
             source.context(),
             &shape,
             &strides,
@@ -589,6 +592,7 @@ impl<A: NDArray> ArraySlice<A> {
             shape,
             strides,
             source_strides,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -632,6 +636,7 @@ impl<A: NDArray> ArraySlice<A> {
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
         let cl_queue = source.default_queue().expect("queue").clone();
 
@@ -670,8 +675,9 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         match self.source.read(queue)? {
-            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
             Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
         }
     }
 }
@@ -843,12 +849,14 @@ pub struct ArrayView<A> {
     source: A,
     shape: Shape,
     strides: Vec<usize>,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
 impl<A: NDArray> ArrayView<A> {
     fn new(source: A, shape: Shape, strides: Vec<usize>) -> Result<Self, Error> {
-        let kernel_op = cl_programs::reorder::<A::DType>(
+        #[cfg(feature = "opencl")]
+        let kernel_op = crate::cl_programs::reorder::<A::DType>(
             source.context(),
             &shape,
             &strides_for(&shape, shape.len()),
@@ -859,6 +867,7 @@ impl<A: NDArray> ArrayView<A> {
             source,
             shape,
             strides,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -953,6 +962,7 @@ impl<A: NDArray> ArrayView<A> {
         Ok(buffer)
     }
 
+    #[cfg(feature = "opencl")]
     fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
         let cl_queue = source.default_queue().expect("queue").clone();
 
@@ -992,6 +1002,7 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         match self.source.read(queue)? {
             Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+            #[cfg(feature = "opencl")]
             Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
         }
     }

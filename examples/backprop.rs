@@ -1,8 +1,8 @@
 use ha_ndarray::construct::{RandomNormal, RandomUniform};
 use ha_ndarray::*;
 
-const LEARNING_RATE: f32 = 0.00001;
-const NUM_EXAMPLES: usize = 4096;
+const LEARNING_RATE: f32 = 0.00005;
+const NUM_EXAMPLES: usize = 2048;
 
 fn main() -> Result<(), Error> {
     let weights = RandomNormal::new(2)?;

@@ -11,11 +11,14 @@ repository = "https://github.com/haydnv/ha-ndarray.git"
 keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["data-structures", "hardware-support", "mathematics"]
 
+[features]
+opencl = ["ocl"]
+
 [build-dependencies]
 pkg-config = "0.3"
 
 [dependencies]
-ocl = "0.19"
+ocl = { version = "0.19", optional = true }
 rand = "0.8"
 rayon = "1.7"
 safecast = { path = "../safecast" }

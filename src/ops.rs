@@ -6,6 +6,7 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 use rand::Rng;
 use rayon::prelude::*;
 
+#[cfg(feature = "opencl")]
 use super::cl_programs;
 use super::{Buffer, CDatatype, Context, DeviceQueue, Error, Float, NDArray, NDArrayRead, Queue};
 
@@ -17,12 +18,14 @@ pub trait Op: Send + Sync {
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
         match queue.device_queue() {
             DeviceQueue::Host => self.enqueue_cpu(queue).map(Buffer::Host),
+            #[cfg(feature = "opencl")]
             DeviceQueue::CL(_) => self.enqueue_cl(queue).map(Buffer::CL),
         }
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error>;
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
 }
 
@@ -32,27 +35,32 @@ pub trait Op: Send + Sync {
 pub struct RandomNormal {
     context: Context,
     size: usize,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
 impl RandomNormal {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_normal(&context)?;
 
         Ok(Self {
             context,
             size,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
 
     pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_normal(&context)?;
 
         Ok(Self {
             context,
             size,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -79,7 +87,7 @@ impl Op for RandomNormal {
 
         let mut output = u
             .par_chunks_exact(2)
-            .map(|mut u| {
+            .map(|u| {
                 let [u1, u2]: [f32; 2] = u.try_into().expect("u");
                 let r = (u1.ln() * -2.).sqrt();
                 let theta = 2. * PI * u2;
@@ -97,6 +105,7 @@ impl Op for RandomNormal {
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         use crate::div_ceil;
         use cl_programs::WG_SIZE;
@@ -141,27 +150,32 @@ impl Op for RandomNormal {
 pub struct RandomUniform {
     context: Context,
     size: usize,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
 impl RandomUniform {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_uniform(&context)?;
 
         Ok(Self {
             context,
             size,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
 
     pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_uniform(&context)?;
 
         Ok(Self {
             context,
             size,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -180,6 +194,7 @@ impl Op for RandomUniform {
         Ok(data)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let seed: u32 = rand::thread_rng().gen();
         let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
@@ -211,6 +226,7 @@ pub struct ArrayDual<T, L, R> {
     left: L,
     right: R,
     cpu_op: fn(T, T) -> T,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
@@ -221,12 +237,14 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         cpu_op: fn(T, T) -> T,
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::elementwise_inplace::<T>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
             right,
             cpu_op,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -273,6 +291,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<T>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
@@ -333,6 +352,7 @@ where
         todo!()
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
@@ -347,6 +367,7 @@ pub struct ArrayScalar<T, A> {
     array: A,
     scalar: T,
     host_op: fn(T, T) -> T,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
@@ -357,12 +378,14 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayScalar<T, A> {
         host_op: fn(T, T) -> T,
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::elementwise_scalar::<T, T>(kernel_op, array.context())?;
 
         Ok(Self {
             array,
             scalar,
             host_op,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -415,6 +438,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
@@ -440,6 +464,7 @@ pub struct ArrayScalarFloat<T, A> {
     array: A,
     scalar: f64,
     host_op: fn(T, f64) -> T,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
@@ -450,12 +475,14 @@ impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
         host_op: fn(T, f64) -> T,
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::elementwise_scalar::<f64, T>(kernel_op, array.context())?;
 
         Ok(Self {
             array,
             scalar,
             host_op,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -490,6 +517,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
@@ -521,8 +549,9 @@ pub struct MatDiag<A> {
 pub struct MatMul<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
-    kernel_op: ocl::Program,
     dtype: PhantomData<T>,
+    #[cfg(feature = "opencl")]
+    kernel_op: ocl::Program,
 }
 
 impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> MatMul<'a, T, L, R> {
@@ -530,13 +559,15 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> MatMul<'a, 
         debug_assert!(left.ndim() >= 2);
         debug_assert!(right.ndim() >= 2);
 
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::matmul::<T>(left.context())?;
 
         Ok(Self {
             left,
             right,
-            kernel_op,
             dtype: PhantomData,
+            #[cfg(feature = "opencl")]
+            kernel_op,
         })
     }
 
@@ -627,6 +658,7 @@ where
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         use crate::div_ceil;
         use cl_programs::TILE_SIZE;
@@ -675,6 +707,7 @@ pub struct ArrayBoolean<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
     host_cmp: fn(T, T) -> bool,
+    #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
@@ -687,12 +720,14 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
     ) -> Result<Self, Error> {
         debug_assert_eq!(left.shape(), right.shape());
 
+        #[cfg(feature = "opencl")]
         let kernel_cmp = cl_programs::elementwise_boolean::<T>(kernel_cmp, left.context())?;
 
         Ok(Self {
             left,
             right,
             host_cmp,
+            #[cfg(feature = "opencl")]
             kernel_cmp,
         })
     }
@@ -748,6 +783,7 @@ where
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
@@ -783,6 +819,7 @@ pub struct ArrayCompare<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
     host_cmp: fn(&T, &T) -> bool,
+    #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
@@ -795,12 +832,14 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompar
     ) -> Result<Self, Error> {
         debug_assert_eq!(left.shape(), right.shape());
 
+        #[cfg(feature = "opencl")]
         let kernel_cmp = cl_programs::elementwise_cmp::<T>(kernel_cmp, left.context())?;
 
         Ok(Self {
             left,
             right,
             host_cmp,
+            #[cfg(feature = "opencl")]
             kernel_cmp,
         })
     }
@@ -858,6 +897,7 @@ where
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
@@ -892,6 +932,7 @@ pub struct ArrayCompareScalar<'a, T, A> {
     array: &'a A,
     scalar: T,
     host_cmp: fn(&T, &T) -> bool,
+    #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
@@ -906,6 +947,7 @@ impl<'a, T: CDatatype, A: NDArray> ArrayCompareScalar<'a, T, A> {
             array,
             scalar,
             host_cmp,
+            #[cfg(feature = "opencl")]
             kernel_cmp: cl_programs::scalar_cmp::<T>(kernel_cmp, array.context())?,
         })
     }
@@ -954,6 +996,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, 
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
@@ -1050,6 +1093,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
@@ -1072,16 +1116,19 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
 pub struct ArrayCast<'a, A, O> {
     source: &'a A,
     dtype: PhantomData<O>,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
 impl<'a, A: NDArray, O: CDatatype> ArrayCast<'a, A, O> {
     pub fn new(source: &'a A) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::cast::<A::DType, O>(source.context())?;
 
         Ok(Self {
             source,
             dtype: PhantomData,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -1106,6 +1153,7 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue");
@@ -1134,16 +1182,19 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
 pub struct ArrayUnary<IT, OT, A> {
     array: A,
     host_op: fn(IT) -> OT,
+    #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
 impl<IT: CDatatype, OT: CDatatype, A: NDArray> ArrayUnary<IT, OT, A> {
     fn new(array: A, host_op: fn(IT) -> OT, kernel_op: &'static str) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::unary::<IT, OT>(kernel_op, array.context())?;
 
         Ok(Self {
             array,
             host_op,
+            #[cfg(feature = "opencl")]
             kernel_op,
         })
     }
@@ -1195,6 +1246,7 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
         Ok(output)
     }
 
+    #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
