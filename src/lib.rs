@@ -666,28 +666,124 @@ pub trait NDArrayExp: NDArray + Clone {
     }
 }
 
-pub trait NDArrayMath<O: NDArray<DType = f64>>: NDArrayRead {
-    fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
-        let shape = check_shape(self.shape(), base.shape())?;
-        let op = ArrayDualFloat::log(self, base);
+pub trait NDArrayMath<O: NDArray + Clone>: NDArrayRead + Clone {
+    fn add<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType>,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::add(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<&'a Self, &'a O>>, Error> {
+    fn div<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType>,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::div(self.clone(), rhs.clone())?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn mul<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType>,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::mul(self.clone(), rhs.clone())?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn rem<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType>,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::rem(self.clone(), rhs.clone())?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn sub<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType>,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::sub(self.clone(), rhs.clone())?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self, O>>, Error>
+    where
+        O: NDArray<DType = f64>,
+    {
+        let shape = check_shape(self.shape(), base.shape())?;
+        let op = ArrayDualFloat::log(self.clone(), base.clone());
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self, O>>, Error>
+    where
+        O: NDArray<DType = f64>,
+    {
         let shape = check_shape(self.shape(), exp.shape())?;
-        let op = ArrayDualFloat::pow(self, exp);
+        let op = ArrayDualFloat::pow(self.clone(), exp.clone());
         Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayMathScalar: NDArrayRead + Clone {
-    fn log(&self, base: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
+    fn add_scalar(
+        &self,
+        rhs: Self::DType,
+    ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::add(self.clone(), rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn div_scalar(
+        &self,
+        rhs: Self::DType,
+    ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::div(self.clone(), rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn mul_scalar(
+        &self,
+        rhs: Self::DType,
+    ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::mul(self.clone(), rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn rem_scalar(
+        &self,
+        rhs: Self::DType,
+    ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::rem(self.clone(), rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn sub_scalar(
+        &self,
+        rhs: Self::DType,
+    ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayScalar::sub(self.clone(), rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn log_scalar(&self, base: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::log(self.clone(), base)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow(&self, exp: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
+    fn pow_scalar(&self, exp: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::pow(self.clone(), exp)?;
         Ok(ArrayOp::new(shape, op))

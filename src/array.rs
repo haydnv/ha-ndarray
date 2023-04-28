@@ -157,7 +157,13 @@ impl<I: CDatatype, O: CDatatype> NDArrayCast<O> for ArrayBase<I> {}
 
 impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
 
-impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for ArrayBase<T> {}
+impl<T, Op> NDArrayMath<ArrayOp<Op>> for ArrayBase<T>
+where
+    T: CDatatype,
+    Op: super::ops::Op,
+    ArrayOp<Op>: Clone,
+{
+}
 
 impl NDArrayNumeric for ArrayBase<f32> {
     fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
@@ -187,9 +193,9 @@ impl NDArrayNumeric for ArrayBase<f64> {
     }
 }
 
-impl<T: CDatatype, A: NDArray<DType = f64>> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
 
-impl<T: CDatatype, A: NDArray<DType = f64>> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
+impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
