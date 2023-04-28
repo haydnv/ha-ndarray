@@ -1,26 +1,10 @@
-use ocl::core::Ulong4;
-use ocl::{Buffer, Error, Event, Kernel, Program, Queue};
+use ocl::{Error, Program};
 
-use crate::{div_ceil, CDatatype};
+use crate::{CDatatype, Context};
 
-use super::WG_SIZE;
+use super::{TILE_SIZE, WG_SIZE};
 
-const TILE_SIZE: usize = 8;
-
-pub fn matmul<T: CDatatype>(
-    queue: Queue,
-    left: Buffer<T>,
-    right: Buffer<T>,
-    batch_size: usize,
-    dims: (usize, usize, usize),
-    ewait: Event,
-) -> Result<Buffer<T>, Error> {
-    let (a, b, c) = dims;
-
-    assert!(batch_size > 0);
-    assert_eq!(batch_size * a * b, left.len());
-    assert_eq!(batch_size * b * c, right.len());
-
+pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
     debug_assert_eq!(TILE_SIZE * TILE_SIZE, WG_SIZE);
 
     let src = format!(
@@ -100,28 +84,5 @@ pub fn matmul<T: CDatatype>(
         dtype = T::TYPE_STR
     );
 
-    let program = Program::builder().source(src).build(&queue.context())?;
-
-    let dims = [a as u64, b as u64, c as u64, batch_size as u64];
-
-    let output = Buffer::builder()
-        .queue(queue.clone())
-        .len(a * c * batch_size)
-        .build()?;
-
-    let kernel = Kernel::builder()
-        .name("matmul")
-        .program(&program)
-        .queue(queue)
-        .global_work_size((batch_size, div_ceil(a, TILE_SIZE), div_ceil(c, TILE_SIZE)))
-        .arg(Ulong4::from(dims))
-        .arg(div_ceil(b, TILE_SIZE))
-        .arg(left)
-        .arg(right)
-        .arg(&output)
-        .build()?;
-
-    unsafe { kernel.cmd().ewait(&ewait).enq()? }
-
-    Ok(output)
+    Program::builder().source(src).build(context.cl_context())
 }

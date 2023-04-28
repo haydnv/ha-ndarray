@@ -1,8 +1,6 @@
-use ocl::{Buffer, Error, Kernel, Program, Queue};
+use ocl::{Error, Program};
 
-use crate::div_ceil;
-
-use super::WG_SIZE;
+use crate::Context;
 
 const LIB: &'static str = r#"
 const float pi = 3.14159;
@@ -29,7 +27,7 @@ float random(const ulong seed, const ulong offset) {
 
     rng_state = xorshift(rng_state);
 
-    for (uint i = 32; i < log2((float) offset); i++) {{
+    for (uint i = 32; i < log2((float) offset); ++i) {{
         rng_state = xorshift(rng_state);
     }}
 
@@ -39,9 +37,7 @@ float random(const ulong seed, const ulong offset) {
 }
 "#;
 
-pub fn random_normal(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f32>, Error> {
-    assert!(seed as u64 <= u64::MAX - u32::MAX as u64);
-
+pub fn random_normal(context: &Context) -> Result<Program, Error> {
     let src = format!(
         r#"
         {LIB}
@@ -72,41 +68,13 @@ pub fn random_normal(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f3
                 buffer[global_offset] = r * sin(theta);
             }}
         }}
-    "#
+        "#
     );
 
-    let program = Program::builder().source(src).build(&queue.context())?;
-
-    let buffer = Buffer::builder()
-        .queue(queue.clone())
-        .len(WG_SIZE * div_ceil(size, WG_SIZE))
-        .build()?;
-
-    let kernel = Kernel::builder()
-        .name("random_normal")
-        .queue(queue.clone())
-        .program(&program)
-        .global_work_size(buffer.len())
-        .local_work_size(WG_SIZE)
-        .arg(u64::try_from(seed).expect("seed"))
-        .arg(&buffer)
-        .arg_local::<f32>(WG_SIZE)
-        .build()?;
-
-    unsafe { kernel.enq()? }
-
-    if buffer.len() == size {
-        Ok(buffer)
-    } else {
-        let output = Buffer::builder().queue(queue).len(size).build()?;
-        buffer.copy(&output, Some(0), Some(size)).enq()?;
-        Ok(output)
-    }
+    Program::builder().source(src).build(context.cl_context())
 }
 
-pub fn random_uniform(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f32>, Error> {
-    assert!(seed as u64 <= u64::MAX - u32::MAX as u64);
-
+pub fn random_uniform(context: &Context) -> Result<Program, Error> {
     let src = format!(
         r#"
         {LIB}
@@ -118,20 +86,5 @@ pub fn random_uniform(queue: Queue, seed: usize, size: usize) -> Result<Buffer<f
     "#
     );
 
-    let program = Program::builder().source(src).build(&queue.context())?;
-
-    let output = Buffer::builder().queue(queue.clone()).len(size).build()?;
-
-    let kernel = Kernel::builder()
-        .name("random_uniform")
-        .queue(queue)
-        .program(&program)
-        .global_work_size(output.len())
-        .arg(u64::try_from(seed).expect("seed"))
-        .arg(&output)
-        .build()?;
-
-    unsafe { kernel.enq()? }
-
-    Ok(output)
+    Program::builder().source(src).build(context.cl_context())
 }

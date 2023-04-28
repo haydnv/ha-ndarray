@@ -27,7 +27,7 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
         let array = ArrayBase::<u32>::new(shape.to_vec(), vec![1; size])?;
         for x in 0..shape.len() {
             let sum = array.sum_axis(x)?;
-            let eq = sum.eq_scalar(shape[x] as u32);
+            let eq = sum.eq_scalar(shape[x] as u32)?;
             assert!(eq.all()?);
         }
     }

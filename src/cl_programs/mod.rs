@@ -14,7 +14,8 @@ pub use reduce::*;
 pub use slice::*;
 pub use view::*;
 
-const WG_SIZE: usize = 64;
+pub(crate) const TILE_SIZE: usize = 8;
+pub(crate) const WG_SIZE: usize = 64;
 
 struct ArrayFormat<'a, T> {
     arr: &'a [T],

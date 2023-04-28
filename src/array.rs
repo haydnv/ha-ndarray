@@ -5,13 +5,13 @@ use std::{fmt, iter};
 
 use rayon::prelude::*;
 
-use super::cl_kernels; // TODO: depend on ops for slice & view instead of using this module directly
+use super::cl_programs; // TODO: depend on ops for slice & view instead of using this module directly
 use super::ops::*;
 use super::{
-    AxisBound, Buffer, CDatatype, Context, DeviceQueue, Error, Float, MatrixMath, NDArray,
-    NDArrayAbs, NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp,
-    NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform,
-    NDArrayWrite, Queue, Shape,
+    AxisBound, Buffer, CDatatype, Context, Error, Float, MatrixMath, NDArray, NDArrayAbs,
+    NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath,
+    NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite,
+    Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -27,6 +27,7 @@ impl<T: CDatatype> ArrayBase<T> {
         let queue = context.queue(other.size())?;
         let shape = other.shape().to_vec();
         let data = other.to_vec(&queue).map(RwLock::new).map(Arc::new)?;
+
         Ok(Self {
             context,
             data,
@@ -160,30 +161,30 @@ impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
 impl<T: CDatatype, Op: super::ops::Op<Out = f64>> NDArrayMath<ArrayOp<Op>> for ArrayBase<T> {}
 
 impl NDArrayNumeric for ArrayBase<f32> {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::nan(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 impl NDArrayNumeric for ArrayBase<f64> {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::nan(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -206,7 +207,7 @@ macro_rules! impl_op {
                 let shape = self.shape().to_vec();
                 assert_eq!(shape, rhs.shape());
 
-                let op = ArrayDual::$name(self, rhs);
+                let op = ArrayDual::$name(self, rhs).expect("op");
                 ArrayOp { op, shape }
             }
         }
@@ -244,7 +245,7 @@ macro_rules! impl_base_scalar_op {
 
             fn $name(self, rhs: T) -> Self::Output {
                 let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs);
+                let op = ArrayScalar::$name(self, rhs).expect("op");
                 ArrayOp::new(shape, op)
             }
         }
@@ -262,7 +263,7 @@ impl<T: CDatatype> Neg for ArrayBase<T> {
 
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self);
+        let op = ArrayUnary::neg(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -272,7 +273,7 @@ impl<T: CDatatype> Not for ArrayBase<T> {
 
     fn not(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self);
+        let op = ArrayUnary::not(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -284,24 +285,9 @@ impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
 impl<T: CDatatype> NDArrayCompareScalar for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+    fn read(&self, _queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
-
-        let buffer = match queue.device_queue() {
-            DeviceQueue::Host => data.to_vec().into(),
-            DeviceQueue::CL(cl_queue) => {
-                let buffer = ocl::Buffer::builder()
-                    .queue(cl_queue.clone())
-                    .len(self.size())
-                    .build()?;
-
-                buffer.write(data.as_slice()).enq()?;
-
-                buffer.into()
-            }
-        };
-
-        Ok(buffer)
+        Ok(Buffer::Host(data.to_vec()))
     }
 }
 
@@ -430,16 +416,16 @@ where
     Op::Out: Float,
     Self: Clone,
 {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::nan(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -489,7 +475,7 @@ macro_rules! impl_op_scalar_op {
 
             fn $name(self, rhs: Op::Out) -> Self::Output {
                 let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs);
+                let op = ArrayScalar::$name(self, rhs).expect("op");
                 ArrayOp::new(shape, op)
             }
         }
@@ -507,7 +493,7 @@ impl<Op: super::ops::Op> Neg for ArrayOp<Op> {
 
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self);
+        let op = ArrayUnary::neg(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -517,7 +503,7 @@ impl<Op: super::ops::Op> Not for ArrayOp<Op> {
 
     fn not(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self);
+        let op = ArrayUnary::not(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -613,7 +599,7 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
         let buffer = match self.source.read(queue)? {
             Buffer::CL(source) => {
                 let cl_queue = source.default_queue().expect("queue").clone();
-                let buffer = cl_kernels::slice(
+                let buffer = cl_programs::slice(
                     cl_queue,
                     &source,
                     self.shape(),
@@ -743,16 +729,16 @@ where
     Self::DType: Float,
     Self: Clone,
 {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::nan(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -787,7 +773,7 @@ macro_rules! impl_slice_scalar_op {
 
             fn $name(self, rhs: T) -> Self::Output {
                 let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs);
+                let op = ArrayScalar::$name(self, rhs).expect("op");
                 ArrayOp::new(shape, op)
             }
         }
@@ -805,7 +791,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Neg for ArraySlice<A> {
 
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self);
+        let op = ArrayUnary::neg(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -818,7 +804,7 @@ where
 
     fn not(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self);
+        let op = ArrayUnary::not(self).expect("op");
         ArrayOp::new(shape, op)
     }
 }
@@ -931,7 +917,7 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
                 let strides = strides_for(&self.shape, self.ndim());
 
                 let buffer = if self.size() == self.source.size() {
-                    cl_kernels::reorder_inplace(
+                    cl_programs::reorder_inplace(
                         cl_queue,
                         buffer,
                         &self.shape,
@@ -939,7 +925,7 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
                         &self.strides,
                     )
                 } else {
-                    cl_kernels::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
+                    cl_programs::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
                 }?;
 
                 Buffer::CL(buffer)
@@ -999,16 +985,16 @@ where
     Self::DType: Float,
     Self: Clone,
 {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>> {
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone());
-        ArrayOp::new(shape, op)
+        let op = ArrayUnary::nan(self.clone()).expect("op");
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -1043,7 +1029,7 @@ macro_rules! impl_view_scalar_op {
 
             fn $name(self, rhs: T) -> Self::Output {
                 let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs);
+                let op = ArrayScalar::$name(self, rhs).expect("op");
                 ArrayOp::new(shape, op)
             }
         }
@@ -1061,7 +1047,7 @@ impl<A: NDArrayRead> Neg for ArrayView<A> {
 
     fn neg(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self);
+        let op = ArrayUnary::neg(self).expect("program");
         ArrayOp::new(shape, op)
     }
 }
@@ -1071,7 +1057,7 @@ impl<A: NDArrayRead> Not for ArrayView<A> {
 
     fn not(self) -> Self::Output {
         let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self);
+        let op = ArrayUnary::not(self).expect("program");
         ArrayOp::new(shape, op)
     }
 }

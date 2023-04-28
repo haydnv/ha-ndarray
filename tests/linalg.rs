@@ -23,7 +23,7 @@ fn test_matmul() -> Result<(), Error> {
         assert_eq!(actual.shape(), output_shape);
 
         let expected = *left.shape().last().unwrap();
-        assert!(actual.eq_scalar(expected as f32).all()?);
+        assert!(actual.eq_scalar(expected as f32)?.all()?);
     }
 
     Ok(())

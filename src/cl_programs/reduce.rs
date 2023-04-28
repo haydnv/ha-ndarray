@@ -1,11 +1,9 @@
 use ocl::{Buffer, Error, Kernel, Program, Queue};
 use rayon::prelude::*;
 
-use crate::CDatatype;
+use crate::{div_ceil, CDatatype};
 
 const MIN_SIZE: usize = 1024;
-
-use crate::div_ceil;
 
 use super::WG_SIZE;
 
@@ -128,6 +126,7 @@ pub fn reduce<T: CDatatype>(
             // reduce over local memory in parallel
             for (uint stride = group_size >> 1; stride > 0; stride = stride >> 1) {{
                 barrier(CLK_LOCAL_MEM_FENCE);
+
                 if (offset + stride < size) {{
                     uint next = b + stride;
                     if (next < group_size) {{

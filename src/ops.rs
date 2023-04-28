@@ -3,11 +3,10 @@ use std::f32::consts::PI;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use crate::div_ceil;
 use rand::Rng;
 use rayon::prelude::*;
 
-use super::cl_kernels;
+use super::cl_programs;
 use super::{Buffer, CDatatype, Context, DeviceQueue, Error, Float, NDArray, NDArrayRead, Queue};
 
 pub trait Op: Send + Sync {
@@ -33,16 +32,29 @@ pub trait Op: Send + Sync {
 pub struct RandomNormal {
     context: Context,
     size: usize,
+    kernel_op: ocl::Program,
 }
 
 impl RandomNormal {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
-        Ok(Self { context, size })
+        let kernel_op = cl_programs::random_normal(&context)?;
+
+        Ok(Self {
+            context,
+            size,
+            kernel_op,
+        })
     }
 
-    pub fn with_context(size: usize, context: Context) -> Self {
-        Self { context, size }
+    pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+        let kernel_op = cl_programs::random_normal(&context)?;
+
+        Ok(Self {
+            context,
+            size,
+            kernel_op,
+        })
     }
 }
 
@@ -86,9 +98,42 @@ impl Op for RandomNormal {
     }
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        use crate::div_ceil;
+        use cl_programs::WG_SIZE;
+
         let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
-        let seed = rand::thread_rng().gen();
-        cl_kernels::random_normal(cl_queue, seed, self.size).map_err(Error::from)
+        let seed: u32 = rand::thread_rng().gen();
+
+        let buffer = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(WG_SIZE * div_ceil(self.size, WG_SIZE))
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("random_normal")
+            .queue(cl_queue.clone())
+            .program(&self.kernel_op)
+            .global_work_size(buffer.len())
+            .local_work_size(WG_SIZE)
+            .arg(u64::try_from(seed).expect("seed"))
+            .arg(&buffer)
+            .arg_local::<f32>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        if buffer.len() == self.size {
+            Ok(buffer)
+        } else {
+            let output = ocl::Buffer::builder()
+                .queue(cl_queue.clone())
+                .len(self.size)
+                .build()?;
+
+            buffer.copy(&output, Some(0), Some(self.size)).enq()?;
+
+            Ok(output)
+        }
     }
 }
 
@@ -96,16 +141,29 @@ impl Op for RandomNormal {
 pub struct RandomUniform {
     context: Context,
     size: usize,
+    kernel_op: ocl::Program,
 }
 
 impl RandomUniform {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
-        Ok(Self { context, size })
+        let kernel_op = cl_programs::random_uniform(&context)?;
+
+        Ok(Self {
+            context,
+            size,
+            kernel_op,
+        })
     }
 
-    pub fn with_context(size: usize, context: Context) -> Self {
-        Self { context, size }
+    pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+        let kernel_op = cl_programs::random_uniform(&context)?;
+
+        Ok(Self {
+            context,
+            size,
+            kernel_op,
+        })
     }
 }
 
@@ -123,49 +181,73 @@ impl Op for RandomUniform {
     }
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let seed = rand::thread_rng().gen();
+        let seed: u32 = rand::thread_rng().gen();
         let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
-        cl_kernels::random_uniform(cl_queue, seed, self.size).map_err(Error::from)
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(self.size)
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("random_uniform")
+            .queue(cl_queue)
+            .program(&self.kernel_op)
+            .global_work_size(output.len())
+            .arg(u64::try_from(seed).expect("seed"))
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }
 
 // arithmetic
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayDual<T, L, R> {
     left: L,
     right: R,
     cpu_op: fn(T, T) -> T,
-    kernel_op: &'static str,
+    kernel_op: ocl::Program,
 }
 
-impl<T: CDatatype, L, R> ArrayDual<T, L, R> {
-    fn new(left: L, right: R, cpu_op: fn(T, T) -> T, kernel_op: &'static str) -> Self {
-        Self {
+impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
+    fn new(
+        left: L,
+        right: R,
+        cpu_op: fn(T, T) -> T,
+        kernel_op: &'static str,
+    ) -> Result<Self, Error> {
+        let kernel_op = cl_programs::elementwise_inplace::<T>(kernel_op, left.context())?;
+
+        Ok(Self {
             left,
             right,
             cpu_op,
             kernel_op,
-        }
+        })
     }
 
-    pub fn add(left: L, right: R) -> Self {
+    pub fn add(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Add::add, "+")
     }
 
-    pub fn div(left: L, right: R) -> Self {
+    pub fn div(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Div::div, "/")
     }
 
-    pub fn mul(left: L, right: R) -> Self {
+    pub fn mul(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Mul::mul, "*")
     }
 
-    pub fn rem(left: L, right: R) -> Self {
+    pub fn rem(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Rem::rem, "%")
     }
 
-    pub fn sub(left: L, right: R) -> Self {
+    pub fn sub(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Sub::sub, "-")
     }
 }
@@ -195,12 +277,22 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
+        debug_assert_eq!(left.len(), right.len());
 
-        let right_cl_queue = right.default_queue().expect("right queue").clone();
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
-        cl_kernels::elementwise_inplace(self.kernel_op, cl_queue, left, &right, &event)
-            .map_err(Error::from)
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_inplace")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(left.len())
+            .arg(&left)
+            .arg(right)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(left)
     }
 }
 
@@ -250,41 +342,48 @@ where
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayScalar<T, A> {
     array: A,
     scalar: T,
     host_op: fn(T, T) -> T,
-    kernel_op: &'static str,
+    kernel_op: ocl::Program,
 }
 
-impl<T: CDatatype, A> ArrayScalar<T, A> {
-    fn new(array: A, scalar: T, host_op: fn(T, T) -> T, kernel_op: &'static str) -> Self {
-        Self {
+impl<T: CDatatype, A: NDArray<DType = T>> ArrayScalar<T, A> {
+    fn new(
+        array: A,
+        scalar: T,
+        host_op: fn(T, T) -> T,
+        kernel_op: &'static str,
+    ) -> Result<Self, Error> {
+        let kernel_op = cl_programs::elementwise_scalar::<T, T>(kernel_op, array.context())?;
+
+        Ok(Self {
             array,
             scalar,
             host_op,
             kernel_op,
-        }
+        })
     }
 
-    pub fn add(left: A, right: T) -> Self {
+    pub fn add(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Add::add, "add")
     }
 
-    pub fn div(left: A, right: T) -> Self {
+    pub fn div(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Div::div, "div")
     }
 
-    pub fn mul(left: A, right: T) -> Self {
+    pub fn mul(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Mul::mul, "mul")
     }
 
-    pub fn rem(left: A, right: T) -> Self {
+    pub fn rem(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Rem::rem, "fmod")
     }
 
-    pub fn sub(left: A, right: T) -> Self {
+    pub fn sub(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Sub::sub, "sub")
     }
 }
@@ -320,35 +419,54 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
         let cl_queue = left.default_queue().expect("queue").clone();
-        cl_kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_scalar")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(left.len())
+            .arg(&left)
+            .arg(right)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(left)
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayScalarFloat<T, A> {
     array: A,
     scalar: f64,
     host_op: fn(T, f64) -> T,
-    kernel_op: &'static str,
+    kernel_op: ocl::Program,
 }
 
-impl<T, A> ArrayScalarFloat<T, A> {
-    fn new(array: A, scalar: f64, host_op: fn(T, f64) -> T, kernel_op: &'static str) -> Self {
-        Self {
+impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
+    fn new(
+        array: A,
+        scalar: f64,
+        host_op: fn(T, f64) -> T,
+        kernel_op: &'static str,
+    ) -> Result<Self, Error> {
+        let kernel_op = cl_programs::elementwise_scalar::<f64, T>(kernel_op, array.context())?;
+
+        Ok(Self {
             array,
             scalar,
             host_op,
             kernel_op,
-        }
+        })
     }
 }
 
-impl<T: CDatatype, A> ArrayScalarFloat<T, A> {
-    pub fn log(left: A, right: f64) -> Self {
+impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
+    pub fn log(left: A, right: f64) -> Result<Self, Error> {
         Self::new(left, right, T::log, "log")
     }
 
-    pub fn pow(left: A, right: f64) -> Self {
+    pub fn pow(left: A, right: f64) -> Result<Self, Error> {
         Self::new(left, right, T::pow, "pow_")
     }
 }
@@ -376,7 +494,19 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
         let cl_queue = left.default_queue().expect("queue").clone();
-        cl_kernels::elementwise_scalar(self.kernel_op, cl_queue, left, right).map_err(Error::from)
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_scalar")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(left.len())
+            .arg(&left)
+            .arg(right)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(left)
     }
 }
 
@@ -387,18 +517,27 @@ pub struct MatDiag<A> {
     source: A,
 }
 
-#[derive(Copy, Clone)]
-pub struct MatMul<'a, L, R> {
+#[derive(Clone)]
+pub struct MatMul<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
+    kernel_op: ocl::Program,
+    dtype: PhantomData<T>,
 }
 
-impl<'a, L: NDArray, R: NDArray> MatMul<'a, L, R> {
-    pub fn new(left: &'a L, right: &'a R) -> Self {
+impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> MatMul<'a, T, L, R> {
+    pub fn new(left: &'a L, right: &'a R) -> Result<Self, Error> {
         debug_assert!(left.ndim() >= 2);
         debug_assert!(right.ndim() >= 2);
 
-        Self { left, right }
+        let kernel_op = cl_programs::matmul::<T>(left.context())?;
+
+        Ok(Self {
+            left,
+            right,
+            kernel_op,
+            dtype: PhantomData,
+        })
     }
 
     fn dims(&self) -> [usize; 4] {
@@ -420,7 +559,7 @@ impl<'a, L: NDArray, R: NDArray> MatMul<'a, L, R> {
     }
 }
 
-impl<'a, T, L, R> Op for MatMul<'a, L, R>
+impl<'a, T, L, R> Op for MatMul<'a, T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
@@ -489,29 +628,54 @@ where
     }
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        use crate::div_ceil;
+        use cl_programs::TILE_SIZE;
+
         let [num_matrices, a, b, c] = self.dims();
 
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
 
-        let right_cl_queue = right.default_queue().expect("right queue").clone();
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-        let cl_queue = left.default_queue().expect("left queue").clone();
+        let cl_queue = left.default_queue().expect("left queue");
 
-        cl_kernels::matmul(cl_queue, left, right, num_matrices, (a, b, c), event)
-            .map_err(Error::from)
+        assert!(num_matrices > 0);
+        assert_eq!(num_matrices * a * b, left.len());
+        assert_eq!(num_matrices * b * c, right.len());
+
+        let dims = [a as u64, b as u64, c as u64, num_matrices as u64];
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(a * c * num_matrices)
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("matmul")
+            .program(&self.kernel_op)
+            .queue(cl_queue.clone())
+            .global_work_size((num_matrices, div_ceil(a, TILE_SIZE), div_ceil(c, TILE_SIZE)))
+            .arg(ocl::core::Ulong4::from(dims))
+            .arg(div_ceil(b, TILE_SIZE))
+            .arg(&left)
+            .arg(&right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }
 
 // comparison
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayBoolean<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
     host_cmp: fn(T, T) -> bool,
-    kernel_cmp: &'static str,
+    kernel_cmp: ocl::Program,
 }
 
 impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<'a, T, L, R> {
@@ -520,18 +684,20 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         right: &'a R,
         host_cmp: fn(T, T) -> bool,
         kernel_cmp: &'static str,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         debug_assert_eq!(left.shape(), right.shape());
 
-        Self {
+        let kernel_cmp = cl_programs::elementwise_boolean::<T>(kernel_cmp, left.context())?;
+
+        Ok(Self {
             left,
             right,
             host_cmp,
             kernel_cmp,
-        }
+        })
     }
 
-    pub fn and(left: &'a L, right: &'a R) -> Self {
+    pub fn and(left: &'a L, right: &'a R) -> Result<Self, Error> {
         fn and<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) && (r != T::zero())
         }
@@ -539,7 +705,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         Self::new(left, right, and, "&&")
     }
 
-    pub fn or(left: &'a L, right: &'a R) -> Self {
+    pub fn or(left: &'a L, right: &'a R) -> Result<Self, Error> {
         fn or<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) || (r != T::zero())
         }
@@ -547,7 +713,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         Self::new(left, right, or, "||")
     }
 
-    pub fn xor(left: &'a L, right: &'a R) -> Self {
+    pub fn xor(left: &'a L, right: &'a R) -> Result<Self, Error> {
         fn xor<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) ^ (r != T::zero())
         }
@@ -585,23 +751,39 @@ where
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
+
         let left = self.left.to_cl_buffer(queue)?;
+        debug_assert_eq!(left.len(), right.len());
 
-        let right_cl_queue = right.default_queue().expect("right queue").clone();
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
-        let cl_queue = left.default_queue().expect("left queue").clone();
+        let cl_queue = left.default_queue().expect("queue");
 
-        cl_kernels::elementwise_boolean(self.kernel_cmp, cl_queue, &left, &right, &event)
-            .map_err(Error::from)
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_boolean")
+            .program(&self.kernel_cmp)
+            .queue(cl_queue.clone())
+            .global_work_size(output.len())
+            .arg(&left)
+            .arg(&right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayCompare<'a, T, L, R> {
     left: &'a L,
     right: &'a R,
     host_cmp: fn(&T, &T) -> bool,
-    kernel_cmp: &'static str,
+    kernel_cmp: ocl::Program,
 }
 
 impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompare<'a, T, L, R> {
@@ -610,38 +792,40 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompar
         right: &'a R,
         host_cmp: fn(&T, &T) -> bool,
         kernel_cmp: &'static str,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         debug_assert_eq!(left.shape(), right.shape());
 
-        Self {
+        let kernel_cmp = cl_programs::elementwise_cmp::<T>(kernel_cmp, left.context())?;
+
+        Ok(Self {
             left,
             right,
             host_cmp,
             kernel_cmp,
-        }
+        })
     }
 
-    pub fn eq(left: &'a L, right: &'a R) -> Self {
+    pub fn eq(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::eq, "==")
     }
 
-    pub fn gt(left: &'a L, right: &'a R) -> Self {
+    pub fn gt(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::gt, ">")
     }
 
-    pub fn gte(left: &'a L, right: &'a R) -> Self {
+    pub fn ge(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::ge, ">=")
     }
 
-    pub fn lt(left: &'a L, right: &'a R) -> Self {
+    pub fn lt(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::lt, "<")
     }
 
-    pub fn lte(left: &'a L, right: &'a R) -> Self {
+    pub fn le(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::le, "<=")
     }
 
-    pub fn ne(left: &'a L, right: &'a R) -> Self {
+    pub fn ne(left: &'a L, right: &'a R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::ne, "!=")
     }
 }
@@ -678,60 +862,75 @@ where
         let right_queue = queue.context().queue(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
+        debug_assert_eq!(left.len(), right.len());
 
-        let right_cl_queue = right.default_queue().expect("right queue").clone();
-        let event = right_cl_queue.enqueue_marker::<ocl::Event>(None)?;
         let cl_queue = left.default_queue().expect("left queue").clone();
 
-        cl_kernels::elementwise_cmp(self.kernel_cmp, cl_queue, &left, &right, &event)
-            .map_err(Error::from)
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_cmp")
+            .program(&self.kernel_cmp)
+            .queue(cl_queue)
+            .global_work_size(output.len())
+            .arg(&left)
+            .arg(&right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayCompareScalar<'a, T, A> {
     array: &'a A,
     scalar: T,
     host_cmp: fn(&T, &T) -> bool,
-    kernel_cmp: &'static str,
+    kernel_cmp: ocl::Program,
 }
 
-impl<'a, T: CDatatype, A> ArrayCompareScalar<'a, T, A> {
+impl<'a, T: CDatatype, A: NDArray> ArrayCompareScalar<'a, T, A> {
     fn new(
         array: &'a A,
         scalar: T,
         host_cmp: fn(&T, &T) -> bool,
         kernel_cmp: &'static str,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Error> {
+        Ok(Self {
             array,
             scalar,
             host_cmp,
-            kernel_cmp,
-        }
+            kernel_cmp: cl_programs::scalar_cmp::<T>(kernel_cmp, array.context())?,
+        })
     }
 
-    pub fn eq(array: &'a A, scalar: T) -> Self {
+    pub fn eq(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::eq, "==")
     }
 
-    pub fn gt(array: &'a A, scalar: T) -> Self {
+    pub fn gt(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::gt, ">")
     }
 
-    pub fn gte(array: &'a A, scalar: T) -> Self {
+    pub fn ge(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::ge, ">=")
     }
 
-    pub fn lt(array: &'a A, scalar: T) -> Self {
+    pub fn lt(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::lt, "<")
     }
 
-    pub fn lte(array: &'a A, scalar: T) -> Self {
+    pub fn le(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::le, "<=")
     }
 
-    pub fn ne(array: &'a A, scalar: T) -> Self {
+    pub fn ne(array: &'a A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::ne, "!=")
     }
 }
@@ -758,7 +957,25 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        cl_kernels::scalar_cmp(self.kernel_cmp, cl_queue, &input, self.scalar).map_err(Error::from)
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("scalar_cmp")
+            .program(&self.kernel_cmp)
+            .queue(cl_queue)
+            .global_work_size(input.len())
+            .arg(&input)
+            .arg(self.scalar)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }
 
@@ -836,7 +1053,7 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        let output = cl_kernels::reduce_axis(
+        let output = cl_programs::reduce_axis(
             A::DType::zero(),
             self.kernel_reduce,
             cl_queue,
@@ -851,18 +1068,22 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
 
 // other unary ops
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayCast<'a, A, O> {
     source: &'a A,
     dtype: PhantomData<O>,
+    kernel_op: ocl::Program,
 }
 
-impl<'a, A, O> ArrayCast<'a, A, O> {
-    pub fn new(source: &'a A) -> Self {
-        Self {
+impl<'a, A: NDArray, O: CDatatype> ArrayCast<'a, A, O> {
+    pub fn new(source: &'a A) -> Result<Self, Error> {
+        let kernel_op = cl_programs::cast::<A::DType, O>(source.context())?;
+
+        Ok(Self {
             source,
             dtype: PhantomData,
-        }
+            kernel_op,
+        })
     }
 }
 
@@ -887,57 +1108,76 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
 
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue").clone();
-        cl_kernels::cast(cl_queue, &input).map_err(Error::from)
+        let cl_queue = input.default_queue().expect("queue");
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("cast")
+            .program(&self.kernel_op)
+            .queue(cl_queue.clone())
+            .global_work_size(input.len())
+            .arg(input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ArrayUnary<IT, OT, A> {
     array: A,
     host_op: fn(IT) -> OT,
-    kernel_op: &'static str,
+    kernel_op: ocl::Program,
 }
 
-impl<IT, OT, A> ArrayUnary<IT, OT, A> {
-    fn new(array: A, host_op: fn(IT) -> OT, kernel_op: &'static str) -> Self {
-        Self {
+impl<IT: CDatatype, OT: CDatatype, A: NDArray> ArrayUnary<IT, OT, A> {
+    fn new(array: A, host_op: fn(IT) -> OT, kernel_op: &'static str) -> Result<Self, Error> {
+        let kernel_op = cl_programs::unary::<IT, OT>(kernel_op, array.context())?;
+
+        Ok(Self {
             array,
             host_op,
             kernel_op,
-        }
+        })
     }
 }
 
-impl<T: CDatatype, A> ArrayUnary<T, T, A> {
-    pub fn abs(array: A) -> Self {
+impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
+    pub fn abs(array: A) -> Result<Self, Error> {
         // TODO: replace "fabs" with "abs" for integer types
         Self::new(array, T::abs, "fabs")
     }
 
-    pub fn exp(array: A) -> Self {
+    pub fn exp(array: A) -> Result<Self, Error> {
         Self::new(array, T::exp, "exp")
     }
 }
 
-impl<T: CDatatype, A> ArrayUnary<T, T::Neg, A> {
-    pub fn neg(array: A) -> Self {
+impl<T: CDatatype, A: NDArray> ArrayUnary<T, T::Neg, A> {
+    pub fn neg(array: A) -> Result<Self, Error> {
         Self::new(array, T::neg, "-")
     }
 }
 
-impl<IT: CDatatype, A> ArrayUnary<IT, u8, A> {
-    pub fn not(array: A) -> Self {
+impl<IT: CDatatype, A: NDArray> ArrayUnary<IT, u8, A> {
+    pub fn not(array: A) -> Result<Self, Error> {
         Self::new(array, IT::not, "!")
     }
 }
 
-impl<IT: Float, A> ArrayUnary<IT, u8, A> {
-    pub fn inf(array: A) -> Self {
+impl<IT: Float, A: NDArray> ArrayUnary<IT, u8, A> {
+    pub fn inf(array: A) -> Result<Self, Error> {
         Self::new(array, IT::is_inf, "isinf")
     }
 
-    pub fn nan(array: A) -> Self {
+    pub fn nan(array: A) -> Result<Self, Error> {
         Self::new(array, IT::is_nan, "isnan")
     }
 }
@@ -958,6 +1198,23 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
         let cl_queue = input.default_queue().expect("queue").clone();
-        cl_kernels::unary(self.kernel_op, cl_queue, &input).map_err(Error::from)
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("unary")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(output.len())
+            .arg(&input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }

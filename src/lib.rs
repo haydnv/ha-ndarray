@@ -14,7 +14,7 @@ pub use array::*;
 use ops::*;
 
 mod array;
-mod cl_kernels;
+mod cl_programs;
 mod ops;
 
 pub mod construct {
@@ -370,6 +370,10 @@ impl Context {
         })
     }
 
+    fn cl_context(&self) -> &ocl::Context {
+        &self.cl_context
+    }
+
     pub fn queue(&self, size_hint: usize) -> Result<Queue, Error> {
         if let Some(device) = if size_hint < self.gpu_min {
             self.platform.next_cpu()
@@ -469,7 +473,7 @@ pub trait NDArray: Send + Sync + Sized {
     fn shape(&self) -> &[usize];
 }
 
-pub trait NDArrayRead: NDArray {
+pub trait NDArrayRead: NDArray + fmt::Debug {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
 
     fn to_vec(&self, queue: &Queue) -> Result<Vec<Self::DType>, Error> {
@@ -500,6 +504,7 @@ pub trait NDArrayRead: NDArray {
                 let cl_queue = queue
                     .context()
                     .cl_queue(queue.device_queue(), self.size())?;
+
                 ocl::Buffer::builder()
                     .queue(cl_queue)
                     .len(host_buffer.len())
@@ -528,7 +533,7 @@ where
         other: &'a O,
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        let op = ArrayBoolean::and(self, other);
+        let op = ArrayBoolean::and(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
@@ -537,7 +542,7 @@ where
         other: &'a O,
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        let op = ArrayBoolean::or(self, other);
+        let op = ArrayBoolean::or(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
@@ -546,22 +551,22 @@ where
         other: &'a O,
     ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        let op = ArrayBoolean::xor(self, other);
+        let op = ArrayBoolean::xor(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayAbs: NDArray + Clone {
-    fn abs(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
-        let op = ArrayUnary::abs(self.clone());
-        ArrayOp::new(self.shape().to_vec(), op)
+    fn abs(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
+        let op = ArrayUnary::abs(self.clone())?;
+        Ok(ArrayOp::new(self.shape().to_vec(), op))
     }
 }
 
 pub trait NDArrayExp: NDArray + Clone {
-    fn exp(&self) -> ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>> {
-        let op = ArrayUnary::exp(self.clone());
-        ArrayOp::new(self.shape().to_vec(), op)
+    fn exp(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
+        let op = ArrayUnary::exp(self.clone())?;
+        Ok(ArrayOp::new(self.shape().to_vec(), op))
     }
 }
 
@@ -580,23 +585,23 @@ pub trait NDArrayMath<O: NDArray<DType = f64>>: NDArrayRead {
 }
 
 pub trait NDArrayMathScalar: NDArrayRead + Clone {
-    fn log(&self, base: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
+    fn log(&self, base: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayScalarFloat::log(self.clone(), base);
-        ArrayOp::new(shape, op)
+        let op = ArrayScalarFloat::log(self.clone(), base)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow(&self, exp: f64) -> ArrayOp<ArrayScalarFloat<Self::DType, Self>> {
+    fn pow(&self, exp: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayScalarFloat::pow(self.clone(), exp);
-        ArrayOp::new(shape, op)
+        let op = ArrayScalarFloat::pow(self.clone(), exp)?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayNumeric: NDArray + Clone {
-    fn is_inf(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>>;
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error>;
 
-    fn is_nan(&self) -> ArrayOp<ArrayUnary<Self::DType, u8, Self>>;
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error>;
 }
 
 pub trait NDArrayTrig: NDArray {
@@ -619,11 +624,11 @@ pub trait NDArrayTrig: NDArray {
     fn tanh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 }
 
-pub trait NDArrayCast<O>: NDArray {
-    fn cast(&self) -> ArrayOp<ArrayCast<Self, O>> {
+pub trait NDArrayCast<O: CDatatype>: NDArray {
+    fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
-        let op = ArrayCast::new(self);
-        ArrayOp::new(shape, op)
+        let op = ArrayCast::new(self)?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
@@ -633,7 +638,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::eq(self, other)))
+        let op = ArrayCompare::eq(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn gt<'a>(
@@ -641,7 +647,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::gt(self, other)))
+        let op = ArrayCompare::gt(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn ge<'a>(
@@ -649,7 +656,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::gte(self, other)))
+        let op = ArrayCompare::ge(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn lt<'a>(
@@ -657,7 +665,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::lt(self, other)))
+        let op = ArrayCompare::lt(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn le<'a>(
@@ -665,7 +674,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::lte(self, other)))
+        let op = ArrayCompare::le(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn ne<'a>(
@@ -673,44 +683,69 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
         other: &'a O,
     ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
-        Ok(ArrayOp::new(shape, ArrayCompare::ne(self, other)))
+        let op = ArrayCompare::ne(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait NDArrayCompareScalar: NDArray {
-    fn eq_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn eq_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::eq(self, other))
+        let op = ArrayCompareScalar::eq(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn gt_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn gt_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::gt(self, other))
+        let op = ArrayCompareScalar::gt(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn ge_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn ge_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::gte(self, other))
+        let op = ArrayCompareScalar::ge(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn lt_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn lt_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::lt(self, other))
+        let op = ArrayCompareScalar::lt(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn le_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn le_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::lte(self, other))
+        let op = ArrayCompareScalar::le(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 
-    fn ne_scalar(&self, other: Self::DType) -> ArrayOp<ArrayCompareScalar<Self::DType, Self>> {
+    fn ne_scalar(
+        &self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
-        ArrayOp::new(shape, ArrayCompareScalar::ne(self, other))
+        let op = ArrayCompareScalar::ne(self, other)?;
+        Ok(ArrayOp::new(shape, op))
     }
 }
 
 pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
-    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self, O>>, Error> {
+    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
 
@@ -745,7 +780,7 @@ pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
         shape.push(a);
         shape.push(c);
 
-        let op = MatMul::new(self, other);
+        let op = MatMul::new(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 }
@@ -761,7 +796,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                cl_kernels::reduce_all(cl_queue.clone(), input).map_err(Error::from)
+                cl_programs::reduce_all(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
@@ -776,7 +811,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                cl_kernels::reduce_any(cl_queue.clone(), input).map_err(Error::from)
+                cl_programs::reduce_any(cl_queue.clone(), input).map_err(Error::from)
             }
         }
     }
@@ -799,7 +834,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                cl_kernels::reduce(zero, "max", cl_queue.clone(), input, collector)
+                cl_programs::reduce(zero, "max", cl_queue.clone(), input, collector)
                     .map_err(Error::from)
             }
         }
@@ -839,7 +874,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
             DeviceQueue::CL(cl_queue) => {
                 let input = self.to_cl_buffer(&queue)?;
-                cl_kernels::reduce(zero, "add", cl_queue.clone(), input, Add::add)
+                cl_programs::reduce(zero, "add", cl_queue.clone(), input, Add::add)
                     .map_err(Error::from)
             }
         }
