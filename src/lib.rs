@@ -745,7 +745,10 @@ pub trait NDArrayCompareScalar: NDArray {
 }
 
 pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
-    fn matmul<'a>(&'a self, other: &'a O) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error> {
+    fn matmul<'a>(
+        &'a self,
+        other: &'a O,
+    ) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error> {
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
 

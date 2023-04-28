@@ -148,7 +148,7 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
         let source_strides = strides_for(&self.shape, self.ndim());
         let strides = axes.into_iter().map(|x| source_strides[x]).collect();
 
-        Ok(ArrayView::new(self.clone(), shape, strides))
+        ArrayView::new(self.clone(), shape, strides)
     }
 }
 
@@ -681,7 +681,7 @@ where
 
         let strides = strides_for(&shape, shape.len());
 
-        Ok(ArrayView::new(self.clone(), shape, strides))
+        ArrayView::new(self.clone(), shape, strides)
     }
 
     fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
@@ -820,15 +820,24 @@ pub struct ArrayView<A> {
     source: A,
     shape: Shape,
     strides: Vec<usize>,
+    kernel_op: ocl::Program,
 }
 
 impl<A: NDArray> ArrayView<A> {
-    fn new(source: A, shape: Shape, strides: Vec<usize>) -> Self {
-        Self {
+    fn new(source: A, shape: Shape, strides: Vec<usize>) -> Result<Self, Error> {
+        let kernel_op = cl_programs::reorder::<A::DType>(
+            source.context(),
+            &shape,
+            &strides_for(&shape, shape.len()),
+            &strides,
+        )?;
+
+        Ok(Self {
             source,
             shape,
             strides,
-        }
+            kernel_op,
+        })
     }
 
     fn broadcast(source: A, shape: Shape) -> Result<Self, Error> {
@@ -857,7 +866,7 @@ impl<A: NDArray> ArrayView<A> {
 
         let strides = strides_for(source.shape(), shape.len());
 
-        Ok(Self::new(source, shape, strides))
+        Self::new(source, shape, strides)
     }
 
     fn transpose(source: A, axes: Option<Vec<usize>>) -> Result<Self, Error>
@@ -888,11 +897,7 @@ impl<A: NDArray> ArrayView<A> {
 
         debug_assert!(!shape.iter().any(|dim| *dim == 0));
 
-        Ok(Self {
-            source,
-            shape,
-            strides,
-        })
+        Self::new(source, shape, strides)
     }
 }
 
@@ -912,23 +917,26 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let source = self.source.read(queue)?;
         let buffer = match source {
-            Buffer::CL(buffer) => {
-                let cl_queue = buffer.default_queue().expect("queue").clone();
-                let strides = strides_for(&self.shape, self.ndim());
+            Buffer::CL(source) => {
+                let cl_queue = source.default_queue().expect("queue").clone();
 
-                let buffer = if self.size() == self.source.size() {
-                    cl_programs::reorder_inplace(
-                        cl_queue,
-                        buffer,
-                        &self.shape,
-                        &strides,
-                        &self.strides,
-                    )
-                } else {
-                    cl_programs::reorder(cl_queue, buffer, &self.shape, &strides, &self.strides)
-                }?;
+                let output = ocl::Buffer::builder()
+                    .queue(cl_queue.clone())
+                    .len(self.size())
+                    .build()?;
 
-                Buffer::CL(buffer)
+                let kernel = ocl::Kernel::builder()
+                    .name("reorder")
+                    .program(&self.kernel_op)
+                    .queue(cl_queue)
+                    .global_work_size(output.len())
+                    .arg(&source)
+                    .arg(&output)
+                    .build()?;
+
+                unsafe { kernel.enq()? }
+
+                Buffer::CL(output)
             }
             Buffer::Host(buffer) => {
                 let source_strides = &self.strides;
