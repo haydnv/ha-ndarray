@@ -592,6 +592,67 @@ impl<A: NDArray> ArraySlice<A> {
             kernel_op,
         })
     }
+
+    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
+        let output = (0..self.size())
+            .into_par_iter()
+            .map(|offset_out| {
+                let coord = self
+                    .strides
+                    .iter()
+                    .zip(&self.shape)
+                    .map(|(stride, dim)| (offset_out / stride) % dim)
+                    .collect::<Vec<usize>>();
+
+                let mut offset_in = 0;
+                let mut x = 0;
+                for (stride, bound) in self.source_strides.iter().zip(self.bounds.iter()) {
+                    let i = match bound {
+                        AxisBound::At(i) => *i,
+                        AxisBound::In(start, stop, step) => {
+                            let i = start + (coord[x] * step);
+                            debug_assert!(i < *stop);
+                            x += 1;
+                            i
+                        }
+                        AxisBound::Of(indices) => {
+                            let i = indices[coord[x]];
+                            x += 1;
+                            i
+                        }
+                    };
+
+                    offset_in += i * stride;
+                }
+
+                source[offset_in]
+            })
+            .collect();
+
+        Ok(output)
+    }
+
+    fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
+        let cl_queue = source.default_queue().expect("queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(self.size())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("slice")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(output.len())
+            .arg(&source)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
 }
 
 impl<A: NDArray> NDArray for ArraySlice<A> {
@@ -608,71 +669,10 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
-        let dims = self.shape();
-
-        let buffer = match self.source.read(queue)? {
-            Buffer::CL(source) => {
-                let cl_queue = source.default_queue().expect("queue").clone();
-
-                let output = ocl::Buffer::builder()
-                    .queue(cl_queue.clone())
-                    .len(self.size())
-                    .build()?;
-
-                let kernel = ocl::Kernel::builder()
-                    .name("slice")
-                    .program(&self.kernel_op)
-                    .queue(cl_queue)
-                    .global_work_size(output.len())
-                    .arg(&source)
-                    .arg(&output)
-                    .build()?;
-
-                unsafe { kernel.enq()? }
-
-                Buffer::CL(output)
-            }
-            Buffer::Host(source) => {
-                let output = (0..self.size())
-                    .into_par_iter()
-                    .map(|offset_out| {
-                        let coord = self
-                            .strides
-                            .iter()
-                            .zip(dims)
-                            .map(|(stride, dim)| (offset_out / stride) % dim)
-                            .collect::<Vec<usize>>();
-
-                        let mut offset_in = 0;
-                        let mut x = 0;
-                        for (stride, bound) in self.source_strides.iter().zip(self.bounds.iter()) {
-                            let i = match bound {
-                                AxisBound::At(i) => *i,
-                                AxisBound::In(start, stop, step) => {
-                                    let i = start + (coord[x] * step);
-                                    debug_assert!(i < *stop);
-                                    x += 1;
-                                    i
-                                }
-                                AxisBound::Of(indices) => {
-                                    let i = indices[coord[x]];
-                                    x += 1;
-                                    i
-                                }
-                            };
-
-                            offset_in += i * stride;
-                        }
-
-                        source[offset_in]
-                    })
-                    .collect();
-
-                Buffer::Host(output)
-            }
-        };
-
-        Ok(buffer)
+        match self.source.read(queue)? {
+            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
+            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+        }
     }
 }
 
@@ -922,6 +922,58 @@ impl<A: NDArray> ArrayView<A> {
 
         Self::new(source, shape, strides)
     }
+
+    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
+        let source_strides = &self.strides;
+        let strides = strides_for(self.shape(), self.ndim());
+        let dims = self.shape();
+        debug_assert_eq!(strides.len(), dims.len());
+
+        let buffer = (0..self.size())
+            .into_par_iter()
+            .map(|offset| {
+                strides
+                    .iter()
+                    .copied()
+                    .zip(dims.iter().copied())
+                    .map(|(stride, dim)| {
+                        if stride == 0 {
+                            0
+                        } else {
+                            (offset / stride) % dim
+                        }
+                    }) // coord
+                    .zip(source_strides.iter().copied())
+                    .map(|(i, source_stride)| i * source_stride) // source offset
+                    .sum::<usize>()
+            })
+            .map(|source_offset| source[source_offset])
+            .collect();
+
+        Ok(buffer)
+    }
+
+    fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
+        let cl_queue = source.default_queue().expect("queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(self.size())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("reorder")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(output.len())
+            .arg(&source)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
 }
 
 impl<A: NDArray> NDArray for ArrayView<A> {
@@ -938,61 +990,10 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
-        let source = self.source.read(queue)?;
-        let buffer = match source {
-            Buffer::CL(source) => {
-                let cl_queue = source.default_queue().expect("queue").clone();
-
-                let output = ocl::Buffer::builder()
-                    .queue(cl_queue.clone())
-                    .len(self.size())
-                    .build()?;
-
-                let kernel = ocl::Kernel::builder()
-                    .name("reorder")
-                    .program(&self.kernel_op)
-                    .queue(cl_queue)
-                    .global_work_size(output.len())
-                    .arg(&source)
-                    .arg(&output)
-                    .build()?;
-
-                unsafe { kernel.enq()? }
-
-                Buffer::CL(output)
-            }
-            Buffer::Host(buffer) => {
-                let source_strides = &self.strides;
-                let strides = strides_for(self.shape(), self.ndim());
-                let dims = self.shape();
-                debug_assert_eq!(strides.len(), dims.len());
-
-                let buffer = (0..self.size())
-                    .into_par_iter()
-                    .map(|offset| {
-                        strides
-                            .iter()
-                            .copied()
-                            .zip(dims.iter().copied())
-                            .map(|(stride, dim)| {
-                                if stride == 0 {
-                                    0
-                                } else {
-                                    (offset / stride) % dim
-                                }
-                            }) // coord
-                            .zip(source_strides.iter().copied())
-                            .map(|(i, source_stride)| i * source_stride) // source offset
-                            .sum::<usize>()
-                    })
-                    .map(|source_offset| buffer[source_offset])
-                    .collect();
-
-                Buffer::Host(buffer)
-            }
-        };
-
-        Ok(buffer)
+        match self.source.read(queue)? {
+            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
+        }
     }
 }
 
