@@ -524,6 +524,9 @@ pub struct ArraySlice<A> {
     source: A,
     bounds: Vec<AxisBound>,
     shape: Shape,
+    strides: Vec<usize>,
+    source_strides: Vec<usize>,
+    kernel_op: ocl::Program,
 }
 
 impl<A: NDArray> ArraySlice<A> {
@@ -568,12 +571,25 @@ impl<A: NDArray> ArraySlice<A> {
             .iter()
             .map(|bound| bound.size())
             .filter(|size| *size > 0)
-            .collect();
+            .collect::<Vec<usize>>();
+
+        let strides = strides_for(&shape, shape.len());
+        let source_strides = strides_for(source.shape(), source.ndim());
+        let kernel_op = cl_programs::slice::<A::DType>(
+            source.context(),
+            &shape,
+            &strides,
+            &bounds,
+            &source_strides,
+        )?;
 
         Ok(Self {
             source,
             bounds,
             shape,
+            strides,
+            source_strides,
+            kernel_op,
         })
     }
 }
@@ -593,28 +609,35 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let dims = self.shape();
-        let strides = strides_for(self.shape(), self.ndim());
-        let source_strides = strides_for(self.source.shape(), self.source.ndim());
 
         let buffer = match self.source.read(queue)? {
             Buffer::CL(source) => {
                 let cl_queue = source.default_queue().expect("queue").clone();
-                let buffer = cl_programs::slice(
-                    cl_queue,
-                    &source,
-                    self.shape(),
-                    &strides,
-                    &self.bounds,
-                    &source_strides,
-                )?;
 
-                Buffer::CL(buffer)
+                let output = ocl::Buffer::builder()
+                    .queue(cl_queue.clone())
+                    .len(self.size())
+                    .build()?;
+
+                let kernel = ocl::Kernel::builder()
+                    .name("slice")
+                    .program(&self.kernel_op)
+                    .queue(cl_queue)
+                    .global_work_size(output.len())
+                    .arg(&source)
+                    .arg(&output)
+                    .build()?;
+
+                unsafe { kernel.enq()? }
+
+                Buffer::CL(output)
             }
             Buffer::Host(source) => {
                 let output = (0..self.size())
                     .into_par_iter()
                     .map(|offset_out| {
-                        let coord = strides
+                        let coord = self
+                            .strides
                             .iter()
                             .zip(dims)
                             .map(|(stride, dim)| (offset_out / stride) % dim)
@@ -622,7 +645,7 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
 
                         let mut offset_in = 0;
                         let mut x = 0;
-                        for (stride, bound) in source_strides.iter().zip(self.bounds.iter()) {
+                        for (stride, bound) in self.source_strides.iter().zip(self.bounds.iter()) {
                             let i = match bound {
                                 AxisBound::At(i) => *i,
                                 AxisBound::In(start, stop, step) => {

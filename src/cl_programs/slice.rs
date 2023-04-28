@@ -1,8 +1,8 @@
 use std::fmt;
 
-use ocl::{Buffer, Error, Kernel, Program, Queue};
+use ocl::{Error, Program};
 
-use crate::{AxisBound, CDatatype};
+use crate::{AxisBound, CDatatype, Context};
 
 use super::ArrayFormat;
 
@@ -68,13 +68,12 @@ impl<'a> fmt::Display for Bounds<'a> {
 }
 
 pub fn slice<T: CDatatype>(
-    queue: Queue,
-    input: &Buffer<T>,
+    context: &Context,
     shape: &[usize],
     strides: &[usize],
     axes: &[AxisBound],
     source_strides: &[usize],
-) -> Result<Buffer<T>, Error> {
+) -> Result<Program, Error> {
     let ndim = shape.len();
     assert_eq!(ndim, strides.len());
 
@@ -158,23 +157,5 @@ pub fn slice<T: CDatatype>(
         max_indices = bounds.max_indices(),
     );
 
-    let program = Program::builder().source(src).build(&queue.context())?;
-
-    let output = Buffer::builder()
-        .queue(queue.clone())
-        .len(bounds.size())
-        .build()?;
-
-    let kernel = Kernel::builder()
-        .name("slice")
-        .program(&program)
-        .queue(queue)
-        .global_work_size(output.len())
-        .arg(input)
-        .arg(&output)
-        .build()?;
-
-    unsafe { kernel.enq()? }
-
-    Ok(output)
+    Program::builder().source(src).build(context.cl_context())
 }
