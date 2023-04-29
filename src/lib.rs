@@ -5,6 +5,7 @@ use std::convert::identity;
 use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Range, Rem, Sub};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 #[allow(unused_imports)]
@@ -266,13 +267,17 @@ impl Float for f64 {
 #[derive(Clone, Default)]
 struct DeviceList {
     devices: Vec<ocl::Device>,
-    next: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    next: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[cfg(feature = "opencl")]
 impl DeviceList {
     fn is_empty(&self) -> bool {
         self.devices.is_empty()
+    }
+
+    fn iter(&self) -> std::slice::Iter<ocl::Device> {
+        self.devices.iter()
     }
 
     fn next(&self) -> Option<ocl::Device> {
@@ -290,7 +295,7 @@ impl From<Vec<ocl::Device>> for DeviceList {
     fn from(devices: Vec<ocl::Device>) -> Self {
         Self {
             devices,
-            next: std::sync::Arc::new(Default::default()),
+            next: Arc::new(Default::default()),
         }
     }
 }
@@ -305,64 +310,14 @@ impl FromIterator<ocl::Device> for DeviceList {
 #[cfg(feature = "opencl")]
 #[derive(Clone)]
 pub enum Buffer<T: CDatatype> {
-    Host(Vec<T>),
+    Host(Arc<Vec<T>>),
     CL(ocl::Buffer<T>),
 }
 
 #[cfg(not(feature = "opencl"))]
 #[derive(Clone)]
 pub enum Buffer<T: CDatatype> {
-    Host(Vec<T>),
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> AsType<ocl::Buffer<T>> for Buffer<T> {
-    fn as_type(&self) -> Option<&ocl::Buffer<T>> {
-        match self {
-            Self::CL(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
-
-    fn as_type_mut(&mut self) -> Option<&mut ocl::Buffer<T>> {
-        match self {
-            Self::CL(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
-
-    fn into_type(self) -> Option<ocl::Buffer<T>> {
-        match self {
-            Self::CL(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
-}
-
-impl<T: CDatatype> AsType<Vec<T>> for Buffer<T> {
-    fn as_type(&self) -> Option<&Vec<T>> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::Host(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
-
-    fn as_type_mut(&mut self) -> Option<&mut Vec<T>> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::Host(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
-
-    fn into_type(self) -> Option<Vec<T>> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::Host(buffer) => Some(buffer),
-            _ => None,
-        }
-    }
+    Host(Arc<Vec<T>>),
 }
 
 #[cfg(feature = "opencl")]
@@ -374,7 +329,7 @@ impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
 
 impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
     fn from(buffer: Vec<T>) -> Self {
-        Self::Host(buffer)
+        Self::Host(Arc::new(buffer))
     }
 }
 
@@ -480,7 +435,12 @@ impl Context {
 
     #[cfg(feature = "opencl")]
     pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
-        let platform = platform.unwrap_or_default();
+        let platform = if let Some(platform) = platform {
+            platform
+        } else {
+            let cl_platform = ocl::Platform::first()?;
+            Platform::try_from(cl_platform.clone())?
+        };
 
         let cl_context = ocl::Context::builder()
             .platform(platform.cl_platform.clone())
@@ -617,7 +577,7 @@ pub trait NDArray: Send + Sync + Sized {
 pub trait NDArrayRead: NDArray + fmt::Debug {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
 
-    fn to_vec(&self, queue: &Queue) -> Result<Vec<Self::DType>, Error> {
+    fn to_vec(&self, queue: &Queue) -> Result<Arc<Vec<Self::DType>>, Error> {
         match self.read(queue)? {
             Buffer::Host(buffer) => {
                 debug_assert_eq!(buffer.len(), self.size());
@@ -629,7 +589,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug {
 
                 let mut buffer = vec![Self::DType::zero(); cl_buffer.len()];
                 cl_buffer.read(&mut buffer[..]).enq()?;
-                Ok(buffer)
+                Ok(Arc::new(buffer))
             }
         }
     }
@@ -1067,7 +1027,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
                 let zero = Self::DType::zero();
-                Ok(input.into_par_iter().all(|n| n != zero))
+                Ok(input.par_iter().copied().all(|n| n != zero))
             }
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(cl_queue) => {
@@ -1083,7 +1043,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
                 let zero = Self::DType::zero();
-                Ok(input.into_par_iter().any(|n| n != zero))
+                Ok(input.par_iter().copied().any(|n| n != zero))
             }
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(cl_queue) => {
@@ -1107,7 +1067,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         match queue.device_queue() {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
-                Ok(input.into_par_iter().reduce(|| zero, collector))
+                Ok(input.par_iter().copied().reduce(|| zero, collector))
             }
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(cl_queue) => {
@@ -1148,7 +1108,11 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         match queue.device_queue() {
             DeviceQueue::Host => {
                 let input = self.to_vec(&queue)?;
-                Ok(input.into_par_iter().reduce(|| zero, Add::add))
+                Ok(input
+                    .as_slice()
+                    .par_iter()
+                    .copied()
+                    .reduce(|| zero, Add::add))
             }
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(cl_queue) => {

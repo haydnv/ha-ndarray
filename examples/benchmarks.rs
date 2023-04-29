@@ -40,10 +40,10 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
 }
 
 fn matmul(context: Context) -> Result<(), Error> {
-    for m in 0..24 {
+    for m in 0..20 {
         let dim = 2usize.pow(m);
-        let l = ArrayBase::with_context(context.clone(), vec![2, dim], vec![1.0f32; 2 * dim])?;
-        let r = ArrayBase::with_context(context.clone(), vec![dim, 3], vec![1.0f32; dim * 3])?;
+        let l = ArrayBase::with_context(context.clone(), vec![20, dim], vec![1.0f32; 20 * dim])?;
+        let r = ArrayBase::with_context(context.clone(), vec![dim, 30], vec![1.0f32; dim * 30])?;
         let x = l.matmul(&r)?;
 
         let queue = context.queue(x.size())?;
@@ -62,7 +62,7 @@ fn matmul(context: Context) -> Result<(), Error> {
     Ok(())
 }
 
-fn reduce_sum(context: Context) -> Result<(), Error> {
+fn reduce_sum_axis(context: Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
     let queue = context.queue(size)?;
@@ -74,6 +74,23 @@ fn reduce_sum(context: Context) -> Result<(), Error> {
     for _ in 0..ITERATIONS {
         let start = Instant::now();
         reduced.read(&queue)?;
+        let duration = start.elapsed();
+        println!("{:?} ms", duration.as_millis());
+    }
+
+    Ok(())
+}
+
+fn reduce_sum_all(context: Context) -> Result<(), Error> {
+    let shape = vec![10, 20, 30, 40, 50];
+    let size = shape.iter().product();
+    let x = ArrayBase::with_context(context, shape, vec![1; size])?;
+
+    println!("reduce {:?} (size {})...", x, x.size());
+
+    for _ in 0..ITERATIONS {
+        let start = Instant::now();
+        let _x = x.sum()?;
         let duration = start.elapsed();
         println!("{:?} ms", duration.as_millis());
     }
@@ -110,7 +127,8 @@ fn main() -> Result<(), Error> {
 
     broadcast_and_multiply(context.clone())?;
     matmul(context.clone())?;
-    reduce_sum(context.clone())?;
+    reduce_sum_axis(context.clone())?;
+    reduce_sum_all(context.clone())?;
     transpose(context)?;
 
     Ok(())
