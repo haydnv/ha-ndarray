@@ -320,6 +320,16 @@ pub enum Buffer<T: CDatatype> {
     Host(Arc<Vec<T>>),
 }
 
+impl<T: CDatatype> Buffer<T> {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Host(buffer) => buffer.len(),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => buffer.len(),
+        }
+    }
+}
+
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
     fn from(buffer: ocl::Buffer<T>) -> Self {

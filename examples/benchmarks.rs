@@ -40,10 +40,21 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
 }
 
 fn matmul(context: Context) -> Result<(), Error> {
-    for m in 0..20 {
-        let dim = 2usize.pow(m);
-        let l = ArrayBase::with_context(context.clone(), vec![20, dim], vec![1.0f32; 20 * dim])?;
-        let r = ArrayBase::with_context(context.clone(), vec![dim, 30], vec![1.0f32; dim * 30])?;
+    for m in 1..16usize {
+        let dim = 2usize.pow(m as u32);
+
+        let l = ArrayBase::with_context(
+            context.clone(),
+            vec![16 * m, dim],
+            vec![1.0f32; 16 * m * dim],
+        )?;
+
+        let r = ArrayBase::with_context(
+            context.clone(),
+            vec![dim, m * 32],
+            vec![1.0f32; dim * m * 32],
+        )?;
+
         let x = l.matmul(&r)?;
 
         let queue = context.queue(x.size())?;
@@ -52,7 +63,7 @@ fn matmul(context: Context) -> Result<(), Error> {
         println!("matmul {:?} with {:?} ({} ops)", l, r, num_ops);
         for _ in 0..ITERATIONS {
             let start = Instant::now();
-            x.read(&queue)?;
+            let _output = x.read(&queue)?;
             let duration = start.elapsed();
             let rate = num_ops as f32 / duration.as_secs_f32();
             println!("{:?} us @ {} M/s", duration.as_micros(), rate / 1_000_000.);

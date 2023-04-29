@@ -18,13 +18,9 @@ pub trait Op: Send + Sync {
 
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
         match queue.device_queue() {
-            DeviceQueue::Host => {
-                self.enqueue_cpu(queue).map(Arc::new).map(Buffer::Host)
-            },
+            DeviceQueue::Host => self.enqueue_cpu(queue).map(Arc::new).map(Buffer::Host),
             #[cfg(feature = "opencl")]
-            DeviceQueue::CL(_) => {
-                self.enqueue_cl(queue).map(Buffer::CL)
-            },
+            DeviceQueue::CL(_) => self.enqueue_cl(queue).map(Buffer::CL),
         }
     }
 
