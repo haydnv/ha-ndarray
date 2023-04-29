@@ -271,8 +271,16 @@ struct DeviceList {
 
 #[cfg(feature = "opencl")]
 impl DeviceList {
+    fn first(&self) -> Option<&ocl::Device> {
+        self.devices.first()
+    }
+
     fn is_empty(&self) -> bool {
         self.devices.is_empty()
+    }
+
+    fn iter(&self) -> std::slice::Iter<ocl::Device> {
+        self.devices.iter()
     }
 
     fn next(&self) -> Option<ocl::Device> {
@@ -292,6 +300,13 @@ impl From<Vec<ocl::Device>> for DeviceList {
             devices,
             next: std::sync::Arc::new(Default::default()),
         }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl FromIterator<ocl::Device> for DeviceList {
+    fn from_iter<T: IntoIterator<Item = ocl::Device>>(iter: T) -> Self {
+        Self::from(iter.into_iter().collect::<Vec<ocl::Device>>())
     }
 }
 
@@ -379,9 +394,21 @@ pub struct Platform {
     cl_gpus: DeviceList,
     #[cfg(feature = "opencl")]
     cl_accs: DeviceList,
+    #[cfg(feature = "opencl")]
+    cl_platform: ocl::Platform,
 }
 
 impl Platform {
+    #[cfg(feature = "opencl")]
+    fn devices(&self) -> DeviceList {
+        self.cl_cpus
+            .iter()
+            .copied()
+            .chain(self.cl_gpus.iter().copied())
+            .chain(self.cl_accs.iter().copied())
+            .collect()
+    }
+
     #[cfg(feature = "opencl")]
     fn has_gpu(&self) -> bool {
         !self.cl_gpus.is_empty()
@@ -416,6 +443,7 @@ impl TryFrom<ocl::Platform> for Platform {
             cl_cpus: cl_cpus.into(),
             cl_gpus: cl_gpus.into(),
             cl_accs: cl_accs.into(),
+            cl_platform,
         })
     }
 }
@@ -455,6 +483,33 @@ impl Context {
             platform: Platform {},
             gpu_min: GPU_MIN_DEFAULT,
             acc_min: GPU_MIN_DEFAULT,
+        })
+    }
+
+    #[cfg(feature = "opencl")]
+    pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
+        let platform = platform.unwrap_or_default();
+
+        let cl_context = ocl::Context::builder()
+            .platform(platform.cl_platform.clone())
+            .build()?;
+
+        Ok(Self {
+            platform,
+            gpu_min,
+            acc_min,
+            cl_context,
+        })
+    }
+
+    #[cfg(not(feature = "opencl"))]
+    pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
+        let platform = platform.unwrap_or_default();
+
+        Ok(Self {
+            platform,
+            gpu_min,
+            acc_min,
         })
     }
 

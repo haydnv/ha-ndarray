@@ -53,7 +53,7 @@ impl RandomNormal {
         })
     }
 
-    pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+    pub fn with_context(context: Context, size: usize) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_normal(&context)?;
 
@@ -168,7 +168,7 @@ impl RandomUniform {
         })
     }
 
-    pub fn with_context(size: usize, context: Context) -> Result<Self, Error> {
+    pub fn with_context(context: Context, size: usize) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::random_uniform(&context)?;
 

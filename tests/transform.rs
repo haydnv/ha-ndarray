@@ -1,9 +1,15 @@
-use ha_ndarray::{ArrayBase, Error, NDArray, NDArrayCompare, NDArrayReduce, NDArrayTransform};
+use ha_ndarray::{
+    ArrayBase, Context, Error, NDArray, NDArrayCompare, NDArrayReduce, NDArrayTransform,
+};
 
 #[test]
 fn test_slice_1d() -> Result<(), Error> {
-    let input = ArrayBase::new(vec![4], (0..4).into_iter().collect())?;
-    let expected = ArrayBase::new(vec![2], (1..3).into_iter().collect())?;
+    let context = Context::new(0, 0, None)?;
+
+    let input = ArrayBase::with_context(context.clone(), vec![4], (0..4).into_iter().collect())?;
+
+    let expected = ArrayBase::with_context(context, vec![2], (1..3).into_iter().collect())?;
+
     let actual = input.slice(vec![(1..3).into()])?;
 
     assert_eq!(expected.shape(), actual.shape());
@@ -14,9 +20,13 @@ fn test_slice_1d() -> Result<(), Error> {
 
 #[test]
 fn test_slice_2d() -> Result<(), Error> {
-    let input = ArrayBase::new(vec![4, 3], (0..12).into_iter().collect())?;
+    let context = Context::new(0, 0, None)?;
 
-    let expected = ArrayBase::new(
+    let input =
+        ArrayBase::with_context(context.clone(), vec![4, 3], (0..12).into_iter().collect())?;
+
+    let expected = ArrayBase::with_context(
+        context,
         vec![2, 3],
         [
             3, 4, 5, //
@@ -35,9 +45,15 @@ fn test_slice_2d() -> Result<(), Error> {
 
 #[test]
 fn test_slice_3d() -> Result<(), Error> {
-    let input = ArrayBase::new(vec![4, 3, 2], (0..24).into_iter().collect())?;
+    let context = Context::new(0, 0, None)?;
 
-    let expected = ArrayBase::new(vec![2, 2], [8, 9, 10, 11].into())?;
+    let input = ArrayBase::with_context(
+        context.clone(),
+        vec![4, 3, 2],
+        (0..24).into_iter().collect(),
+    )?;
+
+    let expected = ArrayBase::with_context(context, vec![2, 2], [8, 9, 10, 11].into())?;
 
     let actual = input.slice(vec![1.into(), (1..3).into()])?;
 
@@ -49,9 +65,12 @@ fn test_slice_3d() -> Result<(), Error> {
 
 #[test]
 fn test_transpose_2d() -> Result<(), Error> {
-    let input = ArrayBase::new(vec![2, 3], (0..6).into_iter().collect())?;
+    let context = Context::new(0, 0, None)?;
 
-    let expected = ArrayBase::new(
+    let input = ArrayBase::with_context(context.clone(), vec![2, 3], (0..6).into_iter().collect())?;
+
+    let expected = ArrayBase::with_context(
+        context,
         vec![3, 2],
         vec![
             0, 3, //
@@ -69,9 +88,16 @@ fn test_transpose_2d() -> Result<(), Error> {
 
 #[test]
 fn test_transpose_3d() -> Result<(), Error> {
-    let input = ArrayBase::new(vec![2, 3, 4], (0..24).into_iter().collect())?;
+    let context = Context::new(0, 0, None)?;
 
-    let expected = ArrayBase::new(
+    let input = ArrayBase::with_context(
+        context.clone(),
+        vec![2, 3, 4],
+        (0..24).into_iter().collect(),
+    )?;
+
+    let expected = ArrayBase::with_context(
+        context,
         vec![4, 2, 3],
         vec![
             0, 4, 8, //

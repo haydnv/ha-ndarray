@@ -1,7 +1,11 @@
-use ha_ndarray::{ArrayBase, Error, MatrixMath, NDArray, NDArrayCompareScalar, NDArrayReduce};
+use ha_ndarray::{
+    ArrayBase, Context, Error, MatrixMath, NDArray, NDArrayCompareScalar, NDArrayReduce,
+};
 
 #[test]
 fn test_matmul() -> Result<(), Error> {
+    let context = Context::new(0, 0, None)?;
+
     let shapes = [
         (vec![2, 3], vec![3, 4], vec![2, 4]),
         (vec![2, 2, 3], vec![2, 3, 4], vec![2, 2, 4]),
@@ -15,9 +19,9 @@ fn test_matmul() -> Result<(), Error> {
 
     for (left_shape, right_shape, output_shape) in shapes {
         let left = vec![1.; left_shape.iter().product()];
-        let left = ArrayBase::new(left_shape, left)?;
+        let left = ArrayBase::with_context(context.clone(), left_shape, left)?;
         let right = vec![1.; right_shape.iter().product()];
-        let right = ArrayBase::new(right_shape, right)?;
+        let right = ArrayBase::with_context(context.clone(), right_shape, right)?;
 
         let actual = left.matmul(&right)?;
         assert_eq!(actual.shape(), output_shape);
