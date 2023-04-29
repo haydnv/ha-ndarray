@@ -1,26 +1,65 @@
 use std::time::Instant;
 
 use ha_ndarray::{
-    ArrayBase, Context, Error, NDArray, NDArrayMath, NDArrayRead, NDArrayReduce, NDArrayTransform,
+    ArrayBase, Context, Error, MatrixMath, NDArray, NDArrayMath, NDArrayRead, NDArrayReduce,
+    NDArrayTransform,
 };
 
-const ITERATIONS: usize = 20;
+const ITERATIONS: usize = 10;
 
 fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
-    let shape = vec![40, 10, 20, 30];
-    let queue = context.queue(shape.iter().product())?;
+    for m in 0..4 {
+        let dim = 10usize.pow(m);
+        let shape = vec![3, dim, 5, 10];
+        let size = shape.iter().product::<usize>();
+        let queue = context.queue(size)?;
 
-    let left = ArrayBase::with_context(context.clone(), vec![10, 20, 30], vec![1.0f64; 6000])?;
-    let right = ArrayBase::with_context(context, vec![40, 10, 1, 30], vec![1.0f64; 12000])?;
+        let left = ArrayBase::with_context(
+            context.clone(),
+            vec![dim, 5, 10],
+            vec![1.0f64; dim * 5 * 10],
+        )?;
+        let right = ArrayBase::with_context(
+            context.clone(),
+            vec![3, dim, 1, 10],
+            vec![1.0f64; 3 * dim * 10],
+        )?;
 
-    println!("broadcast and multiply {:?} and {:?}...", left, right);
-    let product = NDArrayMath::mul(&left.broadcast(shape.to_vec())?, &right.broadcast(shape)?)?;
+        println!(
+            "broadcast and multiply {:?} and {:?} (size {})...",
+            left, right, size
+        );
+        let product = NDArrayMath::mul(&left.broadcast(shape.to_vec())?, &right.broadcast(shape)?)?;
 
-    for _ in 0..ITERATIONS {
-        let start = Instant::now();
-        product.read(&queue)?;
-        let duration = start.elapsed();
-        println!("{:?} us", duration.as_micros());
+        for _ in 0..ITERATIONS {
+            let start = Instant::now();
+            product.read(&queue)?;
+            let duration = start.elapsed();
+            println!("{:?} us", duration.as_micros());
+        }
+    }
+
+    Ok(())
+}
+
+fn matmul(context: Context) -> Result<(), Error> {
+    for m in 0..24 {
+        let dim = 2usize.pow(m);
+        let l = ArrayBase::with_context(context.clone(), vec![2, dim], vec![1.0f32; 2 * dim])?;
+        let r = ArrayBase::with_context(context.clone(), vec![dim, 3], vec![1.0f32; dim * 3])?;
+        let x = l.matmul(&r)?;
+
+        let queue = context.queue(x.size())?;
+
+        let num_ops = dim * x.size();
+        println!("matmul {:?} with {:?} ({} ops)", l, r, num_ops);
+        for _ in 0..ITERATIONS {
+            let start = Instant::now();
+            x.read(&queue)?;
+            let duration = start.elapsed();
+            let rate = num_ops as f32 / duration.as_secs_f32();
+            println!("{:?} us @ {} M/s", duration.as_micros(), rate / 1_000_000.);
+        }
     }
 
     Ok(())
@@ -70,9 +109,10 @@ fn transpose(context: Context) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
-    let context = Context::default()?;
+    let context = Context::new(0, 0, None)?;
 
     broadcast_and_multiply(context.clone())?;
+    matmul(context.clone())?;
     reduce_sum(context.clone())?;
     transpose(context)?;
 
