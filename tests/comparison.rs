@@ -1,4 +1,4 @@
-use ha_ndarray::{ArrayBase, Context, Error, NDArrayCompare, NDArrayReduce};
+use ha_ndarray::*;
 
 #[test]
 fn test_constant_array() -> Result<(), Error> {

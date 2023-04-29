@@ -3,15 +3,12 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
-use crate::DeviceQueue;
 use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    AxisBound, Buffer, CDatatype, Context, Error, Float, MatrixMath, NDArray, NDArrayAbs,
-    NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayExp, NDArrayMath,
-    NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayTransform, NDArrayWrite,
-    Queue, Shape,
+    AxisBound, Buffer, CDatatype, Context, DeviceQueue, Error, NDArray, NDArrayRead,
+    NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -71,10 +68,6 @@ impl<T: CDatatype> NDArray for ArrayBase<T> {
         &self.shape
     }
 }
-
-impl<T: CDatatype> NDArrayAbs for ArrayBase<T> {}
-
-impl<T: CDatatype> NDArrayExp for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     type Broadcast = ArrayView<Self>;
@@ -155,54 +148,6 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
         ArrayView::new(self.clone(), shape, strides)
     }
 }
-
-impl<A: NDArrayRead> NDArrayBoolean<A> for ArrayBase<A::DType> {}
-
-impl<I: CDatatype, O: CDatatype> NDArrayCast<O> for ArrayBase<I> {}
-
-impl<T: CDatatype> NDArrayMath<ArrayBase<f64>> for ArrayBase<T> {}
-
-impl<T, Op> NDArrayMath<ArrayOp<Op>> for ArrayBase<T>
-where
-    T: CDatatype,
-    Op: super::ops::Op,
-    ArrayOp<Op>: Clone,
-{
-}
-
-impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
-
-impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
-
-impl NDArrayNumeric for ArrayBase<f32> {
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-}
-
-impl NDArrayNumeric for ArrayBase<f64> {
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-}
-
-impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
 macro_rules! impl_op {
     ($op:ident, $name:ident, $t:ty, $o:ty) => {
@@ -288,12 +233,6 @@ impl<T: CDatatype> Not for ArrayBase<T> {
     }
 }
 
-impl<A: NDArrayRead> MatrixMath<A> for ArrayBase<A::DType> {}
-
-impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
-
-impl<T: CDatatype> NDArrayCompareScalar for ArrayBase<T> {}
-
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
@@ -340,8 +279,6 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
         }
     }
 }
-
-impl<T: CDatatype> NDArrayReduce for ArrayBase<T> {}
 
 impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -428,75 +365,6 @@ where
         ArrayView::transpose(self.clone(), axes)
     }
 }
-
-impl<Op: super::ops::Op> NDArrayCompareScalar for ArrayOp<Op> {}
-
-impl<Op: super::ops::Op> NDArrayAbs for ArrayOp<Op> where Self: Clone {}
-
-impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
-
-impl<Op: super::ops::Op> NDArrayMath<ArrayBase<Op::Out>> for ArrayOp<Op> where Self: Clone {}
-
-impl<T, LOp, ROp> NDArrayMath<ArrayOp<ROp>> for ArrayOp<LOp>
-where
-    T: CDatatype,
-    LOp: super::ops::Op<Out = T>,
-    ROp: super::ops::Op<Out = T>,
-    ArrayOp<LOp>: Clone,
-    ArrayOp<ROp>: Clone,
-{
-}
-
-impl<T, A, Op> NDArrayMath<ArraySlice<A>> for ArrayOp<Op>
-where
-    T: CDatatype,
-    A: NDArray<DType = T> + Clone,
-    Op: super::ops::Op<Out = T>,
-    Self: Clone,
-{
-}
-
-impl<T, A, Op> NDArrayMath<ArrayView<A>> for ArrayOp<Op>
-where
-    T: CDatatype,
-    A: NDArray<DType = T> + Clone,
-    Op: super::ops::Op<Out = T>,
-    Self: Clone,
-{
-}
-
-impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op>
-where
-    Op::Out: Float,
-    Self: Clone,
-{
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-}
-
-impl<Op: super::ops::Op> NDArrayReduce for ArrayOp<Op> where Self: Clone {}
-
-impl<Op: super::ops::Op, O: NDArray<DType = Op::Out>> MatrixMath<O> for ArrayOp<Op> {}
-
-impl<Op: super::ops::Op, O: CDatatype> NDArrayCast<O> for ArrayOp<Op> {}
-
-impl<A, Op> NDArrayBoolean<A> for ArrayOp<Op>
-where
-    A: NDArray,
-    Op: super::ops::Op<Out = A::DType>,
-{
-}
-
-impl<Op: super::ops::Op> NDArrayMathScalar for ArrayOp<Op> where Self: Clone {}
 
 impl_op!(Add, add, ArrayOp<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayOp<T>, ArrayBase<O>);
@@ -784,83 +652,6 @@ where
     }
 }
 
-impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArraySlice<A> {}
-
-impl<A, O> NDArrayBoolean<O> for ArraySlice<A>
-where
-    A: NDArray,
-    O: NDArray<DType = A::DType>,
-{
-}
-
-impl<A: NDArray> NDArrayAbs for ArraySlice<A> where Self: Clone {}
-
-impl<A: NDArray> NDArrayExp for ArraySlice<A> where Self: Clone {}
-
-impl<T, A, O> MatrixMath<O> for ArraySlice<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T>,
-{
-}
-
-impl<T, A> NDArrayMath<ArrayBase<T>> for ArraySlice<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    Self: Clone,
-{
-}
-
-impl<T, A, Op> NDArrayMath<ArrayOp<Op>> for ArraySlice<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    Op: super::ops::Op,
-    ArrayOp<Op>: Clone,
-    Self: Clone,
-{
-}
-
-impl<T, A, O> NDArrayMath<ArraySlice<O>> for ArraySlice<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T> + Clone,
-    Self: Clone,
-{
-}
-
-impl<T, A, O> NDArrayMath<ArrayView<O>> for ArraySlice<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T> + Clone,
-    Self: Clone,
-{
-}
-
-impl<A: NDArrayRead> NDArrayMathScalar for ArraySlice<A> where Self: Clone {}
-
-impl<A: NDArrayRead> NDArrayNumeric for ArraySlice<A>
-where
-    Self::DType: Float,
-    Self: Clone,
-{
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-}
-
 impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
 impl_op!(Mul, mul, ArraySlice<T>, ArrayBase<O>);
@@ -1098,75 +889,6 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     }
 }
 
-impl<A: NDArray, O: CDatatype> NDArrayCast<O> for ArrayView<A> {}
-
-impl<A, O> NDArrayBoolean<O> for ArrayView<A>
-where
-    A: NDArray,
-    O: NDArray<DType = A::DType>,
-{
-}
-
-impl<A: NDArray> NDArrayAbs for ArrayView<A> where Self: Clone {}
-
-impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
-
-impl<A: NDArrayRead> NDArrayMathScalar for ArrayView<A> where Self: Clone {}
-
-impl<T, A> NDArrayMath<ArrayBase<T>> for ArrayView<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    Self: Clone,
-{
-}
-
-impl<T, A, Op> NDArrayMath<ArrayOp<Op>> for ArrayView<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    Op: super::ops::Op,
-    ArrayOp<Op>: Clone,
-    Self: Clone,
-{
-}
-
-impl<T, A, O> NDArrayMath<ArraySlice<O>> for ArrayView<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T> + Clone,
-    Self: Clone,
-{
-}
-
-impl<T, A, O> NDArrayMath<ArrayView<O>> for ArrayView<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T> + Clone,
-    Self: Clone,
-{
-}
-
-impl<A: NDArrayRead> NDArrayNumeric for ArrayView<A>
-where
-    Self::DType: Float,
-    Self: Clone,
-{
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::inf(self.clone())?;
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayUnary::nan(self.clone()).expect("op");
-        Ok(ArrayOp::new(shape, op))
-    }
-}
-
 impl_op!(Add, add, ArrayView<T>, ArrayBase<O>);
 impl_op!(Div, div, ArrayView<T>, ArrayBase<O>);
 impl_op!(Mul, mul, ArrayView<T>, ArrayBase<O>);
@@ -1261,14 +983,6 @@ impl<A: NDArray + fmt::Debug> NDArrayTransform for ArrayView<A> {
     fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
         todo!()
     }
-}
-
-impl<T, A, O> MatrixMath<O> for ArrayView<A>
-where
-    T: CDatatype,
-    A: NDArray<DType = T>,
-    O: NDArray<DType = T>,
-{
 }
 
 impl<A: fmt::Debug> fmt::Debug for ArrayView<A> {

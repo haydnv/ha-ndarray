@@ -1,9 +1,6 @@
 use std::time::Instant;
 
-use ha_ndarray::{
-    ArrayBase, Context, Error, MatrixMath, NDArray, NDArrayMath, NDArrayRead, NDArrayReduce,
-    NDArrayTransform,
-};
+use ha_ndarray::*;
 
 const ITERATIONS: usize = 10;
 

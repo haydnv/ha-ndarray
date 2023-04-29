@@ -1,6 +1,4 @@
-use ha_ndarray::{
-    ArrayBase, Context, Error, MatrixMath, NDArray, NDArrayCompareScalar, NDArrayReduce,
-};
+use ha_ndarray::*;
 
 #[test]
 fn test_matmul() -> Result<(), Error> {

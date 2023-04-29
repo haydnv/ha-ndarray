@@ -1,6 +1,4 @@
-use ha_ndarray::{
-    ArrayBase, Context, Error, NDArray, NDArrayCompare, NDArrayReduce, NDArrayTransform,
-};
+use ha_ndarray::*;
 
 #[test]
 fn test_slice_1d() -> Result<(), Error> {

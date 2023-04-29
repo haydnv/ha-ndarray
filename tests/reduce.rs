@@ -1,4 +1,4 @@
-use ha_ndarray::{ArrayBase, Context, Error, NDArray, NDArrayCompareScalar, NDArrayReduce};
+use ha_ndarray::*;
 
 #[test]
 fn test_reduce_sum_all() -> Result<(), Error> {

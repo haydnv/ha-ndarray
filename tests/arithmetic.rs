@@ -1,4 +1,4 @@
-use ha_ndarray::{ArrayBase, Context, Error, NDArrayCompare, NDArrayReduce, NDArrayTransform};
+use ha_ndarray::*;
 
 #[test]
 fn test_add() -> Result<(), Error> {

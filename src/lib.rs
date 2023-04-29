@@ -271,16 +271,8 @@ struct DeviceList {
 
 #[cfg(feature = "opencl")]
 impl DeviceList {
-    fn first(&self) -> Option<&ocl::Device> {
-        self.devices.first()
-    }
-
     fn is_empty(&self) -> bool {
         self.devices.is_empty()
-    }
-
-    fn iter(&self) -> std::slice::Iter<ocl::Device> {
-        self.devices.iter()
     }
 
     fn next(&self) -> Option<ocl::Device> {
@@ -707,6 +699,8 @@ where
     }
 }
 
+impl<T: CDatatype, A: NDArray<DType = T>, O: NDArray<DType = T>> NDArrayBoolean<O> for A {}
+
 pub trait NDArrayAbs: NDArray + Clone {
     fn abs(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let op = ArrayUnary::abs(self.clone())?;
@@ -714,12 +708,16 @@ pub trait NDArrayAbs: NDArray + Clone {
     }
 }
 
+impl<A: NDArray + Clone> NDArrayAbs for A {}
+
 pub trait NDArrayExp: NDArray + Clone {
     fn exp(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let op = ArrayUnary::exp(self.clone())?;
         Ok(ArrayOp::new(self.shape().to_vec(), op))
     }
 }
+
+impl<A: NDArray + Clone> NDArrayExp for A {}
 
 pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
     fn add<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
@@ -786,7 +784,9 @@ pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
     }
 }
 
-pub trait NDArrayMathScalar: NDArrayRead + Clone {
+impl<A: NDArray + Clone, O: NDArray + Clone> NDArrayMath<O> for A {}
+
+pub trait NDArrayMathScalar: NDArray + Clone {
     fn add_scalar(
         &self,
         rhs: Self::DType,
@@ -845,11 +845,26 @@ pub trait NDArrayMathScalar: NDArrayRead + Clone {
     }
 }
 
-pub trait NDArrayNumeric: NDArray + Clone {
-    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error>;
+impl<A: NDArray + Clone> NDArrayMathScalar for A {}
 
-    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error>;
+pub trait NDArrayNumeric: NDArray + Clone
+where
+    Self::DType: Float,
+{
+    fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::inf(self.clone())?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn is_nan(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::nan(self.clone()).expect("op");
+        Ok(ArrayOp::new(shape, op))
+    }
 }
+
+impl<A: NDArray + Clone> NDArrayNumeric for A where A::DType: Float {}
 
 pub trait NDArrayTrig: NDArray {
     fn asin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
@@ -871,6 +886,8 @@ pub trait NDArrayTrig: NDArray {
     fn tanh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 }
 
+// TODO: implement trigonometry methods
+
 pub trait NDArrayCast<O: CDatatype>: NDArray {
     fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
@@ -878,6 +895,8 @@ pub trait NDArrayCast<O: CDatatype>: NDArray {
         Ok(ArrayOp::new(shape, op))
     }
 }
+
+impl<A: NDArray, O: CDatatype> NDArrayCast<O> for A {}
 
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
     fn eq<'a>(
@@ -935,6 +954,8 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
     }
 }
 
+impl<A: NDArray, O: NDArray> NDArrayCompare<O> for A where O: NDArray<DType = A::DType> {}
+
 pub trait NDArrayCompareScalar: NDArray {
     fn eq_scalar(
         &self,
@@ -991,6 +1012,8 @@ pub trait NDArrayCompareScalar: NDArray {
     }
 }
 
+impl<A: NDArray> NDArrayCompareScalar for A {}
+
 pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
     fn matmul<'a>(
         &'a self,
@@ -1034,6 +1057,8 @@ pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
         Ok(ArrayOp::new(shape, op))
     }
 }
+
+impl<A: NDArray, O: NDArray> MatrixMath<O> for A where O: NDArray<DType = A::DType> {}
 
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
@@ -1156,6 +1181,8 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         Ok(ArrayOp::new(shape, op))
     }
 }
+
+impl<A: NDArrayRead + Clone + fmt::Debug> NDArrayReduce for A {}
 
 pub trait NDArrayTransform: NDArray + fmt::Debug {
     type Broadcast: NDArray;

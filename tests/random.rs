@@ -1,5 +1,5 @@
 use ha_ndarray::construct::{RandomNormal, RandomUniform};
-use ha_ndarray::{ArrayOp, Context, Error, NDArrayCompareScalar, NDArrayReduce};
+use ha_ndarray::*;
 
 #[test]
 fn test_random_normal() -> Result<(), Error> {
