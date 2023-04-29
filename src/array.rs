@@ -3,6 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
+use crate::DeviceQueue;
 use rayon::prelude::*;
 
 use super::ops::*;
@@ -35,10 +36,14 @@ impl<T: CDatatype> ArrayBase<T> {
     }
 
     pub fn new(shape: Shape, data: Vec<T>) -> Result<Self, Error> {
+        Context::default().and_then(|cxt| Self::with_context(cxt, shape, data))
+    }
+
+    pub fn with_context(context: Context, shape: Shape, data: Vec<T>) -> Result<Self, Error> {
         let size = shape.iter().product();
         if data.len() == size {
-            let context = Context::default()?;
             let data = Arc::new(RwLock::new(data));
+
             Ok(Self {
                 context,
                 data,
@@ -165,6 +170,10 @@ where
 {
 }
 
+impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
+
+impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
+
 impl NDArrayNumeric for ArrayBase<f32> {
     fn is_inf(&self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -193,18 +202,14 @@ impl NDArrayNumeric for ArrayBase<f64> {
     }
 }
 
-impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArraySlice<A>> for ArrayBase<T> {}
-
-impl<T: CDatatype, A: NDArray + Clone> NDArrayMath<ArrayView<A>> for ArrayBase<T> {}
-
 impl<T: CDatatype> NDArrayMathScalar for ArrayBase<T> {}
 
 macro_rules! impl_op {
     ($op:ident, $name:ident, $t:ty, $o:ty) => {
         impl<T: CDatatype, O> $op<$o> for $t
         where
-            Self: NDArray,
-            $o: NDArray,
+            Self: NDArray<DType = T>,
+            $o: NDArray<DType = T>,
         {
             type Output = ArrayOp<ArrayDual<T, Self, $o>>;
 
@@ -290,9 +295,22 @@ impl<T: CDatatype, A: NDArray<DType = T>> NDArrayCompare<A> for ArrayBase<T> {}
 impl<T: CDatatype> NDArrayCompareScalar for ArrayBase<T> {}
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
-    fn read(&self, _queue: &Queue) -> Result<Buffer<T>, Error> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
-        Ok(Buffer::Host(data.to_vec()))
+
+        match queue.device_queue() {
+            DeviceQueue::Host => Ok(Buffer::Host(data.to_vec())),
+            #[cfg(feature = "opencl")]
+            DeviceQueue::CL(cl_queue) => {
+                let buffer = ocl::Buffer::builder()
+                    .queue(cl_queue.clone())
+                    .len(data.len())
+                    .copy_host_slice(&data[..])
+                    .build()?;
+
+                Ok(Buffer::CL(buffer))
+            }
+        }
     }
 }
 
@@ -416,6 +434,36 @@ impl<Op: super::ops::Op> NDArrayCompareScalar for ArrayOp<Op> {}
 impl<Op: super::ops::Op> NDArrayAbs for ArrayOp<Op> where Self: Clone {}
 
 impl<Op: super::ops::Op> NDArrayExp for ArrayOp<Op> where Self: Clone {}
+
+impl<Op: super::ops::Op> NDArrayMath<ArrayBase<Op::Out>> for ArrayOp<Op> where Self: Clone {}
+
+impl<T, LOp, ROp> NDArrayMath<ArrayOp<ROp>> for ArrayOp<LOp>
+where
+    T: CDatatype,
+    LOp: super::ops::Op<Out = T>,
+    ROp: super::ops::Op<Out = T>,
+    ArrayOp<LOp>: Clone,
+    ArrayOp<ROp>: Clone,
+{
+}
+
+impl<T, A, Op> NDArrayMath<ArraySlice<A>> for ArrayOp<Op>
+where
+    T: CDatatype,
+    A: NDArray<DType = T> + Clone,
+    Op: super::ops::Op<Out = T>,
+    Self: Clone,
+{
+}
+
+impl<T, A, Op> NDArrayMath<ArrayView<A>> for ArrayOp<Op>
+where
+    T: CDatatype,
+    A: NDArray<DType = T> + Clone,
+    Op: super::ops::Op<Out = T>,
+    Self: Clone,
+{
+}
 
 impl<Op: super::ops::Op> NDArrayNumeric for ArrayOp<Op>
 where
@@ -757,6 +805,42 @@ where
 {
 }
 
+impl<T, A> NDArrayMath<ArrayBase<T>> for ArraySlice<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    Self: Clone,
+{
+}
+
+impl<T, A, Op> NDArrayMath<ArrayOp<Op>> for ArraySlice<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    Op: super::ops::Op,
+    ArrayOp<Op>: Clone,
+    Self: Clone,
+{
+}
+
+impl<T, A, O> NDArrayMath<ArraySlice<O>> for ArraySlice<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T> + Clone,
+    Self: Clone,
+{
+}
+
+impl<T, A, O> NDArrayMath<ArrayView<O>> for ArraySlice<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T> + Clone,
+    Self: Clone,
+{
+}
+
 impl<A: NDArrayRead> NDArrayMathScalar for ArraySlice<A> where Self: Clone {}
 
 impl<A: NDArrayRead> NDArrayNumeric for ArraySlice<A>
@@ -1028,6 +1112,42 @@ impl<A: NDArray> NDArrayAbs for ArrayView<A> where Self: Clone {}
 impl<A: NDArray> NDArrayExp for ArrayView<A> where Self: Clone {}
 
 impl<A: NDArrayRead> NDArrayMathScalar for ArrayView<A> where Self: Clone {}
+
+impl<T, A> NDArrayMath<ArrayBase<T>> for ArrayView<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    Self: Clone,
+{
+}
+
+impl<T, A, Op> NDArrayMath<ArrayOp<Op>> for ArrayView<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    Op: super::ops::Op,
+    ArrayOp<Op>: Clone,
+    Self: Clone,
+{
+}
+
+impl<T, A, O> NDArrayMath<ArraySlice<O>> for ArrayView<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T> + Clone,
+    Self: Clone,
+{
+}
+
+impl<T, A, O> NDArrayMath<ArrayView<O>> for ArrayView<A>
+where
+    T: CDatatype,
+    A: NDArray<DType = T>,
+    O: NDArray<DType = T> + Clone,
+    Self: Clone,
+{
+}
 
 impl<A: NDArrayRead> NDArrayNumeric for ArrayView<A>
 where

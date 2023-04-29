@@ -666,7 +666,7 @@ pub trait NDArrayExp: NDArray + Clone {
     }
 }
 
-pub trait NDArrayMath<O: NDArray + Clone>: NDArrayRead + Clone {
+pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
     fn add<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType>,
@@ -1216,6 +1216,7 @@ fn check_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     }
 }
 
+#[cfg(feature = "opencl")]
 #[inline]
 fn div_ceil(num: usize, denom: usize) -> usize {
     if num % denom == 0 {
