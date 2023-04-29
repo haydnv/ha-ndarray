@@ -526,6 +526,7 @@ impl Context {
     }
 }
 
+// TODO: delete
 enum DeviceQueue {
     Host,
     #[cfg(feature = "opencl")]

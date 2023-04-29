@@ -16,6 +16,7 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
             vec![dim, 5, 10],
             vec![1.0f64; dim * 5 * 10],
         )?;
+
         let right = ArrayBase::with_context(
             context.clone(),
             vec![3, dim, 1, 10],
@@ -26,7 +27,8 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
             "broadcast and multiply {:?} and {:?} (size {})...",
             left, right, size
         );
-        let product = NDArrayMath::mul(&left.broadcast(shape.to_vec())?, &right.broadcast(shape)?)?;
+
+        let product = left.broadcast(shape.to_vec())? * right.broadcast(shape)?;
 
         for _ in 0..ITERATIONS {
             let start = Instant::now();

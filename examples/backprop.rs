@@ -1,8 +1,8 @@
 use ha_ndarray::construct::{RandomNormal, RandomUniform};
 use ha_ndarray::*;
 
-const LEARNING_RATE: f32 = 0.00001;
-const NUM_EXAMPLES: usize = 2048;
+const LEARNING_RATE: f32 = 0.0001;
+const NUM_EXAMPLES: usize = 25;
 
 fn main() -> Result<(), Error> {
     let weights = RandomNormal::new(2)?;
@@ -20,14 +20,14 @@ fn main() -> Result<(), Error> {
     let labels = ArrayBase::copy(&inputs_left.and(&inputs_right)?.expand_dim(1)?.cast()?)?;
 
     let output = inputs.matmul(&weights)?;
-    let error = labels.sub(&output)?;
+    let error = labels - output;
     let loss = error.pow_scalar(2.)?;
 
     let d_loss = error * 2.;
     let weights_t = weights.transpose(None)?;
     let gradient = d_loss.matmul(&weights_t)?;
     let deltas = gradient.sum_axis(0)?.expand_dim(1)?;
-    let new_weights = weights.add(&(deltas.mul_scalar(LEARNING_RATE)?))?;
+    let new_weights = weights.clone() + (deltas * LEARNING_RATE);
 
     let mut i = 0;
     loop {

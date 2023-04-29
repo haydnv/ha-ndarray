@@ -150,11 +150,32 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
     }
 }
 
-macro_rules! impl_op {
-    ($op:ident, $name:ident, $t:ty, $o:ty) => {
-        impl<T: CDatatype, O> $op<$o> for $t
+macro_rules! impl_base_op {
+    ($op:ident, $name:ident) => {
+        impl<T: CDatatype> $op<ArrayBase<T>> for ArrayBase<T> {
+            type Output = ArrayOp<ArrayDual<T, Self, ArrayBase<T>>>;
+
+            fn $name(self, rhs: ArrayBase<T>) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
+
+                let op = ArrayDual::$name(self, rhs).expect("op");
+                ArrayOp { op, shape }
+            }
+        }
+    };
+}
+
+impl_base_op!(Add, add);
+impl_base_op!(Div, div);
+impl_base_op!(Mul, mul);
+impl_base_op!(Rem, rem);
+impl_base_op!(Sub, sub);
+
+macro_rules! impl_base_dual_op {
+    ($op:ident, $name:ident, $o:ty) => {
+        impl<T: CDatatype, O> $op<$o> for ArrayBase<T>
         where
-            Self: NDArray<DType = T>,
             $o: NDArray<DType = T>,
         {
             type Output = ArrayOp<ArrayDual<T, Self, $o>>;
@@ -170,29 +191,23 @@ macro_rules! impl_op {
     };
 }
 
-impl_op!(Add, add, ArrayBase<T>, ArrayBase<O>);
-impl_op!(Div, div, ArrayBase<T>, ArrayBase<O>);
-impl_op!(Mul, mul, ArrayBase<T>, ArrayBase<O>);
-impl_op!(Rem, rem, ArrayBase<T>, ArrayBase<O>);
-impl_op!(Sub, sub, ArrayBase<T>, ArrayBase<O>);
+impl_base_dual_op!(Add, add, ArrayOp<O>);
+impl_base_dual_op!(Div, div, ArrayOp<O>);
+impl_base_dual_op!(Mul, mul, ArrayOp<O>);
+impl_base_dual_op!(Rem, rem, ArrayOp<O>);
+impl_base_dual_op!(Sub, sub, ArrayOp<O>);
 
-impl_op!(Add, add, ArrayBase<T>, ArrayOp<O>);
-impl_op!(Div, div, ArrayBase<T>, ArrayOp<O>);
-impl_op!(Mul, mul, ArrayBase<T>, ArrayOp<O>);
-impl_op!(Rem, rem, ArrayBase<T>, ArrayOp<O>);
-impl_op!(Sub, sub, ArrayBase<T>, ArrayOp<O>);
+impl_base_dual_op!(Add, add, ArraySlice<O>);
+impl_base_dual_op!(Div, div, ArraySlice<O>);
+impl_base_dual_op!(Mul, mul, ArraySlice<O>);
+impl_base_dual_op!(Rem, rem, ArraySlice<O>);
+impl_base_dual_op!(Sub, sub, ArraySlice<O>);
 
-impl_op!(Add, add, ArrayBase<T>, ArraySlice<O>);
-impl_op!(Div, div, ArrayBase<T>, ArraySlice<O>);
-impl_op!(Mul, mul, ArrayBase<T>, ArraySlice<O>);
-impl_op!(Rem, rem, ArrayBase<T>, ArraySlice<O>);
-impl_op!(Sub, sub, ArrayBase<T>, ArraySlice<O>);
-
-impl_op!(Add, add, ArrayBase<T>, ArrayView<O>);
-impl_op!(Div, div, ArrayBase<T>, ArrayView<O>);
-impl_op!(Mul, mul, ArrayBase<T>, ArrayView<O>);
-impl_op!(Rem, rem, ArrayBase<T>, ArrayView<O>);
-impl_op!(Sub, sub, ArrayBase<T>, ArrayView<O>);
+impl_base_dual_op!(Add, add, ArrayView<O>);
+impl_base_dual_op!(Div, div, ArrayView<O>);
+impl_base_dual_op!(Mul, mul, ArrayView<O>);
+impl_base_dual_op!(Rem, rem, ArrayView<O>);
+impl_base_dual_op!(Sub, sub, ArrayView<O>);
 
 macro_rules! impl_base_scalar_op {
     ($op:ident, $name:ident) => {
@@ -367,29 +382,48 @@ where
     }
 }
 
-impl_op!(Add, add, ArrayOp<T>, ArrayBase<O>);
-impl_op!(Div, div, ArrayOp<T>, ArrayBase<O>);
-impl_op!(Mul, mul, ArrayOp<T>, ArrayBase<O>);
-impl_op!(Rem, rem, ArrayOp<T>, ArrayBase<O>);
-impl_op!(Sub, sub, ArrayOp<T>, ArrayBase<O>);
+macro_rules! impl_op_dual_op {
+    ($op:ident, $name:ident, $o:ty) => {
+        impl<T: CDatatype, Op: super::ops::Op<Out = T>, O> $op<$o> for ArrayOp<Op>
+        where
+            $o: NDArray<DType = T>,
+        {
+            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
 
-impl_op!(Add, add, ArrayOp<T>, ArrayOp<O>);
-impl_op!(Div, div, ArrayOp<T>, ArrayOp<O>);
-impl_op!(Mul, mul, ArrayOp<T>, ArrayOp<O>);
-impl_op!(Rem, rem, ArrayOp<T>, ArrayOp<O>);
-impl_op!(Sub, sub, ArrayOp<T>, ArrayOp<O>);
+            fn $name(self, rhs: $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
 
-impl_op!(Add, add, ArrayOp<T>, ArraySlice<O>);
-impl_op!(Div, div, ArrayOp<T>, ArraySlice<O>);
-impl_op!(Mul, mul, ArrayOp<T>, ArraySlice<O>);
-impl_op!(Rem, rem, ArrayOp<T>, ArraySlice<O>);
-impl_op!(Sub, sub, ArrayOp<T>, ArraySlice<O>);
+                let op = ArrayDual::$name(self, rhs).expect("op");
+                ArrayOp { op, shape }
+            }
+        }
+    };
+}
 
-impl_op!(Add, add, ArrayOp<T>, ArrayView<O>);
-impl_op!(Div, div, ArrayOp<T>, ArrayView<O>);
-impl_op!(Mul, mul, ArrayOp<T>, ArrayView<O>);
-impl_op!(Rem, rem, ArrayOp<T>, ArrayView<O>);
-impl_op!(Sub, sub, ArrayOp<T>, ArrayView<O>);
+impl_op_dual_op!(Add, add, ArrayBase<O>);
+impl_op_dual_op!(Div, div, ArrayBase<O>);
+impl_op_dual_op!(Mul, mul, ArrayBase<O>);
+impl_op_dual_op!(Rem, rem, ArrayBase<O>);
+impl_op_dual_op!(Sub, sub, ArrayBase<O>);
+
+impl_op_dual_op!(Add, add, ArrayOp<O>);
+impl_op_dual_op!(Div, div, ArrayOp<O>);
+impl_op_dual_op!(Mul, mul, ArrayOp<O>);
+impl_op_dual_op!(Rem, rem, ArrayOp<O>);
+impl_op_dual_op!(Sub, sub, ArrayOp<O>);
+
+impl_op_dual_op!(Add, add, ArraySlice<O>);
+impl_op_dual_op!(Div, div, ArraySlice<O>);
+impl_op_dual_op!(Mul, mul, ArraySlice<O>);
+impl_op_dual_op!(Rem, rem, ArraySlice<O>);
+impl_op_dual_op!(Sub, sub, ArraySlice<O>);
+
+impl_op_dual_op!(Add, add, ArrayView<O>);
+impl_op_dual_op!(Div, div, ArrayView<O>);
+impl_op_dual_op!(Mul, mul, ArrayView<O>);
+impl_op_dual_op!(Rem, rem, ArrayView<O>);
+impl_op_dual_op!(Sub, sub, ArrayView<O>);
 
 macro_rules! impl_op_scalar_op {
     ($op:ident, $name:ident) => {
@@ -653,29 +687,48 @@ where
     }
 }
 
-impl_op!(Add, add, ArraySlice<T>, ArrayBase<O>);
-impl_op!(Div, div, ArraySlice<T>, ArrayBase<O>);
-impl_op!(Mul, mul, ArraySlice<T>, ArrayBase<O>);
-impl_op!(Rem, rem, ArraySlice<T>, ArrayBase<O>);
-impl_op!(Sub, sub, ArraySlice<T>, ArrayBase<O>);
+macro_rules! impl_slice_dual_op {
+    ($op:ident, $name:ident, $o:ty) => {
+        impl<T: CDatatype, A: NDArray<DType = T>, O> $op<$o> for ArraySlice<A>
+        where
+            $o: NDArray<DType = T>,
+        {
+            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
 
-impl_op!(Add, add, ArraySlice<T>, ArrayOp<O>);
-impl_op!(Div, div, ArraySlice<T>, ArrayOp<O>);
-impl_op!(Mul, mul, ArraySlice<T>, ArrayOp<O>);
-impl_op!(Rem, rem, ArraySlice<T>, ArrayOp<O>);
-impl_op!(Sub, sub, ArraySlice<T>, ArrayOp<O>);
+            fn $name(self, rhs: $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
 
-impl_op!(Add, add, ArraySlice<T>, ArraySlice<O>);
-impl_op!(Div, div, ArraySlice<T>, ArraySlice<O>);
-impl_op!(Mul, mul, ArraySlice<T>, ArraySlice<O>);
-impl_op!(Rem, rem, ArraySlice<T>, ArraySlice<O>);
-impl_op!(Sub, sub, ArraySlice<T>, ArraySlice<O>);
+                let op = ArrayDual::$name(self, rhs).expect("op");
+                ArrayOp { op, shape }
+            }
+        }
+    };
+}
 
-impl_op!(Add, add, ArraySlice<T>, ArrayView<O>);
-impl_op!(Div, div, ArraySlice<T>, ArrayView<O>);
-impl_op!(Mul, mul, ArraySlice<T>, ArrayView<O>);
-impl_op!(Rem, rem, ArraySlice<T>, ArrayView<O>);
-impl_op!(Sub, sub, ArraySlice<T>, ArrayView<O>);
+impl_slice_dual_op!(Add, add, ArrayBase<O>);
+impl_slice_dual_op!(Div, div, ArrayBase<O>);
+impl_slice_dual_op!(Mul, mul, ArrayBase<O>);
+impl_slice_dual_op!(Rem, rem, ArrayBase<O>);
+impl_slice_dual_op!(Sub, sub, ArrayBase<O>);
+
+impl_slice_dual_op!(Add, add, ArrayOp<O>);
+impl_slice_dual_op!(Div, div, ArrayOp<O>);
+impl_slice_dual_op!(Mul, mul, ArrayOp<O>);
+impl_slice_dual_op!(Rem, rem, ArrayOp<O>);
+impl_slice_dual_op!(Sub, sub, ArrayOp<O>);
+
+impl_slice_dual_op!(Add, add, ArraySlice<O>);
+impl_slice_dual_op!(Div, div, ArraySlice<O>);
+impl_slice_dual_op!(Mul, mul, ArraySlice<O>);
+impl_slice_dual_op!(Rem, rem, ArraySlice<O>);
+impl_slice_dual_op!(Sub, sub, ArraySlice<O>);
+
+impl_slice_dual_op!(Add, add, ArrayView<O>);
+impl_slice_dual_op!(Div, div, ArrayView<O>);
+impl_slice_dual_op!(Mul, mul, ArrayView<O>);
+impl_slice_dual_op!(Rem, rem, ArrayView<O>);
+impl_slice_dual_op!(Sub, sub, ArrayView<O>);
 
 macro_rules! impl_slice_scalar_op {
     ($op:ident, $name:ident) => {
@@ -890,29 +943,48 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     }
 }
 
-impl_op!(Add, add, ArrayView<T>, ArrayBase<O>);
-impl_op!(Div, div, ArrayView<T>, ArrayBase<O>);
-impl_op!(Mul, mul, ArrayView<T>, ArrayBase<O>);
-impl_op!(Rem, rem, ArrayView<T>, ArrayBase<O>);
-impl_op!(Sub, sub, ArrayView<T>, ArrayBase<O>);
+macro_rules! impl_view_dual_op {
+    ($op:ident, $name:ident, $o:ty) => {
+        impl<T: CDatatype, A: NDArray<DType = T>, O> $op<$o> for ArrayView<A>
+        where
+            $o: NDArray<DType = T>,
+        {
+            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
 
-impl_op!(Add, add, ArrayView<T>, ArrayOp<O>);
-impl_op!(Div, div, ArrayView<T>, ArrayOp<O>);
-impl_op!(Mul, mul, ArrayView<T>, ArrayOp<O>);
-impl_op!(Rem, rem, ArrayView<T>, ArrayOp<O>);
-impl_op!(Sub, sub, ArrayView<T>, ArrayOp<O>);
+            fn $name(self, rhs: $o) -> Self::Output {
+                let shape = self.shape().to_vec();
+                assert_eq!(shape, rhs.shape());
 
-impl_op!(Add, add, ArrayView<T>, ArraySlice<O>);
-impl_op!(Div, div, ArrayView<T>, ArraySlice<O>);
-impl_op!(Mul, mul, ArrayView<T>, ArraySlice<O>);
-impl_op!(Rem, rem, ArrayView<T>, ArraySlice<O>);
-impl_op!(Sub, sub, ArrayView<T>, ArraySlice<O>);
+                let op = ArrayDual::$name(self, rhs).expect("op");
+                ArrayOp { op, shape }
+            }
+        }
+    };
+}
 
-impl_op!(Add, add, ArrayView<T>, ArrayView<O>);
-impl_op!(Div, div, ArrayView<T>, ArrayView<O>);
-impl_op!(Mul, mul, ArrayView<T>, ArrayView<O>);
-impl_op!(Rem, rem, ArrayView<T>, ArrayView<O>);
-impl_op!(Sub, sub, ArrayView<T>, ArrayView<O>);
+impl_view_dual_op!(Add, add, ArrayBase<O>);
+impl_view_dual_op!(Div, div, ArrayBase<O>);
+impl_view_dual_op!(Mul, mul, ArrayBase<O>);
+impl_view_dual_op!(Rem, rem, ArrayBase<O>);
+impl_view_dual_op!(Sub, sub, ArrayBase<O>);
+
+impl_view_dual_op!(Add, add, ArrayOp<O>);
+impl_view_dual_op!(Div, div, ArrayOp<O>);
+impl_view_dual_op!(Mul, mul, ArrayOp<O>);
+impl_view_dual_op!(Rem, rem, ArrayOp<O>);
+impl_view_dual_op!(Sub, sub, ArrayOp<O>);
+
+impl_view_dual_op!(Add, add, ArraySlice<O>);
+impl_view_dual_op!(Div, div, ArraySlice<O>);
+impl_view_dual_op!(Mul, mul, ArraySlice<O>);
+impl_view_dual_op!(Rem, rem, ArraySlice<O>);
+impl_view_dual_op!(Sub, sub, ArraySlice<O>);
+
+impl_view_dual_op!(Add, add, ArrayView<O>);
+impl_view_dual_op!(Div, div, ArrayView<O>);
+impl_view_dual_op!(Mul, mul, ArrayView<O>);
+impl_view_dual_op!(Rem, rem, ArrayView<O>);
+impl_view_dual_op!(Sub, sub, ArrayView<O>);
 
 macro_rules! impl_view_scalar_op {
     ($op:ident, $name:ident) => {
