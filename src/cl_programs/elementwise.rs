@@ -142,11 +142,15 @@ pub fn scalar_cmp<T: CDatatype>(cmp: &'static str, context: &Context) -> Result<
         r#"
         __kernel void scalar_cmp(
             __global const {dtype}* input,
-            __private const {dtype} right,
+            const {dtype} right,
             __global uchar* output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = input[offset] {cmp} right;
+            if (input[offset] {cmp} right) {{
+                output[offset] = 1;
+            }} else {{
+                output[offset] = 0;
+            }}
         }}
         "#,
         dtype = T::TYPE_STR,

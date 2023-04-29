@@ -585,6 +585,8 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> MatMul<'a, 
         let b = *self.left.shape().last().expect("b");
         let c = *self.right.shape().last().expect("c");
         debug_assert_eq!(b, self.right.shape()[ndim - 2]);
+        debug_assert_eq!(num_matrices * a * b, self.left.size());
+        debug_assert_eq!(num_matrices * b * c, self.right.size());
 
         [num_matrices, a, b, c]
     }
