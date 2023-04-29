@@ -2,7 +2,6 @@ use std::cmp::{PartialEq, PartialOrd};
 use std::f32::consts::PI;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Rem, Sub};
-use std::sync::Arc;
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -18,7 +17,7 @@ pub trait Op: Send + Sync {
 
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
         match queue.device_queue() {
-            DeviceQueue::Host => self.enqueue_cpu(queue).map(Arc::new).map(Buffer::Host),
+            DeviceQueue::Host => self.enqueue_cpu(queue).map(Buffer::Host),
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(_) => self.enqueue_cl(queue).map(Buffer::CL),
         }
@@ -284,9 +283,8 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
         debug_assert_eq!(left.len(), right.len());
 
         let output = left
-            .par_iter()
-            .copied()
-            .zip(right.par_iter().copied())
+            .into_par_iter()
+            .zip(right.into_par_iter())
             .map(|(l, r)| (self.cpu_op)(l, r))
             .collect();
 
@@ -425,8 +423,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
         let right = self.scalar;
 
         let output = left
-            .par_iter()
-            .copied()
+            .into_par_iter()
             // chunk the input to encourage the compiler to vectorize
             .chunks(8)
             .map(|chunk| {
@@ -513,8 +510,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
         let right = self.scalar;
 
         let output = left
-            .par_iter()
-            .copied()
+            .into_par_iter()
             .map(|l| (self.host_op)(l, right))
             .collect();
 
@@ -778,9 +774,8 @@ where
         let left = self.left.to_vec(queue)?;
 
         let output = left
-            .par_iter()
-            .copied()
-            .zip(right.par_iter().copied())
+            .into_par_iter()
+            .zip(right.into_par_iter())
             .map(|(l, r)| (self.host_cmp)(l, r))
             .map(|cmp| if cmp { 1 } else { 0 })
             .collect();
@@ -1150,8 +1145,7 @@ impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
         let input = self.source.to_vec(queue)?;
 
         let output = input
-            .par_iter()
-            .copied()
+            .into_par_iter()
             .map(|n| n.to_f64())
             .map(|float| O::from_f64(float))
             .collect();
@@ -1248,11 +1242,7 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.array.to_vec(queue)?;
-        let output = input
-            .par_iter()
-            .copied()
-            .map(|n| (self.host_op)(n))
-            .collect();
+        let output = input.into_par_iter().map(|n| (self.host_op)(n)).collect();
 
         Ok(output)
     }

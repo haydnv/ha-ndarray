@@ -23,13 +23,7 @@ impl<T: CDatatype> ArrayBase<T> {
         let context = other.context().clone();
         let queue = context.queue(other.size())?;
         let shape = other.shape().to_vec();
-
         let data = other.to_vec(&queue)?;
-        let data = match Arc::try_unwrap(data) {
-            Ok(data) => data,
-            Err(data) => data.to_vec(),
-        };
-
         let data = Arc::new(RwLock::new(data));
 
         Ok(Self {
@@ -245,7 +239,7 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
         let data = self.data.read().expect("array data");
 
         match queue.device_queue() {
-            DeviceQueue::Host => Ok(Buffer::Host(Arc::new(data.to_vec()))),
+            DeviceQueue::Host => Ok(Buffer::Host(data.to_vec())),
             #[cfg(feature = "opencl")]
             DeviceQueue::CL(cl_queue) => {
                 let buffer = ocl::Buffer::builder()
@@ -526,7 +520,7 @@ impl<A: NDArray> ArraySlice<A> {
         })
     }
 
-    fn read_vec(&self, source: Arc<Vec<A::DType>>) -> Result<Vec<A::DType>, Error> {
+    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
         let output = (0..self.size())
             .into_par_iter()
             .map(|offset_out| {
@@ -604,7 +598,7 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         match self.source.read(queue)? {
-            Buffer::Host(source) => self.read_vec(source).map(Arc::new).map(Buffer::Host),
+            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
             #[cfg(feature = "opencl")]
             Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
         }
@@ -820,7 +814,7 @@ impl<A: NDArray> ArrayView<A> {
         Self::new(source, shape, strides)
     }
 
-    fn read_vec(&self, source: Arc<Vec<A::DType>>) -> Result<Vec<A::DType>, Error> {
+    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
         let source_strides = &self.strides;
         let strides = strides_for(self.shape(), self.ndim());
         let dims = self.shape();
@@ -889,7 +883,7 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         match self.source.read(queue)? {
-            Buffer::Host(source) => self.read_vec(source).map(Arc::new).map(Buffer::Host),
+            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
             #[cfg(feature = "opencl")]
             Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
         }

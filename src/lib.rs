@@ -5,7 +5,6 @@ use std::convert::identity;
 use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Range, Rem, Sub};
-use std::sync::Arc;
 
 use rayon::prelude::*;
 #[allow(unused_imports)]
@@ -267,7 +266,7 @@ impl Float for f64 {
 #[derive(Clone, Default)]
 struct DeviceList {
     devices: Vec<ocl::Device>,
-    next: Arc<std::sync::atomic::AtomicUsize>,
+    next: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[cfg(feature = "opencl")]
@@ -295,7 +294,7 @@ impl From<Vec<ocl::Device>> for DeviceList {
     fn from(devices: Vec<ocl::Device>) -> Self {
         Self {
             devices,
-            next: Arc::new(Default::default()),
+            next: std::sync::Arc::new(Default::default()),
         }
     }
 }
@@ -310,14 +309,14 @@ impl FromIterator<ocl::Device> for DeviceList {
 #[cfg(feature = "opencl")]
 #[derive(Clone)]
 pub enum Buffer<T: CDatatype> {
-    Host(Arc<Vec<T>>),
+    Host(Vec<T>),
     CL(ocl::Buffer<T>),
 }
 
 #[cfg(not(feature = "opencl"))]
 #[derive(Clone)]
 pub enum Buffer<T: CDatatype> {
-    Host(Arc<Vec<T>>),
+    Host(Vec<T>),
 }
 
 impl<T: CDatatype> Buffer<T> {
@@ -339,7 +338,7 @@ impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
 
 impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
     fn from(buffer: Vec<T>) -> Self {
-        Self::Host(Arc::new(buffer))
+        Self::Host(buffer)
     }
 }
 
@@ -587,7 +586,7 @@ pub trait NDArray: Send + Sync + Sized {
 pub trait NDArrayRead: NDArray + fmt::Debug {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
 
-    fn to_vec(&self, queue: &Queue) -> Result<Arc<Vec<Self::DType>>, Error> {
+    fn to_vec(&self, queue: &Queue) -> Result<Vec<Self::DType>, Error> {
         match self.read(queue)? {
             Buffer::Host(buffer) => {
                 debug_assert_eq!(buffer.len(), self.size());
@@ -599,7 +598,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug {
 
                 let mut buffer = vec![Self::DType::zero(); cl_buffer.len()];
                 cl_buffer.read(&mut buffer[..]).enq()?;
-                Ok(Arc::new(buffer))
+                Ok(buffer)
             }
         }
     }
