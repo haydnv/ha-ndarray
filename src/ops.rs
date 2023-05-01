@@ -346,11 +346,11 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloa
     }
 
     pub fn log(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, T::log, "log")
+        Self::new(left, right, T::log, "log_")
     }
 
     pub fn pow(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, T::pow, "pow")
+        Self::new(left, right, T::pow, "pow_")
     }
 }
 
@@ -1090,6 +1090,34 @@ impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
             host_reduce,
             kernel_reduce,
         }
+    }
+
+    pub fn max(source: &'a A, axis: usize) -> Self {
+        fn max<T: PartialOrd>(l: T, r: T) -> T {
+            if r > l {
+                r
+            } else {
+                l
+            }
+        }
+
+        Self::new(source, axis, max, "max")
+    }
+
+    pub fn min(source: &'a A, axis: usize) -> Self {
+        fn min<T: PartialOrd>(l: T, r: T) -> T {
+            if r < l {
+                r
+            } else {
+                l
+            }
+        }
+
+        Self::new(source, axis, min, "min")
+    }
+
+    pub fn product(source: &'a A, axis: usize) -> Self {
+        Self::new(source, axis, Mul::mul, "mul")
     }
 
     pub fn sum(source: &'a A, axis: usize) -> Self {

@@ -106,6 +106,10 @@ pub fn reduce<T: CDatatype>(
             *left += right;
         }}
 
+        inline void mul({dtype}* left, const {dtype} right) {{
+            *left *= right;
+        }}
+
         __kernel void reduce(
                 const ulong size,
                 __global const {dtype}* input,
@@ -206,6 +210,10 @@ pub fn reduce_axis<T: CDatatype>(
             *left += right;
         }}
 
+        inline void mul({dtype}* left, const {dtype} right) {{
+            *left *= right;
+        }}
+
         __kernel void reduce_axis(
                 {dtype} init,
                 __global const {dtype}* input,
@@ -291,6 +299,10 @@ fn fold_axis<T: CDatatype>(
         r#"
         inline void add({dtype}* left, const {dtype} right) {{
             *left += right;
+        }}
+
+        inline void mul({dtype}* left, const {dtype} right) {{
+            *left *= right;
         }}
 
         __kernel void fold_axis(

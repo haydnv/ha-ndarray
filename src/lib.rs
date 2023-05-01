@@ -85,6 +85,10 @@ pub trait CDatatype:
     type Float: Float;
     type Neg: CDatatype;
 
+    fn max() -> Self;
+
+    fn min() -> Self;
+
     fn one() -> Self;
 
     fn zero() -> Self;
@@ -135,6 +139,10 @@ pub trait CDatatype:
     type Float: Float;
     type Neg: CDatatype;
 
+    fn max() -> Self;
+
+    fn min() -> Self;
+
     fn one() -> Self;
 
     fn zero() -> Self;
@@ -167,12 +175,20 @@ pub trait CDatatype:
 }
 
 macro_rules! c_type {
-    ($t:ty, $ct:expr, $zero:expr, $one:expr, $abs:expr, $float:ty, $neg:ty) => {
+    ($t:ty, $ct:expr, $max:expr, $min: expr, $one:expr, $zero:expr, $abs:expr, $float:ty, $neg:ty) => {
         impl CDatatype for $t {
             const TYPE_STR: &'static str = $ct;
 
             type Float = $float;
             type Neg = $neg;
+
+            fn max() -> Self {
+                $max
+            }
+
+            fn min() -> Self {
+                $min
+            }
 
             fn one() -> Self {
                 $one
@@ -209,16 +225,16 @@ macro_rules! c_type {
     };
 }
 
-c_type!(f32, "float", 0., 1., f32::abs, f32, f32);
-c_type!(f64, "double", 0., 1., f64::abs, f64, f64);
-c_type!(u8, "uchar", 0, 1, identity, f32, i8);
-c_type!(u16, "ushort", 0, 1, identity, f32, i16);
-c_type!(u32, "uint", 0, 1, identity, f32, i32);
-c_type!(u64, "ulong", 0, 1, identity, f64, i64);
-c_type!(i8, "char", 0, 1, i8::abs, f32, i8);
-c_type!(i16, "short", 0, 1, i16::abs, f32, i16);
-c_type!(i32, "int", 0, 1, i32::abs, f32, i32);
-c_type!(i64, "long", 0, 1, i64::abs, f64, i64);
+c_type!(f32, "float", f32::MAX, f32::MIN, 1., 0., f32::abs, f32, f32);
+c_type!(f64, "double", f64::MAX, f64::MIN, 1., 0., f64::abs, f64, f64);
+c_type!(u8, "uchar", u8::MAX, u8::MIN, 1, 0, identity, f32, i8);
+c_type!(u16, "ushort", u16::MAX, u16::MIN, 1, 0, identity, f32, i16);
+c_type!(u32, "uint", u32::MAX, u32::MIN, 1, 0, identity, f32, i32);
+c_type!(u64, "ulong", u64::MAX, u64::MIN, 1, 0, identity, f64, i64);
+c_type!(i8, "char", i8::MAX, i8::MIN, 1, 0, i8::abs, f32, i8);
+c_type!(i16, "short", i16::MAX, i16::MIN, 1, 0, i16::abs, f32, i16);
+c_type!(i32, "int", i32::MAX, i32::MIN, 1, 0, i32::abs, f32, i32);
+c_type!(i64, "long", i64::MAX, i64::MIN, 1, 0, i64::abs, f64, i64);
 
 pub trait Float: CDatatype {
     fn is_inf(self) -> u8;
@@ -1062,7 +1078,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn max(&self) -> Result<Self::DType, Error> {
-        let zero = Self::DType::zero();
+        let id = <Self::DType as CDatatype>::min();
         let collector = |l, r| {
             if r > l {
                 r
@@ -1073,36 +1089,69 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 
         let queue = Queue::new(self.context().clone(), self.size())?;
         match self.read(&queue)? {
-            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| zero, collector)),
+            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| id, collector)),
             #[cfg(feature = "opencl")]
             Buffer::CL(input) => {
                 let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce(zero, "max", cl_queue, input, collector).map_err(Error::from)
+                cl_programs::reduce(id, "max", cl_queue, input, collector).map_err(Error::from)
             }
         }
     }
 
     fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        todo!()
+        let shape = reduce_axis(self, axis)?;
+        let op = ArrayReduceAxis::max(self, axis);
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn min(&self) -> Result<Self::DType, Error> {
-        todo!()
+        let id = <Self::DType as CDatatype>::max();
+        let queue = Queue::new(self.context().clone(), self.size())?;
+        let collector = |l, r| {
+            if r < l {
+                r
+            } else {
+                l
+            }
+        };
+
+        match self.read(&queue)? {
+            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| id, collector)),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce(id, "min", cl_queue, input, collector).map_err(Error::from)
+            }
+        }
     }
 
     fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        todo!()
+        let shape = reduce_axis(self, axis)?;
+        let op = ArrayReduceAxis::min(self, axis);
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn product(&self) -> Result<Self::DType, Error> {
-        todo!()
+        let one = Self::DType::one();
+        let queue = Queue::new(self.context().clone(), self.size())?;
+
+        match self.read(&queue)? {
+            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| one, Mul::mul)),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce(one, "mul", cl_queue, input, Mul::mul).map_err(Error::from)
+            }
+        }
     }
 
     fn product_axis(
         &self,
         axis: usize,
     ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        todo!()
+        let shape = reduce_axis(self, axis)?;
+        let op = ArrayReduceAxis::product(self, axis);
+        Ok(ArrayOp::new(shape, op))
     }
 
     fn sum(&self) -> Result<Self::DType, Error> {
@@ -1288,6 +1337,25 @@ fn div_ceil(num: usize, denom: usize) -> usize {
         num / denom
     } else {
         (num / denom) + 1
+    }
+}
+
+#[inline]
+fn reduce_axis<A: NDArray + fmt::Debug>(source: &A, axis: usize) -> Result<Shape, Error> {
+    if axis >= source.ndim() {
+        return Err(Error::Bounds(format!(
+            "axis {} is out of bounds for {:?}",
+            axis, source
+        )));
+    }
+
+    if source.ndim() == 1 {
+        Ok(vec![1])
+    } else {
+        let mut shape = Vec::with_capacity(source.ndim() - 1);
+        shape.extend(source.shape().iter().take(axis).copied());
+        shape.extend(source.shape().iter().skip(axis + 1).copied());
+        Ok(shape)
     }
 }
 
