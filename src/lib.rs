@@ -226,7 +226,17 @@ macro_rules! c_type {
 }
 
 c_type!(f32, "float", f32::MAX, f32::MIN, 1., 0., f32::abs, f32, f32);
-c_type!(f64, "double", f64::MAX, f64::MIN, 1., 0., f64::abs, f64, f64);
+c_type!(
+    f64,
+    "double",
+    f64::MAX,
+    f64::MIN,
+    1.,
+    0.,
+    f64::abs,
+    f64,
+    f64
+);
 c_type!(u8, "uchar", u8::MAX, u8::MIN, 1, 0, identity, f32, i8);
 c_type!(u16, "ushort", u16::MAX, u16::MIN, 1, 0, identity, f32, i16);
 c_type!(u32, "uint", u32::MAX, u32::MIN, 1, 0, identity, f32, i32);

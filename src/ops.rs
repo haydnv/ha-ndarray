@@ -280,8 +280,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<T>, Error> {
-        let left = self.left.to_vec(queue)?;
-        let right = self.right.to_vec(queue)?;
+        let (left, right) = try_join_read(&self.left, &self.right, queue)?;
         debug_assert_eq!(left.len(), right.len());
 
         let output = left
@@ -367,8 +366,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let left = self.left.to_vec(queue)?;
-        let right = self.right.to_vec(&queue.split(self.right.size())?)?;
+        let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
         let output = left
             .into_par_iter()
@@ -648,9 +646,7 @@ where
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let [num_matrices, a, b, c] = self.dims();
 
-        let right_queue = queue.split(self.right.size())?;
-        let right = self.right.to_vec(&right_queue)?;
-        let left = self.left.to_vec(queue)?;
+        let (left, right) = try_join_read(self.left, self.right, queue)?;
 
         // transpose the right matrices
         let right_size = b * c;
@@ -812,9 +808,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let right_queue = queue.split(self.right.size())?;
-        let right = self.right.to_vec(&right_queue)?;
-        let left = self.left.to_vec(queue)?;
+        let (left, right) = try_join_read(self.left, self.right, queue)?;
 
         let output = left
             .into_par_iter()
@@ -925,9 +919,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let right_queue = queue.split(self.right.size())?;
-        let right = self.right.to_vec(&right_queue)?;
-        let left = self.left.to_vec(queue)?;
+        let (left, right) = try_join_read(self.left, self.right, queue)?;
         debug_assert_eq!(left.len(), right.len());
 
         let output = left
@@ -1314,7 +1306,6 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let input = self.array.to_vec(queue)?;
         let output = input.into_par_iter().map(|n| (self.host_op)(n)).collect();
-
         Ok(output)
     }
 
@@ -1385,9 +1376,10 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let cond = self.cond.to_vec(queue)?;
-        let left = self.then.to_vec(queue)?;
-        let right = self.or_else.to_vec(queue)?;
+        let (cond, (left, right)) = try_join(
+            || self.cond.to_vec(queue),
+            || try_join_read(self.then, self.or_else, queue),
+        )?;
 
         debug_assert_eq!(cond.len(), left.len());
         debug_assert_eq!(cond.len(), right.len());
@@ -1444,4 +1436,25 @@ where
 
         Ok(output)
     }
+}
+
+#[inline]
+fn try_join<LFn, LRT, RFn, RRT>(left: LFn, right: RFn) -> Result<(LRT, RRT), Error>
+where
+    LFn: FnOnce() -> Result<LRT, Error> + Send + Sync,
+    RFn: FnOnce() -> Result<RRT, Error> + Send + Sync,
+    LRT: Send + Sync,
+    RRT: Send + Sync,
+{
+    let (left, right) = rayon::join(left, right);
+    Ok((left?, right?))
+}
+
+#[inline]
+fn try_join_read<L: NDArrayRead, R: NDArrayRead>(
+    left: &L,
+    right: &R,
+    queue: &Queue,
+) -> Result<(Vec<L::DType>, Vec<R::DType>), Error> {
+    try_join(|| left.to_vec(queue), || right.to_vec(queue))
 }
