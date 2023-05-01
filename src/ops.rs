@@ -1275,3 +1275,106 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
         Ok(output)
     }
 }
+
+// gather ops
+
+#[derive(Clone)]
+pub struct GatherCond<'a, A, T, L, R> {
+    cond: &'a A,
+    then: &'a L,
+    or_else: &'a R,
+    dtype: PhantomData<T>,
+    #[cfg(feature = "opencl")]
+    kernel_op: ocl::Program,
+}
+
+impl<'a, A: NDArray<DType = u8>, T: CDatatype, L, R> GatherCond<'a, A, T, L, R> {
+    pub fn new(cond: &'a A, then: &'a L, or_else: &'a R) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
+        let kernel_op = cl_programs::gather_cond::<T>(cond.context())?;
+
+        Ok(Self {
+            cond,
+            then,
+            or_else,
+            dtype: PhantomData,
+            #[cfg(feature = "opencl")]
+            kernel_op,
+        })
+    }
+}
+
+impl<'a, A, T, L, R> Op for GatherCond<'a, A, T, L, R>
+where
+    A: NDArrayRead<DType = u8>,
+    T: CDatatype,
+    L: NDArrayRead<DType = T>,
+    R: NDArrayRead<DType = T>,
+{
+    type Out = T;
+
+    fn context(&self) -> &Context {
+        self.cond.context()
+    }
+
+    fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let cond = self.cond.to_vec(queue)?;
+        let left = self.then.to_vec(queue)?;
+        let right = self.or_else.to_vec(queue)?;
+
+        debug_assert_eq!(cond.len(), left.len());
+        debug_assert_eq!(cond.len(), right.len());
+
+        let lr = left.into_par_iter().zip(right.into_par_iter());
+
+        let output = cond
+            .into_par_iter()
+            .zip(lr)
+            .map(
+                |(when, (then, or_else))| {
+                    if when == 1 {
+                        then
+                    } else {
+                        or_else
+                    }
+                },
+            )
+            .collect();
+
+        Ok(output)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let cond = self.cond.to_cl_buffer(queue)?;
+        let then = self.then.to_cl_buffer(&queue.split(self.then.size())?)?;
+        let or_else = self
+            .or_else
+            .to_cl_buffer(&queue.split(self.or_else.size())?)?;
+
+        debug_assert_eq!(cond.len(), then.len());
+        debug_assert_eq!(cond.len(), or_else.len());
+
+        let cl_queue = cond.default_queue().expect("queue");
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(cond.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("gather_cond")
+            .queue(cl_queue.clone())
+            .program(&self.kernel_op)
+            .global_work_size(cond.len())
+            .arg(&cond)
+            .arg(&then)
+            .arg(&or_else)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}

@@ -855,15 +855,15 @@ pub trait NDArrayTrig: NDArray {
 
 // TODO: implement trigonometry methods
 
-pub trait NDArrayCast<O: CDatatype>: NDArray {
-    fn cast(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
+pub trait NDArrayCast: NDArray {
+    fn cast<O: CDatatype>(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayCast::new(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 }
 
-impl<A: NDArray, O: CDatatype> NDArrayCast<O> for A {}
+impl<A: NDArray> NDArrayCast for A {}
 
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
     fn eq<'a>(
@@ -1140,6 +1140,31 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 }
 
 impl<A: NDArrayRead + Clone + fmt::Debug> NDArrayReduce for A {}
+
+pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
+    fn gather_cond<'a, T, L, R>(
+        &'a self,
+        then: &'a L,
+        or_else: &'a R,
+    ) -> Result<ArrayOp<GatherCond<'a, Self, T, L, R>>, Error>
+    where
+        T: CDatatype,
+        L: NDArray<DType = T> + fmt::Debug,
+        R: NDArray<DType = T> + fmt::Debug,
+    {
+        if self.shape() == then.shape() && self.shape() == or_else.shape() {
+            let op = GatherCond::new(self, then, or_else)?;
+            Ok(ArrayOp::new(self.shape().to_vec(), op))
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot gather from {:?} and {:?} conditionally based on {:?} (wrong shape)",
+                then, or_else, self
+            )))
+        }
+    }
+}
+
+impl<A: NDArray<DType = u8> + fmt::Debug> NDArrayWhere for A {}
 
 pub trait NDArrayTransform: NDArray + fmt::Debug {
     type Broadcast: NDArray;

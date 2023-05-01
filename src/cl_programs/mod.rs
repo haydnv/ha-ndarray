@@ -1,6 +1,7 @@
 use std::fmt;
 
 mod elementwise;
+mod gather;
 mod linalg;
 mod random;
 mod reduce;
@@ -8,6 +9,7 @@ mod slice;
 mod view;
 
 pub use elementwise::*;
+pub use gather::*;
 pub use linalg::*;
 pub use random::*;
 pub use reduce::*;
