@@ -4,7 +4,7 @@ use ha_ndarray::*;
 
 const ITERATIONS: usize = 10;
 
-fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
+fn broadcast_and_multiply(context: &Context) -> Result<(), Error> {
     for m in 0..4 {
         let dim = 10usize.pow(m);
         let shape = vec![3, dim, 5, 10];
@@ -41,7 +41,7 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
     Ok(())
 }
 
-fn matmul(context: Context) -> Result<(), Error> {
+fn matmul(context: &Context) -> Result<(), Error> {
     for m in 1..16usize {
         let dim = 2usize.pow(m as u32);
 
@@ -75,7 +75,7 @@ fn matmul(context: Context) -> Result<(), Error> {
     Ok(())
 }
 
-fn reduce_sum_axis(context: Context) -> Result<(), Error> {
+fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
     let queue = Queue::new(context.clone(), size)?;
@@ -94,28 +94,30 @@ fn reduce_sum_axis(context: Context) -> Result<(), Error> {
     Ok(())
 }
 
-fn reduce_sum_all(context: Context) -> Result<(), Error> {
-    let shape = vec![10, 20, 30, 40, 50];
-    let size = shape.iter().product();
-    let x = ArrayBase::with_context(context, shape, vec![1; size])?;
+fn reduce_sum_all(context: &Context) -> Result<(), Error> {
+    for m in 1..8 {
+        let shape = (1..m).map(|dim| dim * 10).collect::<Vec<usize>>();
+        let size = shape.iter().product();
+        let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
 
-    println!("reduce {:?} (size {})...", x, x.size());
+        println!("reduce {:?} (size {})...", x, x.size());
 
-    for _ in 0..ITERATIONS {
-        let start = Instant::now();
-        let _x = x.sum()?;
-        let duration = start.elapsed();
-        println!("{:?} ms", duration.as_millis());
+        for _ in 0..ITERATIONS {
+            let start = Instant::now();
+            let _x = x.sum()?;
+            let duration = start.elapsed();
+            println!("{:?} us", duration.as_micros());
+        }
     }
 
     Ok(())
 }
 
-fn transpose(context: Context) -> Result<(), Error> {
+fn transpose(context: &Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
     let queue = Queue::new(context.clone(), size)?;
-    let x = ArrayBase::with_context(context, shape, vec![1; size])?;
+    let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
     let transposed = x.transpose(Some(vec![2, 4, 3, 0, 1]))?;
 
     println!(
@@ -138,11 +140,11 @@ fn transpose(context: Context) -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    broadcast_and_multiply(context.clone())?;
-    matmul(context.clone())?;
-    reduce_sum_axis(context.clone())?;
-    reduce_sum_all(context.clone())?;
-    transpose(context)?;
+    broadcast_and_multiply(&context)?;
+    matmul(&context)?;
+    reduce_sum_axis(&context)?;
+    reduce_sum_all(&context)?;
+    transpose(&context)?;
 
     Ok(())
 }

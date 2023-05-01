@@ -3,8 +3,6 @@ use rayon::prelude::*;
 
 use crate::{div_ceil, CDatatype};
 
-const MIN_SIZE: usize = 1024;
-
 use super::WG_SIZE;
 
 pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
@@ -92,7 +90,11 @@ pub fn reduce<T: CDatatype>(
     mut buffer: Buffer<T>,
     collector: impl Fn(T, T) -> T + Send + Sync,
 ) -> Result<T, Error> {
-    if buffer.len() < MIN_SIZE {
+    const MIN_SIZE: usize = 65_536;
+
+    let min_size = MIN_SIZE * num_cpus::get();
+
+    if buffer.len() < min_size {
         let mut result = vec![init; buffer.len()];
         buffer.read(&mut result).enq()?;
         return Ok(result.into_par_iter().reduce(|| init, collector));
@@ -100,8 +102,8 @@ pub fn reduce<T: CDatatype>(
 
     let src = format!(
         r#"
-        inline {dtype} add({dtype} left, const {dtype} right) {{
-            return left + right;
+        inline void add({dtype}* left, const {dtype} right) {{
+            *left += right;
         }}
 
         __kernel void reduce(
@@ -111,11 +113,6 @@ pub fn reduce<T: CDatatype>(
                 __local {dtype}* partials)
         {{
             const ulong offset = get_global_id(0);
-
-            if (size < offset) {{
-                return;
-            }}
-
             const uint group_size = get_local_size(0);
             const ulong a = offset / group_size;
             const uint b = offset % group_size;
@@ -130,7 +127,7 @@ pub fn reduce<T: CDatatype>(
                 if (offset + stride < size) {{
                     uint next = b + stride;
                     if (next < group_size) {{
-                        partials[b] = {reduce}(partials[b], partials[b + stride]);
+                        {reduce}(&partials[b], partials[b + stride]);
                     }}
                 }}
             }}
@@ -145,7 +142,7 @@ pub fn reduce<T: CDatatype>(
 
     let program = Program::builder().source(src).build(&queue.context())?;
 
-    while buffer.len() >= MIN_SIZE {
+    while buffer.len() >= min_size {
         let input = buffer;
 
         let output = Buffer::builder()
@@ -205,8 +202,8 @@ pub fn reduce_axis<T: CDatatype>(
 
     let src = format!(
         r#"
-        inline {dtype} add({dtype} left, const {dtype} right) {{
-            return left + right;
+        inline void add({dtype}* left, const {dtype} right) {{
+            *left += right;
         }}
 
         __kernel void reduce_axis(
@@ -230,7 +227,7 @@ pub fn reduce_axis<T: CDatatype>(
 
                 uint next = b + stride;
                 if (next < reduce_dim) {{
-                    partials[b] = {reduce}(partials[b], partials[next]);
+                    {reduce}(&partials[b], partials[next]);
                 }}
             }}
 
@@ -292,8 +289,8 @@ fn fold_axis<T: CDatatype>(
 
     let src = format!(
         r#"
-        inline {dtype} add({dtype} left, const {dtype} right) {{
-            return left + right;
+        inline void add({dtype}* left, const {dtype} right) {{
+            *left += right;
         }}
 
         __kernel void fold_axis(
@@ -318,7 +315,7 @@ fn fold_axis<T: CDatatype>(
             {dtype} reduced = init;
 
             for (uint stride = i_offset; stride < (a + 1) * reduce_dim; stride += target_dim) {{
-                reduced = {reduce}(reduced, input[stride]);
+                {reduce}(&reduced, input[stride]);
             }}
 
             output[o_offset] = reduced;

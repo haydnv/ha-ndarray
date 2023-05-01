@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
+use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::sync::{Arc, RwLock};
-use std::{fmt, iter};
 
 use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    AxisBound, Buffer, CDatatype, Context, Error, NDArray, NDArrayRead, NDArrayTransform,
-    NDArrayWrite, Queue, Shape,
+    strides_for, AxisBound, Buffer, CDatatype, Context, Error, NDArray, NDArrayRead,
+    NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -1074,21 +1074,4 @@ fn check_bound(i: &usize, dim: &usize, is_index: bool) -> Result<(), Error> {
             "index {i} is out of bounds for dimension {dim}"
         ))),
     }
-}
-
-#[inline]
-fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
-    debug_assert!(ndim >= shape.len());
-
-    let zeros = iter::repeat(0).take(ndim - shape.len());
-
-    let strides = shape.iter().enumerate().map(|(x, dim)| {
-        if *dim == 1 {
-            0
-        } else {
-            shape.iter().rev().take(shape.len() - 1 - x).product()
-        }
-    });
-
-    zeros.chain(strides).collect()
 }

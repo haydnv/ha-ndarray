@@ -1264,3 +1264,20 @@ fn div_ceil(num: usize, denom: usize) -> usize {
         (num / denom) + 1
     }
 }
+
+#[inline]
+fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
+    debug_assert!(ndim >= shape.len());
+
+    let zeros = std::iter::repeat(0).take(ndim - shape.len());
+
+    let strides = shape.iter().enumerate().map(|(x, dim)| {
+        if *dim == 1 {
+            0
+        } else {
+            shape.iter().rev().take(shape.len() - 1 - x).product()
+        }
+    });
+
+    zeros.chain(strides).collect()
+}

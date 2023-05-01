@@ -25,6 +25,11 @@ pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
             const ulong z_tile = get_global_id(2);
             const ulong w = get_global_id(0);
 
+            const ulong x_offset = x_tile * {TILE_SIZE};
+            const ulong z_offset = z_tile * {TILE_SIZE};
+            const ulong left_offset = w * dims.x * dims.y;
+            const ulong right_offset = w * dims.y * dims.z;
+
             {dtype} tile[{TILE_SIZE}][{TILE_SIZE}];
 
             // initialize the local cache for the left and right tiles to zero
@@ -33,20 +38,22 @@ pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
 
             // for each tile on the y axis
             for (ulong y_tile = 0; y_tile < reduce_tiles; y_tile++) {{
+                const ulong y_offset = y_tile * {TILE_SIZE};
+
                 // read the left and right tiles into the local cache
                 #pragma unroll
                 for (uint i = 0; i < {TILE_SIZE}; i++) {{
                     #pragma unroll
                     for (uint j = 0; j < {TILE_SIZE}; j++) {{
-                        if ((x_tile * {TILE_SIZE}) + i < dims.x && (y_tile * {TILE_SIZE}) + j < dims.y) {{
-                            ulong offset = (w * dims.x * dims.y) + (((x_tile * {TILE_SIZE}) + i) * dims.y) + ((y_tile * {TILE_SIZE}) + j);
+                        if (x_offset + i < dims.x && y_offset + j < dims.y) {{
+                            ulong offset = left_offset + ((x_offset + i) * dims.y) + (y_offset + j);
                             left_tile[i][j] = left[offset];
                         }} else {{
                             left_tile[i][j] = 0;
                         }}
 
-                        if ((y_tile * {TILE_SIZE}) + i < dims.y && (z_tile * {TILE_SIZE}) + j < dims.z) {{
-                            ulong offset = (w * dims.y * dims.z) + (((y_tile * {TILE_SIZE}) + i) * dims.z) + ((z_tile * {TILE_SIZE}) + j);
+                        if (y_offset + i < dims.y && z_offset + j < dims.z) {{
+                            ulong offset = right_offset + ((y_offset + i) * dims.z) + (z_offset + j);
                             right_tile[i][j] = right[offset];
                         }} else {{
                             right_tile[i][j] = 0;
@@ -68,13 +75,13 @@ pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
             }}
 
             // write tile to output
-            ulong offset = (w * dims.x * dims.z) + (x_tile * {TILE_SIZE} * dims.z) + (z_tile * {TILE_SIZE});
+            ulong offset = (w * dims.x * dims.z) + (x_offset * dims.z) + z_offset;
 
             #pragma unroll
             for (uint i = 0; i < {TILE_SIZE}; i++) {{
                 #pragma unroll
                 for (uint j = 0; j < {TILE_SIZE}; j++) {{
-                    if (((x_tile * {TILE_SIZE}) + i) < dims.x && ((z_tile * {TILE_SIZE}) + j) < dims.z) {{
+                    if ((x_offset + i) < dims.x && (z_offset + j) < dims.z) {{
                         output[offset + (i * dims.z) + j] = tile[i][j];
                     }}
                 }}

@@ -18,6 +18,7 @@ opencl = ["ocl"]
 pkg-config = "0.3"
 
 [dependencies]
+num_cpus = "1.15"
 ocl = { version = "0.19", optional = true }
 rand = "0.8"
 rayon = "1.7"
