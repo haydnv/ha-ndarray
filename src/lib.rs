@@ -465,7 +465,11 @@ impl Context {
 
     #[cfg(not(feature = "opencl"))]
     pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
-        let platform = platform.unwrap_or_default();
+        let platform = if let Some(platform) = platform {
+            platform
+        } else {
+            Platform::default()
+        };
 
         Ok(Self {
             platform,
@@ -479,9 +483,9 @@ impl Context {
         &self.cl_context
     }
 
-    pub fn queue(&self, size_hint: usize) -> Result<Queue, Error> {
-        #[cfg(feature = "opencl")]
-        if let Some(device) = if size_hint < self.gpu_min {
+    #[cfg(feature = "opencl")]
+    fn select_device(&self, size_hint: usize) -> Option<ocl::Device> {
+        if size_hint < self.gpu_min {
             self.platform.next_cpu()
         } else if size_hint < self.acc_min {
             self.platform
@@ -492,79 +496,65 @@ impl Context {
                 .next_acc()
                 .or_else(|| self.platform.next_gpu())
                 .or_else(|| self.platform.next_cpu())
-        } {
-            return Queue::with_device(self.clone(), device);
-        }
-
-        Ok(Queue::default(self.clone()))
-    }
-
-    #[cfg(feature = "opencl")]
-    fn cl_queue(&self, device_queue: &DeviceQueue, size_hint: usize) -> Result<ocl::Queue, Error> {
-        if let DeviceQueue::CL(cl_queue) = device_queue {
-            Ok(cl_queue.clone())
-        } else if let Some(device) = if size_hint < self.gpu_min {
-            self.platform
-                .next_cpu()
-                .or_else(|| self.platform.next_gpu())
-                .or_else(|| self.platform.next_acc())
-        } else if size_hint < self.acc_min {
-            self.platform
-                .next_gpu()
-                .or_else(|| self.platform.next_cpu())
-                .or_else(|| self.platform.next_acc())
-        } else {
-            self.platform
-                .next_acc()
-                .or_else(|| self.platform.next_gpu())
-                .or_else(|| self.platform.next_cpu())
-        } {
-            ocl::Queue::new(&self.cl_context, device, None).map_err(Error::from)
-        } else {
-            Err(Error::Interface("no OpenCL devices available".to_string()))
         }
     }
 }
 
-// TODO: delete
-enum DeviceQueue {
-    Host,
-    #[cfg(feature = "opencl")]
-    CL(ocl::Queue),
-}
-
-#[cfg(feature = "opencl")]
-as_type!(DeviceQueue, CL, ocl::Queue);
-
+#[derive(Clone)]
 pub struct Queue {
     context: Context,
-    device_queue: DeviceQueue,
+    #[cfg(feature = "opencl")]
+    cl_queue: Option<ocl::Queue>,
 }
 
 impl Queue {
     fn default(context: Context) -> Self {
         Self {
             context,
-            device_queue: DeviceQueue::Host,
+            #[cfg(feature = "opencl")]
+            cl_queue: None,
         }
     }
 
     #[cfg(feature = "opencl")]
-    fn with_device(context: Context, device: ocl::Device) -> Result<Self, Error> {
-        let cl_queue = ocl::Queue::new(&context.cl_context, device, None)?;
-
-        Ok(Self {
-            context,
-            device_queue: DeviceQueue::CL(cl_queue),
-        })
+    pub fn new(context: Context, size_hint: usize) -> Result<Self, Error> {
+        if let Some(device) = context.select_device(size_hint) {
+            let cl_queue = ocl::Queue::new(context.cl_context(), device, None)?;
+            Ok(Self {
+                context,
+                cl_queue: Some(cl_queue),
+            })
+        } else {
+            Ok(Self::default(context))
+        }
     }
 
-    fn device_queue(&self) -> &DeviceQueue {
-        &self.device_queue
+    #[cfg(not(feature = "opencl"))]
+    pub fn new(context: Context, size_hint: usize) -> Result<Self, Error> {
+        Ok(Self::default(context))
     }
 
     fn context(&self) -> &Context {
         &self.context
+    }
+
+    fn split(&self, size_hint: usize) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
+        let cl_queue = if let Some(left_queue) = &self.cl_queue {
+            if let Some(device) = self.context.select_device(size_hint) {
+                ocl::Queue::new(&left_queue.context(), device, None).map(Some)?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(Self {
+            context: self.context.clone(),
+            #[cfg(feature = "opencl")]
+            cl_queue,
+        })
     }
 }
 
@@ -614,9 +604,16 @@ pub trait NDArrayRead: NDArray + fmt::Debug {
             Buffer::Host(host_buffer) => {
                 debug_assert_eq!(host_buffer.len(), self.size());
 
-                let cl_queue = queue
-                    .context()
-                    .cl_queue(queue.device_queue(), self.size())?;
+                let cl_queue = if let Some(cl_queue) = queue.cl_queue.clone() {
+                    cl_queue
+                } else {
+                    let size_hint = Ord::max(self.size(), queue.context().gpu_min);
+                    let device = queue.context().select_device(size_hint).ok_or_else(|| {
+                        Error::Interface("no OpenCL device available".to_string())
+                    })?;
+
+                    ocl::Queue::new(queue.context.cl_context(), device, None)?
+                };
 
                 ocl::Buffer::builder()
                     .queue(cl_queue)
@@ -1032,33 +1029,31 @@ impl<A: NDArray, O: NDArray> MatrixMath<O> for A where O: NDArray<DType = A::DTy
 
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
-        let queue = self.context().queue(self.size())?;
-        match queue.device_queue() {
-            DeviceQueue::Host => {
-                let input = self.to_vec(&queue)?;
+        let queue = Queue::new(self.context().clone(), self.size())?;
+        match self.read(&queue)? {
+            Buffer::Host(input) => {
                 let zero = Self::DType::zero();
-                Ok(input.par_iter().copied().all(|n| n != zero))
+                Ok(input.into_par_iter().all(|n| n != zero))
             }
             #[cfg(feature = "opencl")]
-            DeviceQueue::CL(cl_queue) => {
-                let input = self.to_cl_buffer(&queue)?;
-                cl_programs::reduce_all(cl_queue.clone(), input).map_err(Error::from)
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce_all(cl_queue, input).map_err(Error::from)
             }
         }
     }
 
     fn any(&self) -> Result<bool, Error> {
-        let queue = self.context().queue(self.size())?;
-        match queue.device_queue() {
-            DeviceQueue::Host => {
-                let input = self.to_vec(&queue)?;
+        let queue = Queue::new(self.context().clone(), self.size())?;
+        match self.read(&queue)? {
+            Buffer::Host(input) => {
                 let zero = Self::DType::zero();
-                Ok(input.par_iter().copied().any(|n| n != zero))
+                Ok(input.into_par_iter().any(|n| n != zero))
             }
             #[cfg(feature = "opencl")]
-            DeviceQueue::CL(cl_queue) => {
-                let input = self.to_cl_buffer(&queue)?;
-                cl_programs::reduce_any(cl_queue.clone(), input).map_err(Error::from)
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce_any(cl_queue, input).map_err(Error::from)
             }
         }
     }
@@ -1073,17 +1068,13 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
             }
         };
 
-        let queue = self.context().queue(self.size())?;
-        match queue.device_queue() {
-            DeviceQueue::Host => {
-                let input = self.to_vec(&queue)?;
-                Ok(input.par_iter().copied().reduce(|| zero, collector))
-            }
+        let queue = Queue::new(self.context().clone(), self.size())?;
+        match self.read(&queue)? {
+            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| zero, collector)),
             #[cfg(feature = "opencl")]
-            DeviceQueue::CL(cl_queue) => {
-                let input = self.to_cl_buffer(&queue)?;
-                cl_programs::reduce(zero, "max", cl_queue.clone(), input, collector)
-                    .map_err(Error::from)
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce(zero, "max", cl_queue, input, collector).map_err(Error::from)
             }
         }
     }
@@ -1113,22 +1104,14 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 
     fn sum(&self) -> Result<Self::DType, Error> {
         let zero = Self::DType::zero();
-        let queue = self.context().queue(self.size())?;
+        let queue = Queue::new(self.context().clone(), self.size())?;
 
-        match queue.device_queue() {
-            DeviceQueue::Host => {
-                let input = self.to_vec(&queue)?;
-                Ok(input
-                    .as_slice()
-                    .par_iter()
-                    .copied()
-                    .reduce(|| zero, Add::add))
-            }
+        match self.read(&queue)? {
+            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| zero, Add::add)),
             #[cfg(feature = "opencl")]
-            DeviceQueue::CL(cl_queue) => {
-                let input = self.to_cl_buffer(&queue)?;
-                cl_programs::reduce(zero, "add", cl_queue.clone(), input, Add::add)
-                    .map_err(Error::from)
+            Buffer::CL(input) => {
+                let cl_queue = input.default_queue().expect("queue").clone();
+                cl_programs::reduce(zero, "add", cl_queue, input, Add::add).map_err(Error::from)
             }
         }
     }

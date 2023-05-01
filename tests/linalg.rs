@@ -10,6 +10,7 @@ fn test_matmul() -> Result<(), Error> {
         (vec![2, 9], vec![9, 1], vec![2, 1]),
         (vec![15, 26], vec![26, 37], vec![15, 37]),
         (vec![3, 15, 26], vec![3, 26, 37], vec![3, 15, 37]),
+        (vec![8, 44, 1], vec![8, 1, 98], vec![8, 44, 98]),
     ];
 
     for (left_shape, right_shape, output_shape) in shapes {

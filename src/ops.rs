@@ -8,7 +8,7 @@ use rayon::prelude::*;
 
 #[cfg(feature = "opencl")]
 use super::cl_programs;
-use super::{Buffer, CDatatype, Context, DeviceQueue, Error, Float, NDArray, NDArrayRead, Queue};
+use super::{Buffer, CDatatype, Context, Error, Float, NDArray, NDArrayRead, Queue};
 
 pub trait Op: Send + Sync {
     type Out: CDatatype;
@@ -16,11 +16,13 @@ pub trait Op: Send + Sync {
     fn context(&self) -> &Context;
 
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
-        match queue.device_queue() {
-            DeviceQueue::Host => self.enqueue_cpu(queue).map(Buffer::Host),
-            #[cfg(feature = "opencl")]
-            DeviceQueue::CL(_) => self.enqueue_cl(queue).map(Buffer::CL),
+        // TODO: there must be a better way to do this
+        #[cfg(feature = "opencl")]
+        if queue.cl_queue.is_some() {
+            return self.enqueue_cl(queue).map(Buffer::CL);
         }
+
+        self.enqueue_cpu(queue).map(Buffer::Host)
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error>;
@@ -110,7 +112,7 @@ impl Op for RandomNormal {
         use crate::div_ceil;
         use cl_programs::WG_SIZE;
 
-        let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
+        let cl_queue = queue.cl_queue.as_ref().expect("queue");
         let seed: u32 = rand::thread_rng().gen();
 
         let buffer = ocl::Buffer::builder()
@@ -197,7 +199,7 @@ impl Op for RandomUniform {
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let seed: u32 = rand::thread_rng().gen();
-        let cl_queue = self.context.cl_queue(queue.device_queue(), self.size)?;
+        let cl_queue = queue.cl_queue.as_ref().expect("queue");
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -206,7 +208,7 @@ impl Op for RandomUniform {
 
         let kernel = ocl::Kernel::builder()
             .name("random_uniform")
-            .queue(cl_queue)
+            .queue(cl_queue.clone())
             .program(&self.kernel_op)
             .global_work_size(output.len())
             .arg(u64::try_from(seed).expect("seed"))
@@ -293,7 +295,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<T>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());
@@ -354,7 +356,7 @@ where
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
 
@@ -607,7 +609,7 @@ where
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let [num_matrices, a, b, c] = self.dims();
 
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_vec(&right_queue)?;
         let left = self.left.to_vec(queue)?;
 
@@ -667,7 +669,7 @@ where
 
         let [num_matrices, a, b, c] = self.dims();
 
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
 
@@ -771,7 +773,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_vec(&right_queue)?;
         let left = self.left.to_vec(queue)?;
 
@@ -787,7 +789,7 @@ where
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
 
         let left = self.left.to_cl_buffer(queue)?;
@@ -884,7 +886,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_vec(&right_queue)?;
         let left = self.left.to_vec(queue)?;
         debug_assert_eq!(left.len(), right.len());
@@ -901,7 +903,7 @@ where
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
-        let right_queue = queue.context().queue(self.right.size())?;
+        let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());

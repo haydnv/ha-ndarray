@@ -9,7 +9,7 @@ fn broadcast_and_multiply(context: Context) -> Result<(), Error> {
         let dim = 10usize.pow(m);
         let shape = vec![3, dim, 5, 10];
         let size = shape.iter().product::<usize>();
-        let queue = context.queue(size)?;
+        let queue = Queue::new(context.clone(), size)?;
 
         let left = ArrayBase::with_context(
             context.clone(),
@@ -59,7 +59,7 @@ fn matmul(context: Context) -> Result<(), Error> {
 
         let x = l.matmul(&r)?;
 
-        let queue = context.queue(x.size())?;
+        let queue = Queue::new(context.clone(), x.size())?;
 
         let num_ops = dim * x.size();
         println!("matmul {:?} with {:?} ({} ops)", l, r, num_ops);
@@ -78,8 +78,8 @@ fn matmul(context: Context) -> Result<(), Error> {
 fn reduce_sum_axis(context: Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
-    let queue = context.queue(size)?;
-    let x = ArrayBase::with_context(context, shape, vec![1; size])?;
+    let queue = Queue::new(context.clone(), size)?;
+    let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
     let reduced = x.sum_axis(2)?;
 
     println!("reduce {:?} (size {}) to {:?}...", x, x.size(), reduced);
@@ -114,7 +114,7 @@ fn reduce_sum_all(context: Context) -> Result<(), Error> {
 fn transpose(context: Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
-    let queue = context.queue(size)?;
+    let queue = Queue::new(context.clone(), size)?;
     let x = ArrayBase::with_context(context, shape, vec![1; size])?;
     let transposed = x.transpose(Some(vec![2, 4, 3, 0, 1]))?;
 

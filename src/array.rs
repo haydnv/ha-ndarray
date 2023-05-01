@@ -7,8 +7,8 @@ use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    AxisBound, Buffer, CDatatype, Context, DeviceQueue, Error, NDArray, NDArrayRead,
-    NDArrayTransform, NDArrayWrite, Queue, Shape,
+    AxisBound, Buffer, CDatatype, Context, Error, NDArray, NDArrayRead, NDArrayTransform,
+    NDArrayWrite, Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -21,7 +21,8 @@ pub struct ArrayBase<T> {
 impl<T: CDatatype> ArrayBase<T> {
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
-        let queue = context.queue(other.size())?;
+        let queue = Queue::new(context.clone(), other.size())?;
+
         let shape = other.shape().to_vec();
         let data = other.to_vec(&queue)?;
         let data = Arc::new(RwLock::new(data));
@@ -253,26 +254,26 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 
-        match queue.device_queue() {
-            DeviceQueue::Host => Ok(Buffer::Host(data.to_vec())),
-            #[cfg(feature = "opencl")]
-            DeviceQueue::CL(cl_queue) => {
-                let buffer = ocl::Buffer::builder()
-                    .queue(cl_queue.clone())
-                    .len(data.len())
-                    .copy_host_slice(&data[..])
-                    .build()?;
+        // TODO: there must be a better way to do this
+        #[cfg(feature = "opencl")]
+        if let Some(cl_queue) = &queue.cl_queue {
+            let buffer = ocl::Buffer::builder()
+                .queue(cl_queue.clone())
+                .len(data.len())
+                .copy_host_slice(&data[..])
+                .build()?;
 
-                Ok(Buffer::CL(buffer))
-            }
+            return Ok(Buffer::CL(buffer));
         }
+
+        Ok(Buffer::Host(data.to_vec()))
     }
 }
 
 impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
     fn write(&self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
-            let queue = self.context.queue(self.size())?;
+            let queue = Queue::new(self.context().clone(), self.size())?;
 
             match other.read(&queue)? {
                 Buffer::Host(buffer) => {
