@@ -1175,8 +1175,6 @@ pub trait NDArrayTransform: NDArray + fmt::Debug {
 
     fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error>;
 
-    fn expand_dim(&self, axis: usize) -> Result<Self::Expand, Error>;
-
     fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error>;
 
     fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error>;
