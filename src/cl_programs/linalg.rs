@@ -4,6 +4,21 @@ use crate::{CDatatype, Context};
 
 use super::{TILE_SIZE, WG_SIZE};
 
+pub fn diagonal<T: CDatatype>(context: &Context) -> Result<Program, Error> {
+    let src = format!(
+        r#"
+    __kernel void diagonal(const {dtype}* matrices, {dtype}* diagonals) {{
+        const ulong batch_offset = get_global_id(0);
+        const ulong element_offset = get_global_id(1);
+        diagonals[batch_offset, element_offset] = matrices[batch_offset, element_offset, element_offset];
+    }}
+    "#,
+        dtype = T::TYPE_STR
+    );
+
+    Program::builder().source(src).build(context.cl_context())
+}
+
 pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
     debug_assert_eq!(TILE_SIZE * TILE_SIZE, WG_SIZE);
 

@@ -237,10 +237,10 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         left: L,
         right: R,
         cpu_op: fn(T, T) -> T,
-        kernel_op: &'static str,
+        #[allow(unused_variables)] kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_inplace::<T>(kernel_op, left.context())?;
+        let kernel_op = cl_programs::elementwise_inplace::<T, T>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
@@ -252,23 +252,23 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
     }
 
     pub fn add(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Add::add, "+")
+        Self::new(left, right, Add::add, "add")
     }
 
     pub fn div(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Div::div, "/")
+        Self::new(left, right, Div::div, "div")
     }
 
     pub fn mul(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Mul::mul, "*")
+        Self::new(left, right, Mul::mul, "mul")
     }
 
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Rem::rem, "%")
+        Self::new(left, right, Rem::rem, "fmod")
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Sub::sub, "-")
+        Self::new(left, right, Sub::sub, "sub")
     }
 }
 
@@ -326,6 +326,7 @@ pub struct ArrayDualFloat<T, L, R> {
 }
 
 impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloat<T, L, R> {
+    #[allow(unused_variables)]
     fn new(
         left: L,
         right: R,
@@ -333,7 +334,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloa
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_inplace::<T>(kernel_op, left.context())?;
+        let kernel_op = cl_programs::elementwise_inplace::<T, f64>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
@@ -411,6 +412,7 @@ pub struct ArrayScalar<T, A> {
 }
 
 impl<T: CDatatype, A: NDArray<DType = T>> ArrayScalar<T, A> {
+    #[allow(unused_variables)]
     fn new(
         array: A,
         scalar: T,
@@ -508,6 +510,7 @@ pub struct ArrayScalarFloat<T, A> {
 }
 
 impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
+    #[allow(unused_variables)]
     fn new(
         array: A,
         scalar: f64,
@@ -579,9 +582,86 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
 
 // linear algebra
 
-#[derive(Copy, Clone)]
-pub struct MatDiag<A> {
-    source: A,
+#[derive(Clone)]
+pub struct MatDiag<'a, A> {
+    source: &'a A,
+    #[cfg(feature = "opencl")]
+    kernel_op: ocl::Program,
+}
+
+impl<'a, A: NDArray> MatDiag<'a, A> {
+    pub fn new(source: &'a A) -> Result<Self, Error> {
+        debug_assert!(source.ndim() >= 2);
+        debug_assert_eq!(
+            source.shape()[source.ndim() - 1],
+            source.shape()[source.ndim() - 2]
+        );
+
+        #[cfg(feature = "opencl")]
+        let kernel_op = cl_programs::diagonal::<A::DType>(source.context())?;
+
+        Ok(Self {
+            source,
+            #[cfg(feature = "opencl")]
+            kernel_op,
+        })
+    }
+}
+
+impl<'a, A: NDArrayRead> Op for MatDiag<'a, A> {
+    type Out = A::DType;
+
+    fn context(&self) -> &Context {
+        self.source.context()
+    }
+
+    fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let dim = *self.source.shape().last().expect("dim");
+
+        let input = self.source.to_vec(queue)?;
+        let mut output = Vec::with_capacity(self.source.size() / dim);
+
+        let diagonals = input
+            .par_chunks_exact(dim * dim)
+            .map(|matrix| (0..dim).into_par_iter().map(|i| matrix[(i * dim) + i]))
+            .flatten();
+
+        output.par_extend(diagonals);
+
+        Ok(output)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let dim = *self.source.shape().last().expect("dim");
+        let batch_size = self
+            .source
+            .shape()
+            .iter()
+            .take(self.source.ndim() - 2)
+            .product();
+
+        let input = self.source.to_cl_buffer(queue)?;
+        let cl_queue = input.default_queue().expect("queue");
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(input.len() / dim)
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("diagonal")
+            .program(&self.kernel_op)
+            .queue(cl_queue.clone())
+            .global_work_size((batch_size, dim))
+            .arg(&input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
+    }
 }
 
 #[derive(Clone)]
@@ -751,6 +831,7 @@ pub struct ArrayBoolean<'a, T, L, R> {
 }
 
 impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<'a, T, L, R> {
+    #[allow(unused_variables)]
     fn new(
         left: &'a L,
         right: &'a R,
@@ -861,6 +942,7 @@ pub struct ArrayCompare<'a, T, L, R> {
 }
 
 impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompare<'a, T, L, R> {
+    #[allow(unused_variables)]
     fn new(
         left: &'a L,
         right: &'a R,
@@ -972,6 +1054,7 @@ pub struct ArrayCompareScalar<'a, T, A> {
 }
 
 impl<'a, T: CDatatype, A: NDArray> ArrayCompareScalar<'a, T, A> {
+    #[allow(unused_variables)]
     fn new(
         array: &'a A,
         scalar: T,
@@ -1064,6 +1147,7 @@ pub struct ArrayReduceAxis<'a, T, A> {
     source: &'a A,
     axis: usize,
     host_reduce: fn(T, T) -> T,
+    #[allow(unused)]
     kernel_reduce: &'static str,
 }
 
@@ -1250,6 +1334,7 @@ pub struct ArrayUnary<IT, OT, A> {
 }
 
 impl<IT: CDatatype, OT: CDatatype, A: NDArray> ArrayUnary<IT, OT, A> {
+    #[allow(unused_variables)]
     fn new(array: A, host_op: fn(IT) -> OT, kernel_op: &'static str) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::unary::<IT, OT>(kernel_op, array.context())?;
@@ -1391,10 +1476,10 @@ where
             .zip(lr)
             .map(
                 |(when, (then, or_else))| {
-                    if when == 1 {
-                        then
-                    } else {
+                    if when == 0 {
                         or_else
+                    } else {
+                        then
                     }
                 },
             )

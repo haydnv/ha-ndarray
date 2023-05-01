@@ -78,45 +78,47 @@ where
     Program::builder().source(src).build(context.cl_context())
 }
 
-pub fn elementwise_inplace<T>(op: &'static str, context: &Context) -> Result<Program, Error>
+pub fn elementwise_inplace<LT, RT>(op: &'static str, context: &Context) -> Result<Program, Error>
 where
-    T: CDatatype,
+    LT: CDatatype,
+    RT: CDatatype,
 {
     let src = format!(
         r#"
-        inline void add({dtype}* left, const {dtype} right) {{
+        inline void add({ltype}* left, const {rtype} right) {{
             *left += right;
         }}
 
-        inline void log_({dtype}* left, const double right) {{
+        inline void log_({ltype}* left, const double right) {{
             *left = log((double) *left) / log(right);
         }}
 
-        inline void div({dtype}* left, const {dtype} right) {{
+        inline void div({ltype}* left, const {rtype} right) {{
             *left /= right;
         }}
 
-        inline void mul({dtype}* left, const {dtype} right) {{
+        inline void mul({ltype}* left, const {rtype} right) {{
             *left *= right;
         }}
 
-        inline void pow_({dtype}* left, const double right) {{
+        inline void pow_({ltype}* left, const double right) {{
             *left = pow((double) *left, right);
         }}
 
-        inline void sub({dtype}* left, const {dtype} right) {{
+        inline void sub({ltype}* left, const {rtype} right) {{
             *left -= right;
         }}
 
         __kernel void elementwise_inplace(
-            __global {dtype}* restrict left,
-            __global const {dtype}* restrict right)
+            __global {ltype}* restrict left,
+            __global const {rtype}* restrict right)
         {{
             const ulong offset = get_global_id(0);
             {op}(&left[offset], right[offset]);
         }}
         "#,
-        dtype = T::TYPE_STR,
+        ltype = LT::TYPE_STR,
+        rtype = RT::TYPE_STR,
     );
 
     Program::builder().source(src).build(context.cl_context())
@@ -151,7 +153,7 @@ where
 
         __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
             const ulong offset = get_global_id(0);
-            {op}(&left[offset], right);
+            {op}(left[offset], right);
         }}
         "#,
         itype = IT::TYPE_STR,

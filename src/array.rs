@@ -223,6 +223,7 @@ impl<T: CDatatype> Not for ArrayBase<T> {
 }
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
+    #[allow(unused_variables)]
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         let data = self.data.read().expect("array data");
 

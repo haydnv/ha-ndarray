@@ -21,14 +21,6 @@ impl<'a> Bounds<'a> {
             })
             .fold(1, Ord::max)
     }
-
-    fn size(&self) -> usize {
-        self.axes
-            .iter()
-            .map(|bound| bound.size())
-            .filter(|size| *size > 0)
-            .product()
-    }
 }
 
 impl<'a> fmt::Display for Bounds<'a> {

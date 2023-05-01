@@ -301,10 +301,6 @@ impl DeviceList {
         self.devices.is_empty()
     }
 
-    fn iter(&self) -> std::slice::Iter<ocl::Device> {
-        self.devices.iter()
-    }
-
     fn next(&self) -> Option<ocl::Device> {
         if self.devices.is_empty() {
             None
@@ -382,16 +378,6 @@ pub struct Platform {
 
 impl Platform {
     #[cfg(feature = "opencl")]
-    fn devices(&self) -> DeviceList {
-        self.cl_cpus
-            .iter()
-            .copied()
-            .chain(self.cl_gpus.iter().copied())
-            .chain(self.cl_accs.iter().copied())
-            .collect()
-    }
-
-    #[cfg(feature = "opencl")]
     fn has_gpu(&self) -> bool {
         !self.cl_gpus.is_empty()
     }
@@ -431,6 +417,7 @@ impl TryFrom<ocl::Platform> for Platform {
 }
 
 #[derive(Clone)]
+#[allow(unused)]
 pub struct Context {
     platform: Platform,
     gpu_min: usize,
@@ -556,14 +543,16 @@ impl Queue {
     }
 
     #[cfg(not(feature = "opencl"))]
-    pub fn new(context: Context, size_hint: usize) -> Result<Self, Error> {
+    pub fn new(context: Context, _size_hint: usize) -> Result<Self, Error> {
         Ok(Self::default(context))
     }
 
+    #[allow(unused)]
     fn context(&self) -> &Context {
         &self.context
     }
 
+    #[allow(unused)]
     fn split(&self, size_hint: usize) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_queue = if let Some(left_queue) = &self.cl_queue {
@@ -1010,11 +999,34 @@ pub trait NDArrayCompareScalar: NDArray {
 
 impl<A: NDArray> NDArrayCompareScalar for A {}
 
-pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
-    fn matmul<'a>(
+pub trait MatrixMath: NDArray + fmt::Debug {
+    fn diagonal(&self) -> Result<ArrayOp<MatDiag<Self>>, Error> {
+        if self.ndim() >= 2 && self.shape()[self.ndim() - 1] == self.shape()[self.ndim() - 2] {
+            let shape = self.shape().iter().take(self.ndim() - 1).copied().collect();
+            let op = MatDiag::new(self)?;
+            Ok(ArrayOp::new(shape, op))
+        } else {
+            Err(Error::Bounds(format!(
+                "diagonal requires a square matrix, not {:?}",
+                self
+            )))
+        }
+    }
+
+    fn matmul<'a, O>(
         &'a self,
         other: &'a O,
-    ) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error> {
+    ) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType> + fmt::Debug,
+    {
+        if self.ndim() < 2 || other.ndim() < 2 {
+            return Err(Error::Bounds(format!(
+                "invalid matrices for matmul: {:?} and {:?}",
+                self, other
+            )));
+        }
+
         let ndim = self.ndim();
         let prefix = &self.shape()[..ndim - 2];
 
@@ -1054,7 +1066,7 @@ pub trait MatrixMath<O: NDArray<DType = Self::DType>>: NDArray {
     }
 }
 
-impl<A: NDArray, O: NDArray> MatrixMath<O> for A where O: NDArray<DType = A::DType> {}
+impl<A: NDArray + fmt::Debug> MatrixMath for A {}
 
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
