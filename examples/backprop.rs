@@ -17,7 +17,12 @@ fn main() -> Result<(), Error> {
     let inputs_left = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?;
     let inputs_right = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 1.into()])?;
 
-    let labels = ArrayBase::copy(&inputs_left.and(&inputs_right)?.expand_dims(vec![1])?.cast()?)?;
+    let labels = ArrayBase::copy(
+        &inputs_left
+            .and(&inputs_right)?
+            .expand_dims(vec![1])?
+            .cast()?,
+    )?;
 
     let output = inputs.matmul(&weights)?;
     let error = labels - output;

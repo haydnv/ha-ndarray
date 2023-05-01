@@ -317,32 +317,48 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct ArrayDualFloat<L, R> {
+#[derive(Clone)]
+pub struct ArrayDualFloat<T, L, R> {
     left: L,
     right: R,
-    op: &'static str,
+    cpu_op: fn(T, f64) -> T,
+    #[cfg(feature = "opencl")]
+    kernel_op: ocl::Program,
 }
 
-impl<L, R> ArrayDualFloat<L, R> {
-    fn new(left: L, right: R, op: &'static str) -> Self {
-        Self { left, right, op }
+impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloat<T, L, R> {
+    fn new(
+        left: L,
+        right: R,
+        cpu_op: fn(T, f64) -> T,
+        kernel_op: &'static str,
+    ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
+        let kernel_op = cl_programs::elementwise_inplace::<T>(kernel_op, left.context())?;
+
+        Ok(Self {
+            left,
+            right,
+            cpu_op,
+            #[cfg(feature = "opencl")]
+            kernel_op,
+        })
     }
 
-    pub fn log(left: L, right: R) -> Self {
-        todo!()
+    pub fn log(left: L, right: R) -> Result<Self, Error> {
+        Self::new(left, right, T::log, "log")
     }
 
-    pub fn pow(left: L, right: R) -> Self {
-        todo!()
+    pub fn pow(left: L, right: R) -> Result<Self, Error> {
+        Self::new(left, right, T::pow, "pow")
     }
 }
 
-impl<T, L, R> Op for ArrayDualFloat<L, R>
+impl<T, L, R> Op for ArrayDualFloat<T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
-    R: NDArrayRead<DType = T>,
+    R: NDArrayRead<DType = f64>,
 {
     type Out = T;
 
@@ -351,7 +367,16 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        todo!()
+        let left = self.left.to_vec(queue)?;
+        let right = self.right.to_vec(&queue.split(self.right.size())?)?;
+
+        let output = left
+            .into_par_iter()
+            .zip(right.into_par_iter())
+            .map(|(l, r)| (self.cpu_op)(l, r))
+            .collect();
+
+        Ok(output)
     }
 
     #[cfg(feature = "opencl")]
@@ -359,8 +384,22 @@ where
         let right_queue = queue.split(self.right.size())?;
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
+        debug_assert_eq!(left.len(), right.len());
 
-        todo!()
+        let cl_queue = left.default_queue().expect("left queue").clone();
+
+        let kernel = ocl::Kernel::builder()
+            .name("elementwise_inplace")
+            .program(&self.kernel_op)
+            .queue(cl_queue)
+            .global_work_size(left.len())
+            .arg(&left)
+            .arg(right)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(left)
     }
 }
 

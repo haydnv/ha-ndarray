@@ -732,21 +732,24 @@ pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn log<'a>(&'a self, base: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self, O>>, Error>
+    fn log<'a>(
+        &'a self,
+        base: &'a O,
+    ) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = f64>,
     {
         let shape = check_shape(self.shape(), base.shape())?;
-        let op = ArrayDualFloat::log(self.clone(), base.clone());
+        let op = ArrayDualFloat::log(self.clone(), base.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self, O>>, Error>
+    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = f64>,
     {
         let shape = check_shape(self.shape(), exp.shape())?;
-        let op = ArrayDualFloat::pow(self.clone(), exp.clone());
+        let op = ArrayDualFloat::pow(self.clone(), exp.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 }
