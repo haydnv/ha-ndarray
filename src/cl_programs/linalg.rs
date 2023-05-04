@@ -7,12 +7,12 @@ use super::{TILE_SIZE, WG_SIZE};
 pub fn diagonal<T: CDatatype>(context: &Context) -> Result<Program, Error> {
     let src = format!(
         r#"
-    __kernel void diagonal(const {dtype}* matrices, {dtype}* diagonals) {{
-        const ulong batch_offset = get_global_id(0);
-        const ulong element_offset = get_global_id(1);
-        diagonals[batch_offset, element_offset] = matrices[batch_offset, element_offset, element_offset];
-    }}
-    "#,
+        __kernel void diagonal(const {dtype}* matrices, {dtype}* diagonals) {{
+            const ulong m = get_global_id(0);
+            const ulong i = get_global_id(1);
+            diagonals[m, i] = matrices[m, i, i];
+        }}
+        "#,
         dtype = T::TYPE_STR
     );
 

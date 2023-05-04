@@ -79,6 +79,7 @@ pub trait CDatatype:
     + Sum
     + Send
     + Sync
+    + 'static
 {
     const TYPE_STR: &'static str;
 
@@ -133,6 +134,7 @@ pub trait CDatatype:
     + Sum
     + Send
     + Sync
+    + 'static
 {
     const TYPE_STR: &'static str;
 
