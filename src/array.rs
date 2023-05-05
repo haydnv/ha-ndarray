@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
-use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
 use rayon::prelude::*;
@@ -15,7 +14,7 @@ use super::{
 pub struct ArrayBase<T> {
     context: Context,
     shape: Shape,
-    data: Arc<RwLock<Vec<T>>>,
+    data: Vec<T>,
 }
 
 impl<T: CDatatype> ArrayBase<T> {
@@ -25,7 +24,6 @@ impl<T: CDatatype> ArrayBase<T> {
 
         let shape = other.shape().to_vec();
         let data = other.to_vec(&queue)?;
-        let data = Arc::new(RwLock::new(data));
 
         Ok(Self {
             context,
@@ -41,8 +39,6 @@ impl<T: CDatatype> ArrayBase<T> {
     pub fn with_context(context: Context, shape: Shape, data: Vec<T>) -> Result<Self, Error> {
         let size = shape.iter().product();
         if data.len() == size {
-            let data = Arc::new(RwLock::new(data));
-
             Ok(Self {
                 context,
                 data,
@@ -56,6 +52,10 @@ impl<T: CDatatype> ArrayBase<T> {
                 data.len()
             )))
         }
+    }
+
+    pub fn into_data(self) -> Vec<T> {
+        self.data
     }
 }
 
@@ -225,38 +225,34 @@ impl<T: CDatatype> Not for ArrayBase<T> {
 impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     #[allow(unused_variables)]
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
-        let data = self.data.read().expect("array data");
-
         // TODO: there must be a better way to do this
         #[cfg(feature = "opencl")]
         if let Some(cl_queue) = &queue.cl_queue {
             let buffer = ocl::Buffer::builder()
                 .queue(cl_queue.clone())
-                .len(data.len())
-                .copy_host_slice(&data[..])
+                .len(self.data.len())
+                .copy_host_slice(&self.data[..])
                 .build()?;
 
             return Ok(Buffer::CL(buffer));
         }
 
-        Ok(Buffer::Host(data.to_vec()))
+        Ok(Buffer::Host(self.data.to_vec()))
     }
 }
 
 impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
-    fn write(&self, other: &A) -> Result<(), Error> {
+    fn write(&mut self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
             match other.read(&queue)? {
                 Buffer::Host(buffer) => {
-                    let mut data = self.data.write().expect("data");
-                    data.copy_from_slice(&buffer[..]);
+                    self.data.copy_from_slice(&buffer[..]);
                 }
                 #[cfg(feature = "opencl")]
                 Buffer::CL(buffer) => {
-                    let mut data = self.data.write().expect("data");
-                    buffer.read(&mut data[..]).enq()?;
+                    buffer.read(&mut self.data[..]).enq()?;
                 }
             }
 

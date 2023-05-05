@@ -7,7 +7,7 @@ const NUM_EXAMPLES: usize = 2048;
 fn main() -> Result<(), Error> {
     let weights = RandomNormal::new(2)?;
     let weights = ArrayOp::new(vec![2, 1], weights) - 0.5;
-    let weights = ArrayBase::copy(&weights)?;
+    let mut weights = ArrayBase::copy(&weights)?;
 
     let inputs = RandomUniform::new(NUM_EXAMPLES * 2)?;
     let inputs = ArrayOp::new(vec![NUM_EXAMPLES, 2], inputs) * 2.;
@@ -24,18 +24,19 @@ fn main() -> Result<(), Error> {
             .cast()?,
     )?;
 
-    let output = inputs.matmul(&weights)?;
-    let error = labels - output;
-    let loss = error.pow_scalar(2.)?;
-
-    let d_loss = error * 2.;
-    let weights_t = weights.transpose(None)?;
-    let gradient = d_loss.matmul(&weights_t)?;
-    let deltas = gradient.sum_axis(0)?.expand_dims(vec![1])?;
-    let new_weights = weights.clone() + (deltas * LEARNING_RATE);
-
     let mut i = 0;
     loop {
+        let prior_weights = weights.clone();
+        let output = inputs.matmul(&prior_weights)?;
+        let error = labels.sub(&output)?;
+        let loss = error.pow_scalar(2.)?;
+
+        let d_loss = error * 2.;
+        let weights_t = prior_weights.transpose(None)?;
+        let gradient = d_loss.matmul(&weights_t)?;
+        let deltas = gradient.sum_axis(0)?.expand_dims(vec![1])?;
+        let new_weights = prior_weights.add(&(deltas * LEARNING_RATE))?;
+
         if i % 100 == 0 {
             println!("loss: {} (max {})", loss.sum()?, loss.max()?);
             assert!(!loss.is_inf()?.any()?, "diverged");

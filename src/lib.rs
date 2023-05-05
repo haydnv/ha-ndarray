@@ -16,7 +16,7 @@ use ops::*;
 mod array;
 #[cfg(feature = "opencl")]
 mod cl_programs;
-mod ops;
+pub mod ops;
 
 pub mod construct {
     pub use super::ops::{RandomNormal, RandomUniform};
@@ -644,7 +644,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug {
 }
 
 pub trait NDArrayWrite<O: NDArray<DType = Self::DType>>: NDArray {
-    fn write(&self, other: &O) -> Result<(), Error>;
+    fn write(&mut self, other: &O) -> Result<(), Error>;
 }
 
 pub trait NDArrayWriteScalar: NDArray {
@@ -703,67 +703,70 @@ pub trait NDArrayExp: NDArray + Clone {
 
 impl<A: NDArray + Clone> NDArrayExp for A {}
 
-pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
-    fn add<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+pub trait NDArrayMath: NDArray + Clone {
+    fn add<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = Self::DType>,
+        O: NDArray<DType = Self::DType> + Clone,
     {
         let shape = check_shape(self.shape(), rhs.shape())?;
         let op = ArrayDual::add(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn div<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn div<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = Self::DType>,
+        O: NDArray<DType = Self::DType> + Clone,
     {
         let shape = check_shape(self.shape(), rhs.shape())?;
         let op = ArrayDual::div(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn mul<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn mul<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = Self::DType>,
+        O: NDArray<DType = Self::DType> + Clone,
     {
         let shape = check_shape(self.shape(), rhs.shape())?;
         let op = ArrayDual::mul(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn rem<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn rem<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = Self::DType>,
+        O: NDArray<DType = Self::DType> + Clone,
     {
         let shape = check_shape(self.shape(), rhs.shape())?;
         let op = ArrayDual::rem(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn sub<'a>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn sub<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = Self::DType>,
+        O: NDArray<DType = Self::DType> + Clone,
     {
         let shape = check_shape(self.shape(), rhs.shape())?;
         let op = ArrayDual::sub(self.clone(), rhs.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn log<'a>(
+    fn log<'a, O>(
         &'a self,
         base: &'a O,
     ) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = f64>,
+        O: NDArray<DType = f64> + Clone,
     {
         let shape = check_shape(self.shape(), base.shape())?;
         let op = ArrayDualFloat::log(self.clone(), base.clone())?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow<'a>(&'a self, exp: &'a O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
+    fn pow<'a, O>(
+        &'a self,
+        exp: &'a O,
+    ) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = f64>,
+        O: NDArray<DType = f64> + Clone,
     {
         let shape = check_shape(self.shape(), exp.shape())?;
         let op = ArrayDualFloat::pow(self.clone(), exp.clone())?;
@@ -771,7 +774,7 @@ pub trait NDArrayMath<O: NDArray + Clone>: NDArray + Clone {
     }
 }
 
-impl<A: NDArray + Clone, O: NDArray + Clone> NDArrayMath<O> for A {}
+impl<A: NDArray + Clone> NDArrayMath for A {}
 
 pub trait NDArrayMathScalar: NDArray + Clone {
     fn add_scalar(

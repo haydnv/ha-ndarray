@@ -153,7 +153,7 @@ where
 
         __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
             const ulong offset = get_global_id(0);
-            {op}(left[offset], right);
+            {op}(&left[offset], right);
         }}
         "#,
         itype = IT::TYPE_STR,
