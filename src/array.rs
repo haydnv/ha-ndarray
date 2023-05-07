@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
+use std::sync::Arc;
 use std::{fmt, iter};
 
 use rayon::prelude::*;
@@ -9,6 +10,79 @@ use super::{
     strides_for, AxisBound, Buffer, CDatatype, Context, Error, NDArray, NDArrayRead,
     NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
+
+pub enum Array<T> {
+    Base(ArrayBase<T>),
+    Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
+    Slice(Box<ArraySlice<Self>>),
+    View(Box<ArrayView<Self>>),
+}
+
+macro_rules! array_dispatch {
+    ($this:ident, $var:ident, $call:expr) => {
+        match $this {
+            Self::Base($var) => $call,
+            Self::Op($var) => $call,
+            Self::Slice($var) => $call,
+            Self::View($var) => $call,
+        }
+    };
+}
+
+impl<T: CDatatype> NDArray for Array<T> {
+    type DType = T;
+
+    fn context(&self) -> &Context {
+        array_dispatch!(self, this, this.context())
+    }
+
+    fn shape(&self) -> &[usize] {
+        array_dispatch!(self, this, this.shape())
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for Array<T> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        array_dispatch!(self, this, this.read(queue))
+    }
+}
+
+impl<T: CDatatype> NDArrayTransform for Array<T>
+where
+    Self: Clone,
+{
+    type Broadcast = Self;
+    type Expand = Self;
+    type Reshape = Self;
+    type Slice = Self;
+    type Transpose = Self;
+
+    fn broadcast(&self, shape: Shape) -> Result<Self, Error> {
+        array_dispatch!(self, this, this.broadcast(shape).map(Self::from))
+    }
+
+    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self, Error> {
+        array_dispatch!(self, this, this.expand_dims(axes).map(Self::from))
+    }
+
+    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+        array_dispatch!(self, this, this.reshape(shape).map(Self::from))
+    }
+
+    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self, Error> {
+        array_dispatch!(self, this, this.slice(bounds).map(Self::from))
+    }
+
+    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self, Error> {
+        array_dispatch!(self, this, this.transpose(axes).map(Self::from))
+    }
+}
+
+impl<T: CDatatype> fmt::Debug for Array<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        array_dispatch!(self, this, this.fmt(f))
+    }
+}
 
 #[derive(Clone)]
 pub struct ArrayBase<T> {
@@ -72,6 +146,25 @@ impl<T: CDatatype> NDArray for ArrayBase<T> {
 
     fn shape(&self) -> &[usize] {
         &self.shape
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
+    #[allow(unused_variables)]
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+        // TODO: there must be a better way to do this
+        #[cfg(feature = "opencl")]
+        if let Some(cl_queue) = &queue.cl_queue {
+            let buffer = ocl::Buffer::builder()
+                .queue(cl_queue.clone())
+                .len(self.data.len())
+                .copy_host_slice(&self.data[..])
+                .build()?;
+
+            return Ok(Buffer::CL(buffer));
+        }
+
+        Ok(Buffer::Host(self.data.to_vec()))
     }
 }
 
@@ -226,25 +319,6 @@ impl<T: CDatatype> Not for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
-    #[allow(unused_variables)]
-    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
-        // TODO: there must be a better way to do this
-        #[cfg(feature = "opencl")]
-        if let Some(cl_queue) = &queue.cl_queue {
-            let buffer = ocl::Buffer::builder()
-                .queue(cl_queue.clone())
-                .len(self.data.len())
-                .copy_host_slice(&self.data[..])
-                .build()?;
-
-            return Ok(Buffer::CL(buffer));
-        }
-
-        Ok(Buffer::Host(self.data.to_vec()))
-    }
-}
-
 impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
     fn write(&mut self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
@@ -267,6 +341,12 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
                 other, self
             )))
         }
+    }
+}
+
+impl<T> From<ArrayBase<T>> for Array<T> {
+    fn from(base: ArrayBase<T>) -> Self {
+        Self::Base(base)
     }
 }
 
@@ -433,6 +513,15 @@ impl<Op: super::ops::Op> Not for ArrayOp<Op> {
         let shape = self.shape.to_vec();
         let op = ArrayUnary::not(self).expect("op");
         ArrayOp::new(shape, op)
+    }
+}
+
+impl<Op: super::ops::Op + 'static> From<ArrayOp<Op>> for Array<Op::Out> {
+    fn from(op: ArrayOp<Op>) -> Self {
+        Self::Op(ArrayOp {
+            op: Arc::new(op.op),
+            shape: op.shape,
+        })
     }
 }
 
@@ -740,6 +829,20 @@ where
     }
 }
 
+impl<T, A: Into<Array<T>>> From<ArraySlice<A>> for Array<T> {
+    fn from(slice: ArraySlice<A>) -> Self {
+        Self::Slice(Box::new(ArraySlice {
+            source: slice.source.into(),
+            bounds: slice.bounds,
+            shape: slice.shape,
+            strides: slice.strides,
+            source_strides: slice.source_strides,
+            #[cfg(feature = "opencl")]
+            kernel_op: slice.kernel_op,
+        }))
+    }
+}
+
 impl<A: fmt::Debug> fmt::Debug for ArraySlice<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "slice of {:?} with shape {:?}", self.source, self.shape)
@@ -1041,6 +1144,18 @@ where
         let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
         let strides = axes.into_iter().map(|x| self.strides[x]).collect();
         ArrayView::new(self.source.clone(), shape, strides)
+    }
+}
+
+impl<T, A: Into<Array<T>>> From<ArrayView<A>> for Array<T> {
+    fn from(view: ArrayView<A>) -> Self {
+        Self::View(Box::new(ArrayView {
+            source: view.source.into(),
+            shape: view.shape,
+            strides: view.strides,
+            #[cfg(feature = "opencl")]
+            kernel_op: view.kernel_op,
+        }))
     }
 }
 

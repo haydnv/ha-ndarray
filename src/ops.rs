@@ -2,6 +2,7 @@ use std::cmp::{PartialEq, PartialOrd};
 use std::f32::consts::PI;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::sync::Arc;
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -29,6 +30,40 @@ pub trait Op: Send + Sync {
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
+}
+
+impl<O: Op + ?Sized> Op for Arc<O> {
+    type Out = O::Out;
+
+    fn context(&self) -> &Context {
+        (**self).context()
+    }
+
+    fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        (**self).enqueue_cpu(queue)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        (**self).enqueue_cl(queue)
+    }
+}
+
+impl<O: Op + ?Sized> Op for Box<O> {
+    type Out = O::Out;
+
+    fn context(&self) -> &Context {
+        (**self).context()
+    }
+
+    fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        (**self).enqueue_cpu(queue)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        (**self).enqueue_cl(queue)
+    }
 }
 
 // constructors
