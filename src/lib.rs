@@ -1272,11 +1272,11 @@ pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
 impl<A: NDArray<DType = u8> + fmt::Debug> NDArrayWhere for A {}
 
 pub trait NDArrayTransform: NDArray + fmt::Debug {
-    type Broadcast: NDArray;
-    type Expand: NDArray;
-    type Reshape: NDArray;
-    type Slice: NDArray;
-    type Transpose: NDArray;
+    type Broadcast: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+    type Expand: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+    type Reshape: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+    type Slice: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+    type Transpose: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
 
     fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error>;
 

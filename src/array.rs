@@ -11,6 +11,7 @@ use super::{
     NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
+#[derive(Clone)]
 pub enum Array<T> {
     Base(ArrayBase<T>),
     Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
@@ -701,7 +702,7 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
 
 impl<A: NDArray + fmt::Debug> NDArrayTransform for ArraySlice<A>
 where
-    Self: Clone,
+    Self: NDArrayRead + Clone,
 {
     type Broadcast = ArrayView<Self>;
     type Expand = ArrayView<Self>;
@@ -1067,7 +1068,7 @@ impl<A: NDArrayRead> Not for ArrayView<A> {
 
 impl<A: NDArray + Clone + fmt::Debug> NDArrayTransform for ArrayView<A>
 where
-    Self: Clone,
+    Self: NDArrayRead + Clone,
 {
     type Broadcast = Self;
     type Expand = Self;
