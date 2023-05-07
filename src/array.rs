@@ -57,6 +57,10 @@ impl<T: CDatatype> ArrayBase<T> {
     pub fn into_data(self) -> Vec<T> {
         self.data
     }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
 }
 
 impl<T: CDatatype> NDArray for ArrayBase<T> {

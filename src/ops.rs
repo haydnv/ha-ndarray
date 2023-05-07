@@ -673,7 +673,12 @@ pub struct MatMul<'a, T, L, R> {
     kernel_op: ocl::Program,
 }
 
-impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> MatMul<'a, T, L, R> {
+impl<'a, T, L, R> MatMul<'a, T, L, R>
+where
+    T: CDatatype,
+    L: NDArray<DType = T>,
+    R: NDArray<DType = T>,
+{
     pub fn new(left: &'a L, right: &'a R) -> Result<Self, Error> {
         debug_assert!(left.ndim() >= 2);
         debug_assert!(right.ndim() >= 2);

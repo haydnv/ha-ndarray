@@ -575,7 +575,7 @@ impl Queue {
     }
 }
 
-pub trait NDArray: Send + Sync + Sized {
+pub trait NDArray: Send + Sync {
     type DType: CDatatype;
 
     fn context(&self) -> &Context;
@@ -589,6 +589,18 @@ pub trait NDArray: Send + Sync + Sized {
     }
 
     fn shape(&self) -> &[usize];
+}
+
+impl<A: NDArray + ?Sized> NDArray for Box<A> {
+    type DType = A::DType;
+
+    fn context(&self) -> &Context {
+        (**self).context()
+    }
+
+    fn shape(&self) -> &[usize] {
+        (**self).shape()
+    }
 }
 
 pub trait NDArrayRead: NDArray + fmt::Debug {
@@ -643,15 +655,21 @@ pub trait NDArrayRead: NDArray + fmt::Debug {
     }
 }
 
+impl<A: NDArrayRead + ?Sized> NDArrayRead for Box<A> {
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        (**self).read(queue)
+    }
+}
+
 pub trait NDArrayWrite<O: NDArray<DType = Self::DType>>: NDArray {
     fn write(&mut self, other: &O) -> Result<(), Error>;
 }
 
-pub trait NDArrayWriteScalar: NDArray {
+pub trait NDArrayWriteScalar: NDArray + Sized {
     fn write(&self, scalar: Self::DType) -> Result<(), Error>;
 }
 
-pub trait NDArrayBoolean<O>: NDArray
+pub trait NDArrayBoolean<O>: NDArray + Sized
 where
     O: NDArray<DType = Self::DType>,
 {
@@ -856,7 +874,7 @@ where
 
 impl<A: NDArray + Clone> NDArrayNumeric for A where A::DType: Float {}
 
-pub trait NDArrayTrig: NDArray {
+pub trait NDArrayTrig: NDArray + Sized {
     fn asin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
 
     fn sin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
@@ -878,7 +896,7 @@ pub trait NDArrayTrig: NDArray {
 
 // TODO: implement trigonometry methods
 
-pub trait NDArrayCast: NDArray {
+pub trait NDArrayCast: NDArray + Sized {
     fn cast<O: CDatatype>(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayCast::new(self)?;
@@ -888,7 +906,7 @@ pub trait NDArrayCast: NDArray {
 
 impl<A: NDArray> NDArrayCast for A {}
 
-pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
+pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn eq<'a>(
         &'a self,
         other: &'a O,
@@ -946,7 +964,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray {
 
 impl<A: NDArray, O: NDArray> NDArrayCompare<O> for A where O: NDArray<DType = A::DType> {}
 
-pub trait NDArrayCompareScalar: NDArray {
+pub trait NDArrayCompareScalar: NDArray + Sized {
     fn eq_scalar(
         &self,
         other: Self::DType,
@@ -995,7 +1013,10 @@ pub trait NDArrayCompareScalar: NDArray {
     fn ne_scalar(
         &self,
         other: Self::DType,
-    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
+    ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error>
+    where
+        Self: Sized,
+    {
         let shape = self.shape().to_vec();
         let op = ArrayCompareScalar::ne(self, other)?;
         Ok(ArrayOp::new(shape, op))
@@ -1005,7 +1026,10 @@ pub trait NDArrayCompareScalar: NDArray {
 impl<A: NDArray> NDArrayCompareScalar for A {}
 
 pub trait MatrixMath: NDArray + fmt::Debug {
-    fn diagonal(&self) -> Result<ArrayOp<MatDiag<Self>>, Error> {
+    fn diagonal(&self) -> Result<ArrayOp<MatDiag<Self>>, Error>
+    where
+        Self: Sized,
+    {
         if self.ndim() >= 2 && self.shape()[self.ndim() - 1] == self.shape()[self.ndim() - 2] {
             let shape = self.shape().iter().take(self.ndim() - 1).copied().collect();
             let op = MatDiag::new(self)?;
@@ -1024,6 +1048,7 @@ pub trait MatrixMath: NDArray + fmt::Debug {
     ) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + fmt::Debug,
+        Self: Sized,
     {
         if self.ndim() < 2 || other.ndim() < 2 {
             return Err(Error::Bounds(format!(
@@ -1230,6 +1255,7 @@ pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
         T: CDatatype,
         L: NDArray<DType = T> + fmt::Debug,
         R: NDArray<DType = T> + fmt::Debug,
+        Self: Sized,
     {
         if self.shape() == then.shape() && self.shape() == or_else.shape() {
             let op = GatherCond::new(self, then, or_else)?;
