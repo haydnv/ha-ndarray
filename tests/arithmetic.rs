@@ -5,14 +5,19 @@ fn test_add() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
     let shape = vec![5, 2];
 
-    let left = ArrayBase::with_context(
+    // TODO: use a range constructor
+    let left = ArrayBase::<Vec<_>>::with_context(
         context.clone(),
         shape.to_vec(),
         (0..10).into_iter().collect(),
     )?;
 
-    let right =
-        ArrayBase::with_context(context, shape.to_vec(), (0..10).into_iter().rev().collect())?;
+    // TODO: use a range constructor
+    let right = ArrayBase::<Vec<_>>::with_context(
+        context,
+        shape.to_vec(),
+        (0..10).into_iter().rev().collect(),
+    )?;
 
     let actual = left + right;
     let expected = ArrayBase::new(shape, vec![9; 10])?;
@@ -24,8 +29,12 @@ fn test_add() -> Result<(), Error> {
 fn test_expand_and_broadcast_and_sub() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let left =
-        ArrayBase::with_context(context.clone(), vec![2, 3], (0i32..6).into_iter().collect())?;
+    // TODO: use a range constructor
+    let left = ArrayBase::<Vec<_>>::with_context(
+        context.clone(),
+        vec![2, 3],
+        (0i32..6).into_iter().collect(),
+    )?;
 
     let right = ArrayBase::with_context(context.clone(), vec![2], vec![0, 1])?;
 

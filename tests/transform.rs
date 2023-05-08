@@ -4,9 +4,11 @@ use ha_ndarray::*;
 fn test_slice_1d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let input = ArrayBase::with_context(context.clone(), vec![4], (0..4).into_iter().collect())?;
+    let input =
+        ArrayBase::<Vec<_>>::with_context(context.clone(), vec![4], (0..4).into_iter().collect())?;
 
-    let expected = ArrayBase::with_context(context, vec![2], (1..3).into_iter().collect())?;
+    let expected =
+        ArrayBase::<Vec<_>>::with_context(context, vec![2], (1..3).into_iter().collect())?;
 
     let actual = input.slice(vec![(1..3).into()])?;
 
@@ -20,10 +22,15 @@ fn test_slice_1d() -> Result<(), Error> {
 fn test_slice_2d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let input =
-        ArrayBase::with_context(context.clone(), vec![4, 3], (0..12).into_iter().collect())?;
+    // TODO: use a range constructor
+    let input = ArrayBase::<Vec<_>>::with_context(
+        context.clone(),
+        vec![4, 3],
+        (0..12).into_iter().collect(),
+    )?;
 
-    let expected = ArrayBase::with_context(
+    // TODO: use a range constructor
+    let expected = ArrayBase::<Vec<_>>::with_context(
         context,
         vec![2, 3],
         [
@@ -45,13 +52,13 @@ fn test_slice_2d() -> Result<(), Error> {
 fn test_slice_3d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let input = ArrayBase::with_context(
+    let input = ArrayBase::<Vec<_>>::with_context(
         context.clone(),
         vec![4, 3, 2],
         (0..24).into_iter().collect(),
     )?;
 
-    let expected = ArrayBase::with_context(context, vec![2, 2], [8, 9, 10, 11].into())?;
+    let expected = ArrayBase::<Vec<_>>::with_context(context, vec![2, 2], [8, 9, 10, 11].into())?;
 
     let actual = input.slice(vec![1.into(), (1..3).into()])?;
 
@@ -65,7 +72,12 @@ fn test_slice_3d() -> Result<(), Error> {
 fn test_transpose_2d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let input = ArrayBase::with_context(context.clone(), vec![2, 3], (0..6).into_iter().collect())?;
+    // TODO: use a range constructor
+    let input = ArrayBase::<Vec<_>>::with_context(
+        context.clone(),
+        vec![2, 3],
+        (0..6).into_iter().collect(),
+    )?;
 
     let expected = ArrayBase::with_context(
         context,
@@ -88,13 +100,14 @@ fn test_transpose_2d() -> Result<(), Error> {
 fn test_transpose_3d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 
-    let input = ArrayBase::with_context(
+    // TODO: use a range constructor
+    let input = ArrayBase::<Vec<_>>::with_context(
         context.clone(),
         vec![2, 3, 4],
         (0..24).into_iter().collect(),
     )?;
 
-    let expected = ArrayBase::with_context(
+    let expected = ArrayBase::<Vec<_>>::with_context(
         context,
         vec![4, 2, 3],
         vec![

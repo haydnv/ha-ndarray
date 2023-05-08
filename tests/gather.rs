@@ -5,7 +5,7 @@ fn test_gather_cond() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
     let size = 10;
 
-    let cond = ArrayBase::with_context(
+    let cond = ArrayBase::<Vec<_>>::with_context(
         context.clone(),
         vec![size],
         (0..size)

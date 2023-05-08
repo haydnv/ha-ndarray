@@ -5,6 +5,7 @@ use std::convert::identity;
 use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Range, Rem, Sub};
+use std::sync::{Arc, RwLock};
 
 use rayon::prelude::*;
 #[allow(unused_imports)]
@@ -334,6 +335,8 @@ pub trait BufferInstance: Clone + Send + Sync {
     type DType: CDatatype;
 
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
+
+    fn size(&self) -> usize;
 }
 
 impl<T: CDatatype> BufferInstance for Vec<T> {
@@ -355,6 +358,36 @@ impl<T: CDatatype> BufferInstance for Vec<T> {
 
         Ok(Buffer::Host(self.to_vec()))
     }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: CDatatype> BufferInstance for Arc<Vec<T>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        (&**self).read(queue)
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: CDatatype> BufferInstance for Arc<RwLock<Vec<T>>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::read(&*data, queue)
+    }
+
+    fn size(&self) -> usize {
+        let data = RwLock::read(self).expect("read buffer");
+        data.len()
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -365,11 +398,49 @@ impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
         let cl_queue = queue
             .cl_queue
             .clone()
-            .ok_or_else(|| Error::Interface("missing CL queue for CL buffer".into()))?;
+            .or_else(|| self.default_queue().cloned())
+            .expect("OpenCL queue");
 
-        let mut copy = self.clone();
-        copy.set_default_queue(cl_queue);
-        Ok(Buffer::CL(self.clone()))
+        let copy = ocl::Buffer::builder()
+            .queue(cl_queue)
+            .len(self.len())
+            .build()?;
+
+        self.copy(&copy, None, None).enq()?;
+
+        Ok(Buffer::CL(copy))
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferInstance for Arc<ocl::Buffer<T>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        BufferInstance::read(&**self, queue)
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferInstance for Arc<RwLock<ocl::Buffer<T>>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::read(&*data, queue)
+    }
+
+    fn size(&self) -> usize {
+        let data = RwLock::read(self).expect("read buffer");
+        data.len()
     }
 }
 
@@ -394,6 +465,23 @@ impl<T: CDatatype> Buffer<T> {
             Self::CL(buffer) => buffer.len(),
         }
     }
+
+    pub fn write(&mut self, other: &Buffer<T>) -> Result<(), Error> {
+        match self {
+            Self::Host(this) => match other {
+                Self::Host(that) => this.copy_from_slice(&that),
+                #[cfg(feature = "opencl")]
+                Self::CL(that) => that.read(&mut this[..]).enq()?,
+            },
+            #[cfg(feature = "opencl")]
+            Self::CL(this) => match other {
+                Self::Host(that) => this.write(&that[..]).enq()?,
+                Self::CL(that) => that.copy(this, None, None).enq()?,
+            },
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: CDatatype> BufferInstance for Buffer<T> {
@@ -405,6 +493,44 @@ impl<T: CDatatype> BufferInstance for Buffer<T> {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => BufferInstance::read(buffer, queue),
         }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            Self::Host(buffer) => buffer.len(),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => buffer.len(),
+        }
+    }
+}
+
+impl<T: CDatatype> BufferInstance for Arc<Buffer<T>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        BufferInstance::read(&**self, queue)
+    }
+
+    fn size(&self) -> usize {
+        match &**self {
+            Buffer::Host(buffer) => buffer.len(),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => buffer.len(),
+        }
+    }
+}
+
+impl<T: CDatatype> BufferInstance for Arc<RwLock<Buffer<T>>> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::read(&*data, queue)
+    }
+
+    fn size(&self) -> usize {
+        let data = RwLock::read(self).expect("read buffer");
+        data.size()
     }
 }
 
@@ -418,6 +544,16 @@ impl<T: CDatatype> From<ocl::Buffer<T>> for Buffer<T> {
 impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
     fn from(buffer: Vec<T>) -> Self {
         Self::Host(buffer)
+    }
+}
+
+impl<T: CDatatype + fmt::Debug> fmt::Debug for Buffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Host(buffer) => fmt::Debug::fmt(buffer, f),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => fmt::Debug::fmt(buffer, f),
+        }
     }
 }
 
@@ -715,14 +851,6 @@ impl<A: NDArrayRead + ?Sized> NDArrayRead for Box<A> {
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         (**self).read(queue)
     }
-}
-
-pub trait NDArrayWrite<O: NDArray<DType = Self::DType>>: NDArray {
-    fn write(&mut self, other: &O) -> Result<(), Error>;
-}
-
-pub trait NDArrayWriteScalar: NDArray + Sized {
-    fn write(&self, scalar: Self::DType) -> Result<(), Error>;
 }
 
 pub trait NDArrayBoolean<O>: NDArray + Sized
