@@ -57,12 +57,12 @@ fn matmul(context: &Context) -> Result<(), Error> {
             vec![1.0f32; dim * m * 32],
         )?;
 
-        let x = l.matmul(&r)?;
+        let num_ops = 16 * 32 * dim;
+        println!("matmul {:?} with {:?} ({} ops)", l, r, num_ops);
 
+        let x = l.matmul(r)?;
         let queue = Queue::new(context.clone(), x.size())?;
 
-        let num_ops = dim * x.size();
-        println!("matmul {:?} with {:?} ({} ops)", l, r, num_ops);
         for _ in 0..ITERATIONS {
             let start = Instant::now();
             let _output = x.read(&queue)?;
@@ -80,13 +80,13 @@ fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
     let size = shape.iter().product();
     let queue = Queue::new(context.clone(), size)?;
     let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
+
+    println!("reduce axis {} of {:?} (size {})", 2, x, x.size());
+
     let reduced = x.sum_axis(2)?;
-
-    println!("reduce {:?} (size {}) to {:?}...", x, x.size(), reduced);
-
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        reduced.read(&queue)?;
+        let _output = reduced.read(&queue)?;
         let duration = start.elapsed();
         println!("{:?} ms", duration.as_millis());
     }

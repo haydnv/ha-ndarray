@@ -857,28 +857,19 @@ pub trait NDArrayBoolean<O>: NDArray + Sized
 where
     O: NDArray<DType = Self::DType>,
 {
-    fn and<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
+    fn and(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::and(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn or<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
+    fn or(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::or(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn xor<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayBoolean<'a, Self::DType, Self, O>>, Error> {
+    fn xor(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::xor(self, other)?;
         Ok(ArrayOp::new(shape, op))
@@ -906,7 +897,7 @@ pub trait NDArrayExp: NDArray + Clone {
 impl<A: NDArray + Clone> NDArrayExp for A {}
 
 pub trait NDArrayMath: NDArray + Clone {
-    fn add<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn add<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Clone,
     {
@@ -915,7 +906,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn div<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn div<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Clone,
     {
@@ -924,7 +915,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn mul<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn mul<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Clone,
     {
@@ -933,7 +924,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn rem<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn rem<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Clone,
     {
@@ -942,7 +933,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn sub<'a, O>(&'a self, rhs: &'a O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    fn sub<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Clone,
     {
@@ -951,10 +942,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn log<'a, O>(
-        &'a self,
-        base: &'a O,
-    ) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
+    fn log<O>(self, base: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = f64> + Clone,
     {
@@ -963,10 +951,7 @@ pub trait NDArrayMath: NDArray + Clone {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow<'a, O>(
-        &'a self,
-        exp: &'a O,
-    ) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
+    fn pow<O>(self, exp: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = f64> + Clone,
     {
@@ -1081,7 +1066,7 @@ pub trait NDArrayTrig: NDArray + Sized {
 // TODO: implement trigonometry methods
 
 pub trait NDArrayCast: NDArray + Sized {
-    fn cast<O: CDatatype>(&self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
+    fn cast<O: CDatatype>(self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayCast::new(self)?;
         Ok(ArrayOp::new(shape, op))
@@ -1091,55 +1076,37 @@ pub trait NDArrayCast: NDArray + Sized {
 impl<A: NDArray> NDArrayCast for A {}
 
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
-    fn eq<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn eq(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::eq(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn gt<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn gt(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::gt(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn ge<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn ge(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::ge(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn lt<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn lt(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::lt(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn le<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn le(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::le(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn ne<'a>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<ArrayCompare<'a, Self::DType, Self, O>>, Error> {
+    fn ne(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::ne(self, other)?;
         Ok(ArrayOp::new(shape, op))
@@ -1150,7 +1117,7 @@ impl<A: NDArray, O: NDArray> NDArrayCompare<O> for A where O: NDArray<DType = A:
 
 pub trait NDArrayCompareScalar: NDArray + Sized {
     fn eq_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1159,7 +1126,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     }
 
     fn gt_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1168,7 +1135,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     }
 
     fn ge_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1177,7 +1144,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     }
 
     fn lt_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1186,7 +1153,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     }
 
     fn le_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1195,7 +1162,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     }
 
     fn ne_scalar(
-        &self,
+        self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayCompareScalar<Self::DType, Self>>, Error>
     where
@@ -1210,7 +1177,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
 impl<A: NDArray> NDArrayCompareScalar for A {}
 
 pub trait MatrixMath: NDArray + fmt::Debug {
-    fn diagonal(&self) -> Result<ArrayOp<MatDiag<Self>>, Error>
+    fn diagonal(self) -> Result<ArrayOp<MatDiag<Self>>, Error>
     where
         Self: Sized,
     {
@@ -1226,10 +1193,7 @@ pub trait MatrixMath: NDArray + fmt::Debug {
         }
     }
 
-    fn matmul<'a, O>(
-        &'a self,
-        other: &'a O,
-    ) -> Result<ArrayOp<MatMul<'a, Self::DType, Self, O>>, Error>
+    fn matmul<O>(self, other: O) -> Result<ArrayOp<MatMul<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + fmt::Debug,
         Self: Sized,
@@ -1334,8 +1298,8 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         }
     }
 
-    fn max_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self, axis)?;
+    fn max_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+        let shape = reduce_axis(&self, axis)?;
         let op = ArrayReduceAxis::max(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1361,8 +1325,8 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         }
     }
 
-    fn min_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self, axis)?;
+    fn min_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+        let shape = reduce_axis(&self, axis)?;
         let op = ArrayReduceAxis::min(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1382,10 +1346,10 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn product_axis(
-        &self,
+        self,
         axis: usize,
     ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self, axis)?;
+        let shape = reduce_axis(&self, axis)?;
         let op = ArrayReduceAxis::product(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1404,7 +1368,7 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
         }
     }
 
-    fn sum_axis(&self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+    fn sum_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         if axis >= self.ndim() {
             return Err(Error::Bounds(format!(
                 "axis {} is out of bounds for {:?}",
@@ -1430,11 +1394,11 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
 impl<A: NDArrayRead + Clone + fmt::Debug> NDArrayReduce for A {}
 
 pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
-    fn gather_cond<'a, T, L, R>(
-        &'a self,
-        then: &'a L,
-        or_else: &'a R,
-    ) -> Result<ArrayOp<GatherCond<'a, Self, T, L, R>>, Error>
+    fn gather_cond<T, L, R>(
+        self,
+        then: L,
+        or_else: R,
+    ) -> Result<ArrayOp<GatherCond<Self, T, L, R>>, Error>
     where
         T: CDatatype,
         L: NDArray<DType = T> + fmt::Debug,
@@ -1442,8 +1406,9 @@ pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
         Self: Sized,
     {
         if self.shape() == then.shape() && self.shape() == or_else.shape() {
+            let shape = self.shape().to_vec();
             let op = GatherCond::new(self, then, or_else)?;
-            Ok(ArrayOp::new(self.shape().to_vec(), op))
+            Ok(ArrayOp::new(shape, op))
         } else {
             Err(Error::Bounds(format!(
                 "cannot gather from {:?} and {:?} conditionally based on {:?} (wrong shape)",

@@ -618,14 +618,14 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
 // linear algebra
 
 #[derive(Clone)]
-pub struct MatDiag<'a, A> {
-    source: &'a A,
+pub struct MatDiag<A> {
+    source: A,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
-impl<'a, A: NDArray> MatDiag<'a, A> {
-    pub fn new(source: &'a A) -> Result<Self, Error> {
+impl<A: NDArray> MatDiag<A> {
+    pub fn new(source: A) -> Result<Self, Error> {
         debug_assert!(source.ndim() >= 2);
         debug_assert_eq!(
             source.shape()[source.ndim() - 1],
@@ -643,7 +643,7 @@ impl<'a, A: NDArray> MatDiag<'a, A> {
     }
 }
 
-impl<'a, A: NDArrayRead> Op for MatDiag<'a, A> {
+impl<A: NDArrayRead> Op for MatDiag<A> {
     type Out = A::DType;
 
     fn context(&self) -> &Context {
@@ -700,21 +700,21 @@ impl<'a, A: NDArrayRead> Op for MatDiag<'a, A> {
 }
 
 #[derive(Clone)]
-pub struct MatMul<'a, T, L, R> {
-    left: &'a L,
-    right: &'a R,
+pub struct MatMul<T, L, R> {
+    left: L,
+    right: R,
     dtype: PhantomData<T>,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
-impl<'a, T, L, R> MatMul<'a, T, L, R>
+impl<T, L, R> MatMul<T, L, R>
 where
     T: CDatatype,
     L: NDArray<DType = T>,
     R: NDArray<DType = T>,
 {
-    pub fn new(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn new(left: L, right: R) -> Result<Self, Error> {
         debug_assert!(left.ndim() >= 2);
         debug_assert!(right.ndim() >= 2);
 
@@ -751,7 +751,7 @@ where
     }
 }
 
-impl<'a, T, L, R> Op for MatMul<'a, T, L, R>
+impl<T, L, R> Op for MatMul<T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
@@ -766,7 +766,7 @@ where
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let [num_matrices, a, b, c] = self.dims();
 
-        let (left, right) = try_join_read(self.left, self.right, queue)?;
+        let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
         // transpose the right matrices
         let right_size = b * c;
@@ -862,19 +862,19 @@ where
 // comparison
 
 #[derive(Clone)]
-pub struct ArrayBoolean<'a, T, L, R> {
-    left: &'a L,
-    right: &'a R,
+pub struct ArrayBoolean<T, L, R> {
+    left: L,
+    right: R,
     host_cmp: fn(T, T) -> bool,
     #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
-impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<'a, T, L, R> {
+impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<T, L, R> {
     #[allow(unused_variables)]
     fn new(
-        left: &'a L,
-        right: &'a R,
+        left: L,
+        right: R,
         host_cmp: fn(T, T) -> bool,
         kernel_cmp: &'static str,
     ) -> Result<Self, Error> {
@@ -892,7 +892,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         })
     }
 
-    pub fn and(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn and(left: L, right: R) -> Result<Self, Error> {
         fn and<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) && (r != T::zero())
         }
@@ -900,7 +900,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         Self::new(left, right, and, "&&")
     }
 
-    pub fn or(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn or(left: L, right: R) -> Result<Self, Error> {
         fn or<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) || (r != T::zero())
         }
@@ -908,7 +908,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
         Self::new(left, right, or, "||")
     }
 
-    pub fn xor(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn xor(left: L, right: R) -> Result<Self, Error> {
         fn xor<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) ^ (r != T::zero())
         }
@@ -917,7 +917,7 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolea
     }
 }
 
-impl<'a, T: CDatatype, L, R> Op for ArrayBoolean<'a, T, L, R>
+impl<T: CDatatype, L, R> Op for ArrayBoolean<T, L, R>
 where
     L: NDArrayRead<DType = T>,
     R: NDArrayRead<DType = T>,
@@ -929,7 +929,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let (left, right) = try_join_read(self.left, self.right, queue)?;
+        let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
         let output = left
             .into_par_iter()
@@ -973,19 +973,19 @@ where
 }
 
 #[derive(Clone)]
-pub struct ArrayCompare<'a, T, L, R> {
-    left: &'a L,
-    right: &'a R,
+pub struct ArrayCompare<T, L, R> {
+    left: L,
+    right: R,
     host_cmp: fn(&T, &T) -> bool,
     #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
-impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompare<'a, T, L, R> {
+impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompare<T, L, R> {
     #[allow(unused_variables)]
     fn new(
-        left: &'a L,
-        right: &'a R,
+        left: L,
+        right: R,
         host_cmp: fn(&T, &T) -> bool,
         kernel_cmp: &'static str,
     ) -> Result<Self, Error> {
@@ -1003,32 +1003,32 @@ impl<'a, T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompar
         })
     }
 
-    pub fn eq(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn eq(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::eq, "==")
     }
 
-    pub fn gt(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn gt(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::gt, ">")
     }
 
-    pub fn ge(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn ge(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::ge, ">=")
     }
 
-    pub fn lt(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn lt(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::lt, "<")
     }
 
-    pub fn le(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn le(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::le, "<=")
     }
 
-    pub fn ne(left: &'a L, right: &'a R) -> Result<Self, Error> {
+    pub fn ne(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::ne, "!=")
     }
 }
 
-impl<'a, T, L, R> Op for ArrayCompare<'a, T, L, R>
+impl<T, L, R> Op for ArrayCompare<T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
@@ -1041,7 +1041,7 @@ where
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let (left, right) = try_join_read(self.left, self.right, queue)?;
+        let (left, right) = try_join_read(&self.left, &self.right, queue)?;
         debug_assert_eq!(left.len(), right.len());
 
         let output = left
@@ -1085,57 +1085,60 @@ where
 }
 
 #[derive(Clone)]
-pub struct ArrayCompareScalar<'a, T, A> {
-    array: &'a A,
+pub struct ArrayCompareScalar<T, A> {
+    array: A,
     scalar: T,
     host_cmp: fn(&T, &T) -> bool,
     #[cfg(feature = "opencl")]
     kernel_cmp: ocl::Program,
 }
 
-impl<'a, T: CDatatype, A: NDArray> ArrayCompareScalar<'a, T, A> {
+impl<T: CDatatype, A: NDArray> ArrayCompareScalar<T, A> {
     #[allow(unused_variables)]
     fn new(
-        array: &'a A,
+        array: A,
         scalar: T,
         host_cmp: fn(&T, &T) -> bool,
         kernel_cmp: &'static str,
     ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
+        let kernel_cmp = cl_programs::scalar_cmp::<T>(kernel_cmp, array.context())?;
+
         Ok(Self {
             array,
             scalar,
             host_cmp,
             #[cfg(feature = "opencl")]
-            kernel_cmp: cl_programs::scalar_cmp::<T>(kernel_cmp, array.context())?,
+            kernel_cmp,
         })
     }
 
-    pub fn eq(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn eq(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::eq, "==")
     }
 
-    pub fn gt(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn gt(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::gt, ">")
     }
 
-    pub fn ge(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn ge(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::ge, ">=")
     }
 
-    pub fn lt(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn lt(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::lt, "<")
     }
 
-    pub fn le(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn le(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::le, "<=")
     }
 
-    pub fn ne(array: &'a A, scalar: T) -> Result<Self, Error> {
+    pub fn ne(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::ne, "!=")
     }
 }
 
-impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, T, A> {
+impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
     type Out = u8;
 
     fn context(&self) -> &Context {
@@ -1183,17 +1186,17 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<'a, 
 // reduction
 
 #[derive(Copy, Clone)]
-pub struct ArrayReduceAxis<'a, T, A> {
-    source: &'a A,
+pub struct ArrayReduceAxis<T, A> {
+    source: A,
     axis: usize,
     host_reduce: fn(T, T) -> T,
     #[allow(unused)]
     kernel_reduce: &'static str,
 }
 
-impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
+impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<T, A> {
     fn new(
-        source: &'a A,
+        source: A,
         axis: usize,
         host_reduce: fn(T, T) -> T,
         kernel_reduce: &'static str,
@@ -1208,7 +1211,7 @@ impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
         }
     }
 
-    pub fn max(source: &'a A, axis: usize) -> Self {
+    pub fn max(source: A, axis: usize) -> Self {
         fn max<T: PartialOrd>(l: T, r: T) -> T {
             if r > l {
                 r
@@ -1220,7 +1223,7 @@ impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
         Self::new(source, axis, max, "max")
     }
 
-    pub fn min(source: &'a A, axis: usize) -> Self {
+    pub fn min(source: A, axis: usize) -> Self {
         fn min<T: PartialOrd>(l: T, r: T) -> T {
             if r < l {
                 r
@@ -1232,16 +1235,16 @@ impl<'a, T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<'a, T, A> {
         Self::new(source, axis, min, "min")
     }
 
-    pub fn product(source: &'a A, axis: usize) -> Self {
+    pub fn product(source: A, axis: usize) -> Self {
         Self::new(source, axis, Mul::mul, "mul")
     }
 
-    pub fn sum(source: &'a A, axis: usize) -> Self {
+    pub fn sum(source: A, axis: usize) -> Self {
         Self::new(source, axis, Add::add, "add")
     }
 }
 
-impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, A> {
+impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
     type Out = T;
 
     fn context(&self) -> &Context {
@@ -1300,15 +1303,15 @@ impl<'a, T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<'a, T, 
 // other unary ops
 
 #[derive(Clone)]
-pub struct ArrayCast<'a, A, O> {
-    source: &'a A,
+pub struct ArrayCast<A, O> {
+    source: A,
     dtype: PhantomData<O>,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
-impl<'a, A: NDArray, O: CDatatype> ArrayCast<'a, A, O> {
-    pub fn new(source: &'a A) -> Result<Self, Error> {
+impl<A: NDArray, O: CDatatype> ArrayCast<A, O> {
+    pub fn new(source: A) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::cast::<A::DType, O>(source.context())?;
 
@@ -1321,7 +1324,7 @@ impl<'a, A: NDArray, O: CDatatype> ArrayCast<'a, A, O> {
     }
 }
 
-impl<'a, A: NDArrayRead, O: CDatatype> Op for ArrayCast<'a, A, O> {
+impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
     type Out = O;
 
     fn context(&self) -> &Context {
@@ -1462,17 +1465,17 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
 // gather ops
 
 #[derive(Clone)]
-pub struct GatherCond<'a, A, T, L, R> {
-    cond: &'a A,
-    then: &'a L,
-    or_else: &'a R,
+pub struct GatherCond<A, T, L, R> {
+    cond: A,
+    then: L,
+    or_else: R,
     dtype: PhantomData<T>,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
-impl<'a, A: NDArray<DType = u8>, T: CDatatype, L, R> GatherCond<'a, A, T, L, R> {
-    pub fn new(cond: &'a A, then: &'a L, or_else: &'a R) -> Result<Self, Error> {
+impl<A: NDArray<DType = u8>, T: CDatatype, L, R> GatherCond<A, T, L, R> {
+    pub fn new(cond: A, then: L, or_else: R) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let kernel_op = cl_programs::gather_cond::<T>(cond.context())?;
 
@@ -1487,7 +1490,7 @@ impl<'a, A: NDArray<DType = u8>, T: CDatatype, L, R> GatherCond<'a, A, T, L, R> 
     }
 }
 
-impl<'a, A, T, L, R> Op for GatherCond<'a, A, T, L, R>
+impl<A, T, L, R> Op for GatherCond<A, T, L, R>
 where
     A: NDArrayRead<DType = u8>,
     T: CDatatype,
@@ -1503,7 +1506,7 @@ where
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let (cond, (left, right)) = try_join(
             || self.cond.to_vec(queue),
-            || try_join_read(self.then, self.or_else, queue),
+            || try_join_read(&self.then, &self.or_else, queue),
         )?;
 
         debug_assert_eq!(cond.len(), left.len());

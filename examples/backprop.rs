@@ -13,28 +13,28 @@ fn main() -> Result<(), Error> {
 
     let inputs = RandomUniform::new(NUM_EXAMPLES * 2)?;
     let inputs = ArrayOp::new(vec![NUM_EXAMPLES, 2], inputs) * 2.;
-    let inputs = ArrayBase::<Buffer<f32>>::copy(&inputs)?;
+    let inputs = ArrayBase::<Arc<Buffer<f32>>>::copy(&inputs)?;
 
-    let inputs_bool = inputs.lt_scalar(1.0)?;
+    let inputs_bool = inputs.clone().lt_scalar(1.0)?;
     let inputs_left = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?;
     let inputs_right = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 1.into()])?;
 
-    let labels = ArrayBase::<Buffer<f32>>::copy(
-        &inputs_left
-            .and(&inputs_right)?
-            .expand_dims(vec![1])?
-            .cast()?,
-    )?;
+    let labels = inputs_left
+        .and(inputs_right)?
+        .expand_dims(vec![1])?
+        .cast()?;
 
-    let output = inputs.matmul(&weights)?;
-    let error = labels.sub(&output)?;
+    let labels = ArrayBase::<Buffer<f32>>::copy(&labels)?;
+
+    let output = inputs.matmul(weights.clone())?;
+    let error = labels.sub(output)?;
     let loss = error.pow_scalar(2.)?;
 
     let d_loss = error * 2.;
-    let weights_t = weights.transpose(None)?;
-    let gradient = d_loss.matmul(&weights_t)?;
+    let weights_t = weights.clone().transpose(None)?;
+    let gradient = d_loss.matmul(weights_t.clone())?;
     let deltas = gradient.sum_axis(0)?.expand_dims(vec![1])?;
-    let new_weights = weights.add(&(deltas * LEARNING_RATE))?;
+    let new_weights = weights.clone().add(deltas * LEARNING_RATE)?;
 
     let mut i = 0;
     loop {
@@ -43,7 +43,7 @@ fn main() -> Result<(), Error> {
             assert!(!loss.is_inf()?.any()?, "diverged");
         }
 
-        if loss.lt_scalar(1.0)?.all()? {
+        if loss.clone().lt_scalar(1.0)?.all()? {
             return Ok(());
         }
 

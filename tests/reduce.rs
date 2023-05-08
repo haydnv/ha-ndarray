@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ha_ndarray::*;
 
 #[test]
@@ -30,10 +32,10 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
     for shape in shapes {
         let size = shape.iter().product();
         let array =
-            ArrayBase::<Vec<u32>>::with_context(context.clone(), shape.to_vec(), vec![1; size])?;
+            ArrayBase::with_context(context.clone(), shape.to_vec(), Arc::new(vec![1; size]))?;
 
         for x in 0..shape.len() {
-            let sum = array.sum_axis(x)?;
+            let sum = array.clone().sum_axis(x)?;
             let eq = sum.eq_scalar(shape[x] as u32)?;
             assert!(eq.all()?);
         }

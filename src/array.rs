@@ -116,7 +116,7 @@ impl<Buf: BufferInstance> ArrayBase<Buf> {
         }
     }
 
-    pub fn into_data(self) -> Buf {
+    pub fn into_inner(self) -> Buf {
         self.data
     }
 }

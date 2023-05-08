@@ -8,9 +8,9 @@ fn test_random_normal() -> Result<(), Error> {
     let op = RandomNormal::with_context(context, size)?;
     let array = ArrayOp::new(vec![size], op);
 
-    assert!(!array.eq_scalar(0.)?.any()?);
-    assert_eq!(array.sum()? as usize / size, 0);
-    assert!(array.gt_scalar(1.)?.any()?);
+    assert!(!array.clone().eq_scalar(0.)?.any()?);
+    assert_eq!(array.clone().sum()? as usize / size, 0);
+    assert!(array.clone().gt_scalar(1.)?.any()?);
     assert!(array.lt_scalar(-1.)?.any()?);
 
     Ok(())
@@ -23,10 +23,10 @@ fn test_random_uniform() -> Result<(), Error> {
     let op = RandomUniform::with_context(context, size)?;
     let array = ArrayOp::new(vec![size], op);
 
-    assert!(!array.eq_scalar(0.)?.any()?);
+    assert!(!array.clone().eq_scalar(0.)?.any()?);
     assert_eq!(array.sum()? as usize / size, 0);
-    assert!(array.ge_scalar(-1.)?.all()?);
-    assert!(array.le_scalar(1.)?.all()?);
+    assert!(array.clone().ge_scalar(-1.)?.all()?);
+    assert!(array.clone().le_scalar(1.)?.all()?);
 
     Ok(())
 }

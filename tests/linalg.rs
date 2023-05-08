@@ -21,10 +21,10 @@ fn test_matmul() -> Result<(), Error> {
         let right = vec![1.; right_shape.iter().product()];
         let right = ArrayBase::with_context(context.clone(), right_shape, right)?;
 
-        let actual = left.matmul(&right)?;
+        let expected = *left.shape().last().unwrap();
+        let actual = left.matmul(right)?;
         assert_eq!(actual.shape(), output_shape);
 
-        let expected = *left.shape().last().unwrap();
         let eq = actual.eq_scalar(expected as f32)?;
         assert!(eq.all()?);
     }

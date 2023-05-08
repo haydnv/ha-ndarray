@@ -13,7 +13,7 @@ fn test_slice_1d() -> Result<(), Error> {
     let actual = input.slice(vec![(1..3).into()])?;
 
     assert_eq!(expected.shape(), actual.shape());
-    assert!(expected.eq(&actual)?.all()?);
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }
@@ -43,7 +43,7 @@ fn test_slice_2d() -> Result<(), Error> {
     let actual = input.slice(vec![(1..3).into()])?;
 
     assert_eq!(expected.shape(), actual.shape());
-    assert!(expected.eq(&actual)?.all()?);
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }
@@ -63,7 +63,7 @@ fn test_slice_3d() -> Result<(), Error> {
     let actual = input.slice(vec![1.into(), (1..3).into()])?;
 
     assert_eq!(expected.shape(), actual.shape());
-    assert!(expected.eq(&actual)?.all()?);
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }
@@ -91,7 +91,7 @@ fn test_transpose_2d() -> Result<(), Error> {
 
     let actual = input.transpose(None)?;
     assert_eq!(expected.shape(), actual.shape());
-    assert!(expected.eq(&actual)?.all()?);
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }
@@ -124,7 +124,7 @@ fn test_transpose_3d() -> Result<(), Error> {
     )?;
 
     let actual = input.transpose(Some(vec![2, 0, 1]))?;
-    assert!(expected.eq(&actual)?.all()?);
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }
