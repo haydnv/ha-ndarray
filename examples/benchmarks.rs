@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use ha_ndarray::*;
@@ -98,13 +99,13 @@ fn reduce_sum_all(context: &Context) -> Result<(), Error> {
     for m in 1..8 {
         let shape = (1..m).map(|dim| dim * 10).collect::<Vec<usize>>();
         let size = shape.iter().product();
-        let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
+        let x = ArrayBase::with_context(context.clone(), shape, Arc::new(vec![1; size]))?;
 
         println!("reduce {:?} (size {})...", x, x.size());
 
         for _ in 0..ITERATIONS {
             let start = Instant::now();
-            let _x = x.sum()?;
+            let _x = x.clone().sum()?;
             let duration = start.elapsed();
             println!("{:?} us", duration.as_micros());
         }

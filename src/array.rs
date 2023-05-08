@@ -7,8 +7,8 @@ use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    strides_for, AxisBound, Buffer, BufferInstance, CDatatype, Context, Error, NDArray,
-    NDArrayRead, NDArrayTransform, Queue, Shape,
+    strides_for, AxisBound, Buffer, BufferConverter, BufferInstance, CDatatype, Context, Error,
+    NDArray, NDArrayRead, NDArrayTransform, Queue, Shape,
 };
 
 #[derive(Clone)]
@@ -43,7 +43,7 @@ impl<T: CDatatype> NDArray for Array<T> {
 }
 
 impl<T: CDatatype> NDArrayRead for Array<T> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         array_dispatch!(self, this, this.read(queue))
     }
 }
@@ -127,7 +127,7 @@ impl<T: CDatatype> ArrayBase<Vec<T>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_vec(&queue)?;
+        let data = other.to_host(&queue)?.into_vec();
 
         Ok(Self {
             context,
@@ -145,12 +145,12 @@ impl<T: CDatatype> ArrayBase<Vec<T>> {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
             match other.read(&queue)? {
-                Buffer::Host(buffer) => {
-                    self.data.copy_from_slice(&buffer[..]);
+                BufferConverter::Host(buffer) => {
+                    self.data.copy_from_slice(buffer.as_ref());
                 }
                 #[cfg(feature = "opencl")]
-                Buffer::CL(buffer) => {
-                    buffer.read(&mut self.data[..]).enq()?;
+                BufferConverter::CL(buffer) => {
+                    buffer.as_ref().read(&mut self.data[..]).enq()?;
                 }
             }
 
@@ -170,7 +170,8 @@ impl<T: CDatatype> ArrayBase<Arc<Vec<T>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_vec(&queue).map(Arc::new)?;
+        let data = other.to_host(&queue)?;
+        let data = Arc::new(data.into_vec());
 
         Ok(Self {
             context,
@@ -190,7 +191,8 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_vec(&queue).map(RwLock::new).map(Arc::new)?;
+        let data = other.to_host(&queue)?;
+        let data = Arc::new(RwLock::new(data.into_vec()));
 
         Ok(Self {
             context,
@@ -206,12 +208,12 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
 
             let mut data = self.data.write().expect("write buffer");
             match buffer {
-                Buffer::Host(buffer) => {
-                    data.copy_from_slice(&buffer[..]);
+                BufferConverter::Host(buffer) => {
+                    data.copy_from_slice(buffer.as_ref());
                 }
                 #[cfg(feature = "opencl")]
-                Buffer::CL(buffer) => {
-                    buffer.read(&mut data[..]).enq()?;
+                BufferConverter::CL(buffer) => {
+                    buffer.as_ref().read(&mut data[..]).enq()?;
                 }
             }
 
@@ -232,7 +234,7 @@ impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue)?;
+        let data = other.to_cl_buffer(&queue)?.into_buffer()?;
 
         Ok(Self {
             context,
@@ -246,9 +248,11 @@ impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
             match other.read(&queue)? {
-                Buffer::Host(buffer) => self.data.write(&buffer[..]).enq(),
+                BufferConverter::Host(buffer) => self.data.write(buffer.as_ref()).enq(),
                 #[cfg(feature = "opencl")]
-                Buffer::CL(buffer) => buffer.copy(&mut self.data, None, None).enq(),
+                BufferConverter::CL(buffer) => {
+                    buffer.as_ref().copy(&mut self.data, None, None).enq()
+                }
             }?;
 
             Ok(())
@@ -268,7 +272,8 @@ impl<T: CDatatype> ArrayBase<Arc<ocl::Buffer<T>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue).map(Arc::new)?;
+        let data = other.to_cl_buffer(&queue)?;
+        let data = data.into_buffer().map(Arc::new)?;
 
         Ok(Self {
             context,
@@ -285,7 +290,8 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue).map(RwLock::new).map(Arc::new)?;
+        let data = other.to_cl_buffer(&queue)?;
+        let data = data.into_buffer().map(RwLock::new).map(Arc::new)?;
 
         Ok(Self {
             context,
@@ -301,9 +307,15 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 
             let mut data = self.data.write().expect("write buffer");
             match buffer {
-                Buffer::Host(buffer) => data.write(&buffer[..]).enq(),
+                BufferConverter::Host(buffer) => {
+                    let buffer = buffer.as_ref();
+                    data.write(&buffer[..]).enq()
+                }
                 #[cfg(feature = "opencl")]
-                Buffer::CL(buffer) => buffer.copy(&mut *data, None, None).enq(),
+                BufferConverter::CL(buffer) => {
+                    let buffer = buffer.as_ref();
+                    buffer.copy(&mut *data, None, None).enq()
+                }
             }?;
 
             Ok(())
@@ -323,6 +335,7 @@ impl<T: CDatatype> ArrayBase<Buffer<T>> {
 
         let shape = other.shape().to_vec();
         let data = other.read(&queue)?;
+        let data = data.into_buffer()?;
 
         Ok(Self {
             context,
@@ -335,9 +348,8 @@ impl<T: CDatatype> ArrayBase<Buffer<T>> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let buffer = other.read(&queue)?;
-            debug_assert_eq!(self.data.len(), buffer.len());
-            self.data = buffer;
-            Ok(())
+            debug_assert_eq!(self.data.len(), buffer.size());
+            self.data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -353,7 +365,8 @@ impl<T: CDatatype> ArrayBase<Arc<Buffer<T>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.read(&queue).map(Arc::new)?;
+        let data = other.read(&queue)?;
+        let data = data.into_buffer().map(Arc::new)?;
 
         Ok(Self {
             context,
@@ -369,7 +382,8 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
         let queue = Queue::new(context.clone(), other.size())?;
 
         let shape = other.shape().to_vec();
-        let data = other.read(&queue).map(RwLock::new).map(Arc::new)?;
+        let data = other.read(&queue)?;
+        let data = data.into_buffer().map(RwLock::new).map(Arc::new)?;
 
         Ok(Self {
             context,
@@ -384,10 +398,8 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
             let buffer = other.read(&queue)?;
 
             let mut data = self.data.write().expect("write buffer");
-            debug_assert_eq!(data.len(), buffer.len());
-            *data = buffer;
-
-            Ok(())
+            debug_assert_eq!(data.len(), buffer.size());
+            data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -409,13 +421,95 @@ impl<Buf: BufferInstance> NDArray for ArrayBase<Buf> {
     }
 }
 
-impl<Buf: BufferInstance> NDArrayRead for ArrayBase<Buf> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<Buf::DType>, Error> {
-        self.data.read(queue)
+impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&self.data[..]))
     }
 }
 
-impl<Buf: BufferInstance> NDArrayTransform for ArrayBase<Buf> {
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Vec<T>>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&self.data[..]))
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Vec<T>>>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        let data = RwLock::read(&self.data).expect("read buffer");
+        Ok(BufferConverter::from(data.to_vec()))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&self.data))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<ocl::Buffer<T>>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&*self.data))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        let data = RwLock::read(&self.data).expect("read buffer");
+
+        let cl_queue = queue.cl_queue(data.default_queue());
+        let mut copy = ocl::Buffer::builder()
+            .queue(cl_queue)
+            .len(data.len())
+            .build()?;
+
+        data.copy(&mut copy, None, None).enq()?;
+
+        Ok(BufferConverter::from(copy))
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&self.data))
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Buffer<T>>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&*self.data))
+    }
+}
+
+impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
+    #[allow(unused_variables)]
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<T>, Error> {
+        let data = RwLock::read(&self.data).expect("read buffer");
+
+        match &*data {
+            Buffer::Host(buffer) => Ok(BufferConverter::from(buffer.to_vec())),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => {
+                let cl_queue = queue.cl_queue(buffer.default_queue());
+                let mut copy = ocl::Buffer::builder()
+                    .queue(cl_queue)
+                    .len(buffer.len())
+                    .build()?;
+
+                buffer.copy(&mut copy, None, None).enq()?;
+
+                Ok(BufferConverter::from(copy))
+            }
+        }
+    }
+}
+
+impl<Buf: BufferInstance> NDArrayTransform for ArrayBase<Buf>
+where
+    Self: NDArrayRead,
+{
     type Broadcast = ArrayView<Self>;
     type Expand = Self;
     type Reshape = Self;
@@ -705,8 +799,8 @@ impl<Op: super::ops::Op> NDArray for ArrayOp<Op> {
 }
 
 impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<Op::Out>, Error> {
-        self.op.enqueue(queue)
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<Op::Out>, Error> {
+        self.op.enqueue(queue).map(BufferConverter::from)
     }
 }
 
@@ -938,7 +1032,7 @@ impl<A: NDArray> ArraySlice<A> {
         })
     }
 
-    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
+    fn read_vec(&self, source: &[A::DType]) -> Result<Vec<A::DType>, Error> {
         let output = (0..self.size())
             .into_par_iter()
             .map(|offset_out| {
@@ -978,7 +1072,7 @@ impl<A: NDArray> ArraySlice<A> {
     }
 
     #[cfg(feature = "opencl")]
-    fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
+    fn read_cl(&self, source: &ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
         let cl_queue = source.default_queue().expect("queue").clone();
 
         let output = ocl::Buffer::builder()
@@ -991,7 +1085,7 @@ impl<A: NDArray> ArraySlice<A> {
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(output.len())
-            .arg(&source)
+            .arg(source)
             .arg(&output)
             .build()?;
 
@@ -1014,11 +1108,15 @@ impl<A: NDArray> NDArray for ArraySlice<A> {
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
-        match self.source.read(queue)? {
-            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
+        let source_queue = Queue::new(queue.context().clone(), self.source.size())?;
+
+        match self.source.read(&source_queue)? {
+            BufferConverter::Host(source) => {
+                self.read_vec(source.as_ref()).map(BufferConverter::from)
+            }
             #[cfg(feature = "opencl")]
-            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
+            BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
         }
     }
 }
@@ -1230,7 +1328,7 @@ impl<A: NDArray> ArrayView<A> {
         Self::new(source, shape, strides)
     }
 
-    fn read_vec(&self, source: Vec<A::DType>) -> Result<Vec<A::DType>, Error> {
+    fn read_vec(&self, source: &[A::DType]) -> Result<Vec<A::DType>, Error> {
         let source_strides = &self.strides;
         let strides = strides_for(self.shape(), self.ndim());
         let dims = self.shape();
@@ -1261,7 +1359,7 @@ impl<A: NDArray> ArrayView<A> {
     }
 
     #[cfg(feature = "opencl")]
-    fn read_cl(&self, source: ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
+    fn read_cl(&self, source: &ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
         let cl_queue = source.default_queue().expect("queue").clone();
 
         let output = ocl::Buffer::builder()
@@ -1274,7 +1372,7 @@ impl<A: NDArray> ArrayView<A> {
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(output.len())
-            .arg(&source)
+            .arg(source)
             .arg(&output)
             .build()?;
 
@@ -1297,11 +1395,15 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 }
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
-    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
-        match self.source.read(queue)? {
-            Buffer::Host(source) => self.read_vec(source).map(Buffer::Host),
+    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
+        let source_queue = Queue::new(queue.context().clone(), self.source.size())?;
+
+        match self.source.read(&source_queue)? {
+            BufferConverter::Host(source) => {
+                self.read_vec(source.as_ref()).map(BufferConverter::from)
+            }
             #[cfg(feature = "opencl")]
-            Buffer::CL(source) => self.read_cl(source).map(Buffer::CL),
+            BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
         }
     }
 }

@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
 
     let output = inputs.matmul(weights.clone())?;
     let error = labels.sub(output)?;
-    let loss = error.pow_scalar(2.)?;
+    let loss = error.clone().pow_scalar(2.)?;
 
     let d_loss = error * 2.;
     let weights_t = weights.clone().transpose(None)?;
@@ -39,15 +39,20 @@ fn main() -> Result<(), Error> {
     let mut i = 0;
     loop {
         if i % 100 == 0 {
-            println!("loss: {} (max {})", loss.sum()?, loss.max()?);
-            assert!(!loss.is_inf()?.any()?, "diverged");
+            println!(
+                "loss: {} (max {})",
+                loss.clone().sum()?,
+                loss.clone().max()?
+            );
+
+            assert!(!loss.clone().is_inf()?.any()?, "diverged");
         }
 
         if loss.clone().lt_scalar(1.0)?.all()? {
             return Ok(());
         }
 
-        assert!(!weights.is_nan()?.any()?, "NaN");
+        assert!(!weights.clone().is_nan()?.any()?, "NaN");
         weights.write(&new_weights)?;
 
         i += 1;

@@ -78,43 +78,44 @@ where
     Program::builder().source(src).build(context.cl_context())
 }
 
-pub fn elementwise_inplace<LT, RT>(op: &'static str, context: &Context) -> Result<Program, Error>
+pub fn elementwise_dual<LT, RT>(op: &'static str, context: &Context) -> Result<Program, Error>
 where
     LT: CDatatype,
     RT: CDatatype,
 {
     let src = format!(
         r#"
-        inline void add({ltype}* left, const {rtype} right) {{
-            *left += right;
+        inline {ltype} add(const {ltype} left, const {rtype} right) {{
+            return left + right;
         }}
 
-        inline void log_({ltype}* left, const double right) {{
-            *left = log((double) *left) / log(right);
+        inline {ltype} log_(const {ltype} left, const double right) {{
+            return log((double) left) / log(right);
         }}
 
-        inline void div({ltype}* left, const {rtype} right) {{
-            *left /= right;
+        inline {ltype} div(const {ltype} left, const {rtype} right) {{
+            return left / right;
         }}
 
-        inline void mul({ltype}* left, const {rtype} right) {{
-            *left *= right;
+        inline {ltype} mul(const {ltype} left, const {rtype} right) {{
+            return left * right;
         }}
 
-        inline void pow_({ltype}* left, const double right) {{
-            *left = pow((double) *left, right);
+        inline {ltype} pow_(const {ltype} left, const double right) {{
+            return pow((double) left, right);
         }}
 
-        inline void sub({ltype}* left, const {rtype} right) {{
-            *left -= right;
+        inline {ltype} sub(const {ltype} left, const {rtype} right) {{
+            return left - right;
         }}
 
-        __kernel void elementwise_inplace(
-            __global {ltype}* restrict left,
-            __global const {rtype}* restrict right)
+        __kernel void elementwise_dual(
+            __global const {ltype}* restrict left,
+            __global const {rtype}* restrict right,
+            __global {ltype}* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            {op}(&left[offset], right[offset]);
+            output[offset] = {op}(left[offset], right[offset]);
         }}
         "#,
         ltype = LT::TYPE_STR,
@@ -131,29 +132,33 @@ where
 {
     let src = format!(
         r#"
-        inline void add({otype}* left, const {itype} right) {{
-            *left += right;
+        inline {otype} add(const {otype} left, const {itype} right) {{
+            return left + right;
         }}
 
-        inline void div({otype}* left, const {itype} right) {{
-            *left /= right;
+        inline {otype} div(const {otype} left, const {itype} right) {{
+            return left / right;
         }}
 
-        inline void mul({otype}* left, const {itype} right) {{
-            *left *= right;
+        inline {otype} mul(const {otype} left, const {itype} right) {{
+            return left * right;
         }}
 
-        inline void pow_({otype}* left, const double right) {{
-            *left = pow((double) *left, right);
+        inline {otype} pow_(const {otype} left, const double right) {{
+            return pow((double) left, right);
         }}
 
-        inline void sub({otype}* left, const {itype} right) {{
-            *left -= right;
+        inline {otype} sub(const {otype} left, const {itype} right) {{
+            return left - right;
         }}
 
-        __kernel void elementwise_scalar(__global {otype}* left, const {itype} right) {{
+        __kernel void elementwise_scalar(
+            __global const {otype}* left,
+            const {itype} right,
+            __global {otype}* output)
+        {{
             const ulong offset = get_global_id(0);
-            {op}(&left[offset], right);
+            output[offset] = {op}(left[offset], right);
         }}
         "#,
         itype = IT::TYPE_STR,

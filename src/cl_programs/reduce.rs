@@ -209,25 +209,27 @@ pub fn reduce_axis<T: CDatatype>(
     init: T,
     reduce: &'static str,
     queue: Queue,
-    mut buffer: Buffer<T>,
+    input: &Buffer<T>,
     shape: &[usize],
     axis: usize,
 ) -> Result<Buffer<T>, Error> {
     assert!(axis < shape.len());
-    assert_eq!(buffer.len(), shape.iter().product());
+    assert_eq!(input.len(), shape.iter().product());
+    assert!(input.len() > 0);
 
     let mut reduce_dim = shape[axis];
-    let output_size = buffer.len() / reduce_dim;
+    debug_assert!(reduce_dim > 0);
 
-    if reduce_dim < WG_SIZE {
-        return fold_axis(init, reduce, queue.clone(), &buffer, reduce_dim, 1);
+    let output_size = input.len() / reduce_dim;
+    debug_assert!(output_size > 0);
+
+    let mut buffer = if reduce_dim < WG_SIZE {
+        return fold_axis(init, reduce, queue.clone(), input, reduce_dim, 1);
     } else {
         let log = (reduce_dim as f32).log(WG_SIZE as f32).fract();
-        if log.fract() != 0. {
-            let target_dim = WG_SIZE.pow(log as u32);
-            buffer = fold_axis(init, reduce, queue.clone(), &buffer, reduce_dim, target_dim)?;
-        }
-    }
+        let target_dim = WG_SIZE.pow(log as u32);
+        fold_axis(init, reduce, queue.clone(), input, reduce_dim, target_dim)?
+    };
 
     let src = format!(
         r#"

@@ -9,7 +9,9 @@ use rayon::prelude::*;
 
 #[cfg(feature = "opencl")]
 use super::cl_programs;
-use super::{Buffer, CDatatype, Context, Error, Float, NDArray, NDArrayRead, Queue};
+use super::{
+    Buffer, CDatatype, Context, Error, Float, NDArray, NDArrayRead, Queue, SliceConverter,
+};
 
 pub trait Op: Send + Sync {
     type Out: CDatatype;
@@ -275,7 +277,7 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         #[allow(unused_variables)] kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_inplace::<T, T>(kernel_op, left.context())?;
+        let kernel_op = cl_programs::elementwise_dual::<T, T>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
@@ -316,11 +318,13 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<T>, Error> {
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
-        debug_assert_eq!(left.len(), right.len());
+        debug_assert_eq!(left.size(), right.size());
 
         let output = left
-            .into_par_iter()
-            .zip(right.into_par_iter())
+            .as_ref()
+            .par_iter()
+            .copied()
+            .zip(right.as_ref().par_iter().copied())
             .map(|(l, r)| (self.cpu_op)(l, r))
             .collect();
 
@@ -334,20 +338,26 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());
 
-        let cl_queue = left.default_queue().expect("left queue").clone();
+        let cl_queue = left.as_ref().default_queue().expect("left queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
 
         let kernel = ocl::Kernel::builder()
-            .name("elementwise_inplace")
+            .name("elementwise_dual")
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(left.len())
-            .arg(&left)
-            .arg(right)
+            .arg(left.as_ref())
+            .arg(right.as_ref())
+            .arg(&output)
             .build()?;
 
         unsafe { kernel.enq()? }
 
-        Ok(left)
+        Ok(output)
     }
 }
 
@@ -369,7 +379,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloa
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_inplace::<T, f64>(kernel_op, left.context())?;
+        let kernel_op = cl_programs::elementwise_dual::<T, f64>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
@@ -405,8 +415,10 @@ where
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
         let output = left
-            .into_par_iter()
-            .zip(right.into_par_iter())
+            .as_ref()
+            .par_iter()
+            .copied()
+            .zip(right.as_ref().par_iter().copied())
             .map(|(l, r)| (self.cpu_op)(l, r))
             .collect();
 
@@ -420,20 +432,26 @@ where
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());
 
-        let cl_queue = left.default_queue().expect("left queue").clone();
+        let cl_queue = left.as_ref().default_queue().expect("left queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
 
         let kernel = ocl::Kernel::builder()
-            .name("elementwise_inplace")
+            .name("elementwise_dual")
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(left.len())
-            .arg(&left)
-            .arg(right)
+            .arg(left.as_ref())
+            .arg(right.as_ref())
+            .arg(&output)
             .build()?;
 
         unsafe { kernel.enq()? }
 
-        Ok(left)
+        Ok(output)
     }
 }
 
@@ -495,11 +513,13 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let left = self.array.to_vec(queue)?;
+        let left = self.array.to_host(queue)?;
         let right = self.scalar;
 
         let output = left
-            .into_par_iter()
+            .as_ref()
+            .par_iter()
+            .copied()
             // chunk the input to encourage the compiler to vectorize
             .chunks(8)
             .map(|chunk| {
@@ -518,20 +538,26 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
-        let cl_queue = left.default_queue().expect("queue").clone();
+        let cl_queue = left.as_ref().default_queue().expect("queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
 
         let kernel = ocl::Kernel::builder()
             .name("elementwise_scalar")
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(left.len())
-            .arg(&left)
+            .arg(left.as_ref())
             .arg(right)
+            .arg(&output)
             .build()?;
 
         unsafe { kernel.enq()? }
 
-        Ok(left)
+        Ok(output)
     }
 }
 
@@ -583,11 +609,13 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let left = self.array.to_vec(queue)?;
+        let left = self.array.to_host(queue)?;
         let right = self.scalar;
 
         let output = left
-            .into_par_iter()
+            .as_ref()
+            .par_iter()
+            .copied()
             .map(|l| (self.host_op)(l, right))
             .collect();
 
@@ -598,20 +626,26 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let left = self.array.to_cl_buffer(queue)?;
         let right = self.scalar;
-        let cl_queue = left.default_queue().expect("queue").clone();
+        let cl_queue = left.as_ref().default_queue().expect("queue").clone();
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
 
         let kernel = ocl::Kernel::builder()
             .name("elementwise_scalar")
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(left.len())
-            .arg(&left)
+            .arg(left.as_ref())
             .arg(right)
+            .arg(&output)
             .build()?;
 
         unsafe { kernel.enq()? }
 
-        Ok(left)
+        Ok(output)
     }
 }
 
@@ -653,10 +687,11 @@ impl<A: NDArrayRead> Op for MatDiag<A> {
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let dim = *self.source.shape().last().expect("dim");
 
-        let input = self.source.to_vec(queue)?;
+        let input = self.source.to_host(queue)?;
         let mut output = Vec::with_capacity(self.source.size() / dim);
 
         let diagonals = input
+            .as_ref()
             .par_chunks_exact(dim * dim)
             .map(|matrix| (0..dim).into_par_iter().map(|i| matrix[(i * dim) + i]))
             .flatten();
@@ -677,7 +712,7 @@ impl<A: NDArrayRead> Op for MatDiag<A> {
             .product();
 
         let input = self.source.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue");
+        let cl_queue = input.as_ref().default_queue().expect("queue");
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -689,7 +724,7 @@ impl<A: NDArrayRead> Op for MatDiag<A> {
             .program(&self.kernel_op)
             .queue(cl_queue.clone())
             .global_work_size((batch_size, dim))
-            .arg(&input)
+            .arg(input.as_ref())
             .arg(&output)
             .build()?;
 
@@ -768,6 +803,9 @@ where
 
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
+        let left = left.as_ref();
+        let right = right.as_ref();
+
         // transpose the right matrices
         let right_size = b * c;
         let right_matrices = (0..num_matrices).into_par_iter().map(|n| {
@@ -828,7 +866,7 @@ where
         let right = self.right.to_cl_buffer(&right_queue)?;
         let left = self.left.to_cl_buffer(queue)?;
 
-        let cl_queue = left.default_queue().expect("left queue");
+        let cl_queue = left.as_ref().default_queue().expect("left queue");
 
         assert!(num_matrices > 0);
         assert_eq!(num_matrices * a * b, left.len());
@@ -848,8 +886,8 @@ where
             .global_work_size((num_matrices, div_ceil(a, TILE_SIZE), div_ceil(c, TILE_SIZE)))
             .arg(ocl::core::Ulong4::from(dims))
             .arg(div_ceil(b, TILE_SIZE))
-            .arg(&left)
-            .arg(&right)
+            .arg(left.as_ref())
+            .arg(right.as_ref())
             .arg(&output)
             .build()?;
 
@@ -932,8 +970,10 @@ where
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
 
         let output = left
-            .into_par_iter()
-            .zip(right.into_par_iter())
+            .as_ref()
+            .par_iter()
+            .copied()
+            .zip(right.as_ref().par_iter().copied())
             .map(|(l, r)| (self.host_cmp)(l, r))
             .map(|cmp| if cmp { 1 } else { 0 })
             .collect();
@@ -949,7 +989,7 @@ where
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());
 
-        let cl_queue = left.default_queue().expect("queue");
+        let cl_queue = left.as_ref().default_queue().expect("queue");
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -961,8 +1001,8 @@ where
             .program(&self.kernel_cmp)
             .queue(cl_queue.clone())
             .global_work_size(output.len())
-            .arg(&left)
-            .arg(&right)
+            .arg(left.as_ref())
+            .arg(right.as_ref())
             .arg(&output)
             .build()?;
 
@@ -1042,11 +1082,12 @@ where
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
-        debug_assert_eq!(left.len(), right.len());
+        debug_assert_eq!(left.size(), right.size());
 
         let output = left
+            .as_ref()
             .par_iter()
-            .zip(right.par_iter())
+            .zip(right.as_ref().par_iter())
             .map(|(l, r)| (self.host_cmp)(l, r))
             .map(|cmp| if cmp { 1 } else { 0 })
             .collect();
@@ -1061,7 +1102,7 @@ where
         let left = self.left.to_cl_buffer(queue)?;
         debug_assert_eq!(left.len(), right.len());
 
-        let cl_queue = left.default_queue().expect("left queue").clone();
+        let cl_queue = left.as_ref().default_queue().expect("left queue").clone();
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -1073,8 +1114,8 @@ where
             .program(&self.kernel_cmp)
             .queue(cl_queue)
             .global_work_size(output.len())
-            .arg(&left)
-            .arg(&right)
+            .arg(left.as_ref())
+            .arg(right.as_ref())
             .arg(&output)
             .build()?;
 
@@ -1146,9 +1187,10 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let input = self.array.to_vec(queue)?;
+        let input = self.array.to_host(queue)?;
 
         let output = input
+            .as_ref()
             .par_iter()
             .map(|n| (self.host_cmp)(n, &self.scalar))
             .map(|cmp| if cmp { 1 } else { 0 })
@@ -1160,7 +1202,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue").clone();
+        let cl_queue = input.as_ref().default_queue().expect("queue").clone();
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -1172,7 +1214,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
             .program(&self.kernel_cmp)
             .queue(cl_queue)
             .global_work_size(input.len())
-            .arg(&input)
+            .arg(input.as_ref())
             .arg(self.scalar)
             .arg(&output)
             .build()?;
@@ -1252,13 +1294,13 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let input = self.source.to_vec(queue)?;
-
-        debug_assert!(!input.is_empty());
+        let input = self.source.to_host(queue)?;
+        debug_assert!(!input.as_ref().is_empty());
 
         let reduce_dim = self.source.shape()[self.axis];
 
         let output = input
+            .as_ref()
             .par_chunks_exact(reduce_dim)
             .map(|chunk| {
                 // encourage the compiler to vectorize the reduction
@@ -1286,12 +1328,12 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue").clone();
+        let cl_queue = input.as_ref().default_queue().expect("queue").clone();
         let output = cl_programs::reduce_axis(
             A::DType::zero(),
             self.kernel_reduce,
             cl_queue,
-            input,
+            input.as_ref(),
             self.source.shape(),
             self.axis,
         )?;
@@ -1332,10 +1374,11 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let input = self.source.to_vec(queue)?;
+        let input = self.source.to_host(queue)?;
 
         let output = input
-            .into_par_iter()
+            .as_ref()
+            .par_iter()
             .map(|n| n.to_f64())
             .map(|float| O::from_f64(float))
             .collect();
@@ -1346,7 +1389,7 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.source.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue");
+        let cl_queue = input.as_ref().default_queue().expect("queue");
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -1358,7 +1401,7 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
             .program(&self.kernel_op)
             .queue(cl_queue.clone())
             .global_work_size(input.len())
-            .arg(input)
+            .arg(input.as_ref())
             .arg(&output)
             .build()?;
 
@@ -1432,15 +1475,21 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
     }
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
-        let input = self.array.to_vec(queue)?;
-        let output = input.into_par_iter().map(|n| (self.host_op)(n)).collect();
+        let input = self.array.to_host(queue)?;
+        let output = input
+            .as_ref()
+            .par_iter()
+            .copied()
+            .map(|n| (self.host_op)(n))
+            .collect();
+
         Ok(output)
     }
 
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
         let input = self.array.to_cl_buffer(queue)?;
-        let cl_queue = input.default_queue().expect("queue").clone();
+        let cl_queue = input.as_ref().default_queue().expect("queue").clone();
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -1452,7 +1501,7 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
             .program(&self.kernel_op)
             .queue(cl_queue)
             .global_work_size(output.len())
-            .arg(&input)
+            .arg(input.as_ref())
             .arg(&output)
             .build()?;
 
@@ -1505,17 +1554,23 @@ where
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let (cond, (left, right)) = try_join(
-            || self.cond.to_vec(queue),
+            || self.cond.to_host(queue),
             || try_join_read(&self.then, &self.or_else, queue),
         )?;
 
-        debug_assert_eq!(cond.len(), left.len());
-        debug_assert_eq!(cond.len(), right.len());
+        debug_assert_eq!(cond.size(), left.size());
+        debug_assert_eq!(cond.size(), right.size());
 
-        let lr = left.into_par_iter().zip(right.into_par_iter());
+        let lr = left
+            .as_ref()
+            .par_iter()
+            .copied()
+            .zip(right.as_ref().par_iter().copied());
 
         let output = cond
-            .into_par_iter()
+            .as_ref()
+            .par_iter()
+            .copied()
             .zip(lr)
             .map(
                 |(when, (then, or_else))| {
@@ -1542,7 +1597,7 @@ where
         debug_assert_eq!(cond.len(), then.len());
         debug_assert_eq!(cond.len(), or_else.len());
 
-        let cl_queue = cond.default_queue().expect("queue");
+        let cl_queue = cond.as_ref().default_queue().expect("queue");
 
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
@@ -1554,9 +1609,9 @@ where
             .queue(cl_queue.clone())
             .program(&self.kernel_op)
             .global_work_size(cond.len())
-            .arg(&cond)
-            .arg(&then)
-            .arg(&or_else)
+            .arg(cond.as_ref())
+            .arg(then.as_ref())
+            .arg(or_else.as_ref())
             .arg(&output)
             .build()?;
 
@@ -1579,10 +1634,10 @@ where
 }
 
 #[inline]
-fn try_join_read<L: NDArrayRead, R: NDArrayRead>(
-    left: &L,
-    right: &R,
+fn try_join_read<'a, L: NDArrayRead, R: NDArrayRead>(
+    left: &'a L,
+    right: &'a R,
     queue: &Queue,
-) -> Result<(Vec<L::DType>, Vec<R::DType>), Error> {
-    try_join(|| left.to_vec(queue), || right.to_vec(queue))
+) -> Result<(SliceConverter<'a, L::DType>, SliceConverter<'a, R::DType>), Error> {
+    try_join(|| left.to_host(queue), || right.to_host(queue))
 }
