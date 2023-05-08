@@ -334,13 +334,29 @@ impl FromIterator<ocl::Device> for DeviceList {
 pub trait BufferInstance: Clone + Send + Sync {
     type DType: CDatatype;
 
+    fn size(&self) -> usize;
+
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
 
-    fn size(&self) -> usize;
+    fn all(&self, queue: &Queue) -> Result<bool, Error>;
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error>;
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error>;
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error>;
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error>;
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error>;
 }
 
 impl<T: CDatatype> BufferInstance for Vec<T> {
     type DType = T;
+
+    fn size(&self) -> usize {
+        self.len()
+    }
 
     #[allow(unused_variables)]
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
@@ -359,34 +375,126 @@ impl<T: CDatatype> BufferInstance for Vec<T> {
         Ok(Buffer::Host(self.to_vec()))
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn all(&self, _queue: &Queue) -> Result<bool, Error> {
+        let zero = Self::DType::zero();
+        Ok(self.par_iter().copied().all(|n| n != zero))
+    }
+
+    fn any(&self, _queue: &Queue) -> Result<bool, Error> {
+        let zero = Self::DType::zero();
+        Ok(self.par_iter().copied().any(|n| n != zero))
+    }
+
+    fn max(&self, _queue: &Queue) -> Result<Self::DType, Error> {
+        let collector = |l, r| {
+            if r > l {
+                r
+            } else {
+                l
+            }
+        };
+
+        Ok(self.par_iter().copied().reduce(T::min, collector))
+    }
+
+    fn min(&self, _queue: &Queue) -> Result<Self::DType, Error> {
+        let collector = |l, r| {
+            if r < l {
+                r
+            } else {
+                l
+            }
+        };
+
+        Ok(self.par_iter().copied().reduce(T::max, collector))
+    }
+
+    fn product(&self, _queue: &Queue) -> Result<Self::DType, Error> {
+        Ok(self.par_iter().copied().reduce(T::one, Mul::mul))
+    }
+
+    fn sum(&self, _queue: &Queue) -> Result<Self::DType, Error> {
+        Ok(self.par_iter().copied().reduce(T::zero, Add::add))
     }
 }
 
 impl<T: CDatatype> BufferInstance for Arc<Vec<T>> {
     type DType = T;
 
+    fn size(&self) -> usize {
+        self.len()
+    }
+
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         (&**self).read(queue)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::all(&**self, queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::any(&**self, queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::max(&**self, queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::min(&**self, queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::product(&**self, queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::sum(&**self, queue)
     }
 }
 
 impl<T: CDatatype> BufferInstance for Arc<RwLock<Vec<T>>> {
     type DType = T;
 
+    fn size(&self) -> usize {
+        let data = RwLock::read(self).expect("read buffer");
+        data.len()
+    }
+
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let data = RwLock::read(self).expect("read buffer");
         BufferInstance::read(&*data, queue)
     }
 
-    fn size(&self) -> usize {
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
         let data = RwLock::read(self).expect("read buffer");
-        data.len()
+        data.all(queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        data.any(queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        data.max(queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        data.min(queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        data.product(queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        data.sum(queue)
     }
 }
 
@@ -394,12 +502,12 @@ impl<T: CDatatype> BufferInstance for Arc<RwLock<Vec<T>>> {
 impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
     type DType = T;
 
+    fn size(&self) -> usize {
+        self.len()
+    }
+
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
-        let cl_queue = queue
-            .cl_queue
-            .clone()
-            .or_else(|| self.default_queue().cloned())
-            .expect("OpenCL queue");
+        let cl_queue = queue.cl_queue(self.default_queue());
 
         let copy = ocl::Buffer::builder()
             .queue(cl_queue)
@@ -411,8 +519,50 @@ impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
         Ok(Buffer::CL(copy))
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce_all(cl_queue, self).map_err(Error::from)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce_any(cl_queue, self).map_err(Error::from)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let collector = |l, r| {
+            if r > l {
+                r
+            } else {
+                l
+            }
+        };
+
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce(T::min(), "max", cl_queue, self, collector).map_err(Error::from)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let collector = |l, r| {
+            if r < l {
+                r
+            } else {
+                l
+            }
+        };
+
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce(T::max(), "min", cl_queue, self, collector).map_err(Error::from)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce(T::one(), "mul", cl_queue, self, Mul::mul).map_err(Error::from)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let cl_queue = queue.cl_queue(self.default_queue());
+        cl_programs::reduce(T::zero(), "add", cl_queue, self, Add::add).map_err(Error::from)
     }
 }
 
@@ -420,12 +570,36 @@ impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
 impl<T: CDatatype> BufferInstance for Arc<ocl::Buffer<T>> {
     type DType = T;
 
+    fn size(&self) -> usize {
+        self.len()
+    }
+
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         BufferInstance::read(&**self, queue)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::all(&**self, queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::any(&**self, queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::max(&**self, queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::min(&**self, queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::product(&**self, queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::sum(&**self, queue)
     }
 }
 
@@ -441,6 +615,36 @@ impl<T: CDatatype> BufferInstance for Arc<RwLock<ocl::Buffer<T>>> {
     fn size(&self) -> usize {
         let data = RwLock::read(self).expect("read buffer");
         data.len()
+    }
+
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::all(&*data, queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::any(&*data, queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::max(&*data, queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::min(&*data, queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::product(&*data, queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::sum(&*data, queue)
     }
 }
 
@@ -484,23 +688,49 @@ impl<T: CDatatype> Buffer<T> {
     }
 }
 
+macro_rules! buffer_dispatch {
+    ($this:ident, $var:ident, $call:expr) => {
+        match $this {
+            Self::Host($var) => $call,
+            #[cfg(feature = "opencl")]
+            Self::CL($var) => $call,
+        }
+    };
+}
+
 impl<T: CDatatype> BufferInstance for Buffer<T> {
     type DType = T;
 
-    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
-        match self {
-            Self::Host(buffer) => BufferInstance::read(buffer, queue),
-            #[cfg(feature = "opencl")]
-            Self::CL(buffer) => BufferInstance::read(buffer, queue),
-        }
+    fn size(&self) -> usize {
+        buffer_dispatch!(self, this, this.size())
     }
 
-    fn size(&self) -> usize {
-        match self {
-            Self::Host(buffer) => buffer.len(),
-            #[cfg(feature = "opencl")]
-            Self::CL(buffer) => buffer.len(),
-        }
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+        buffer_dispatch!(self, this, BufferInstance::read(this, queue))
+    }
+
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        buffer_dispatch!(self, this, BufferInstance::all(this, queue))
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        buffer_dispatch!(self, this, BufferInstance::any(this, queue))
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        buffer_dispatch!(self, this, BufferInstance::max(this, queue))
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        buffer_dispatch!(self, this, BufferInstance::min(this, queue))
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        buffer_dispatch!(self, this, BufferInstance::product(this, queue))
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        buffer_dispatch!(self, this, BufferInstance::sum(this, queue))
     }
 }
 
@@ -518,19 +748,73 @@ impl<T: CDatatype> BufferInstance for Arc<Buffer<T>> {
             Buffer::CL(buffer) => buffer.len(),
         }
     }
+
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::all(&**self, queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        BufferInstance::any(&**self, queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::max(&**self, queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::min(&**self, queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::product(&**self, queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        BufferInstance::sum(&**self, queue)
+    }
 }
 
 impl<T: CDatatype> BufferInstance for Arc<RwLock<Buffer<T>>> {
     type DType = T;
+
+    fn size(&self) -> usize {
+        let data = RwLock::read(self).expect("read buffer");
+        data.size()
+    }
 
     fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error> {
         let data = RwLock::read(self).expect("read buffer");
         BufferInstance::read(&*data, queue)
     }
 
-    fn size(&self) -> usize {
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
         let data = RwLock::read(self).expect("read buffer");
-        data.size()
+        BufferInstance::all(&*data, queue)
+    }
+
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::any(&*data, queue)
+    }
+
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::max(&*data, queue)
+    }
+
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::min(&*data, queue)
+    }
+
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::product(&*data, queue)
+    }
+
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        let data = RwLock::read(self).expect("read buffer");
+        BufferInstance::sum(&*data, queue)
     }
 }
 
@@ -739,6 +1023,15 @@ impl Queue {
     #[cfg(not(feature = "opencl"))]
     pub fn new(context: Context, _size_hint: usize) -> Result<Self, Error> {
         Ok(Self::default(context))
+    }
+
+    #[cfg(feature = "opencl")]
+    fn cl_queue(&self, default: Option<&ocl::Queue>) -> ocl::Queue {
+        self.cl_queue
+            .as_ref()
+            .or_else(|| default)
+            .cloned()
+            .expect("OpenCL queue")
     }
 
     #[allow(unused)]
@@ -1249,53 +1542,20 @@ impl<A: NDArray + fmt::Debug> MatrixMath for A {}
 pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     fn all(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
-        match self.read(&queue)? {
-            Buffer::Host(input) => {
-                let zero = Self::DType::zero();
-                Ok(input.into_par_iter().all(|n| n != zero))
-            }
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce_all(cl_queue, input).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.all(&queue)
     }
 
     fn any(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
-        match self.read(&queue)? {
-            Buffer::Host(input) => {
-                let zero = Self::DType::zero();
-                Ok(input.into_par_iter().any(|n| n != zero))
-            }
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce_any(cl_queue, input).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.any(&queue)
     }
 
     fn max(&self) -> Result<Self::DType, Error> {
-        let id = <Self::DType as CDatatype>::min();
-        let collector = |l, r| {
-            if r > l {
-                r
-            } else {
-                l
-            }
-        };
-
         let queue = Queue::new(self.context().clone(), self.size())?;
-        match self.read(&queue)? {
-            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| id, collector)),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce(id, "max", cl_queue, input, collector).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.max(&queue)
     }
 
     fn max_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
@@ -1305,24 +1565,9 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn min(&self) -> Result<Self::DType, Error> {
-        let id = <Self::DType as CDatatype>::max();
         let queue = Queue::new(self.context().clone(), self.size())?;
-        let collector = |l, r| {
-            if r < l {
-                r
-            } else {
-                l
-            }
-        };
-
-        match self.read(&queue)? {
-            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| id, collector)),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce(id, "min", cl_queue, input, collector).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.min(&queue)
     }
 
     fn min_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
@@ -1332,17 +1577,9 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn product(&self) -> Result<Self::DType, Error> {
-        let one = Self::DType::one();
         let queue = Queue::new(self.context().clone(), self.size())?;
-
-        match self.read(&queue)? {
-            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| one, Mul::mul)),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce(one, "mul", cl_queue, input, Mul::mul).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.product(&queue)
     }
 
     fn product_axis(
@@ -1355,17 +1592,9 @@ pub trait NDArrayReduce: NDArrayRead + Clone + fmt::Debug {
     }
 
     fn sum(&self) -> Result<Self::DType, Error> {
-        let zero = Self::DType::zero();
         let queue = Queue::new(self.context().clone(), self.size())?;
-
-        match self.read(&queue)? {
-            Buffer::Host(input) => Ok(input.into_par_iter().reduce(|| zero, Add::add)),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(input) => {
-                let cl_queue = input.default_queue().expect("queue").clone();
-                cl_programs::reduce(zero, "add", cl_queue, input, Add::add).map_err(Error::from)
-            }
-        }
+        let buffer = self.read(&queue)?;
+        buffer.sum(&queue)
     }
 
     fn sum_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {

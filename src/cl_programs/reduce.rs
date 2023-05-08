@@ -5,7 +5,7 @@ use crate::{div_ceil, CDatatype};
 
 use super::WG_SIZE;
 
-pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
+pub fn reduce_all<T: CDatatype>(queue: Queue, input: &Buffer<T>) -> Result<bool, Error> {
     let src = format!(
         r#"
         __kernel void reduce_all(
@@ -32,7 +32,7 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
         .queue(queue.clone())
         .global_work_size(input.len())
         .arg(&flag)
-        .arg(&input)
+        .arg(input)
         .build()?;
 
     unsafe { kernel.enq()? }
@@ -44,7 +44,7 @@ pub fn reduce_all<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
     Ok(result == [1])
 }
 
-pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, Error> {
+pub fn reduce_any<T: CDatatype>(queue: Queue, input: &Buffer<T>) -> Result<bool, Error> {
     let src = format!(
         r#"
         __kernel void reduce_any(
@@ -71,7 +71,7 @@ pub fn reduce_any<T: CDatatype>(queue: Queue, input: Buffer<T>) -> Result<bool, 
         .queue(queue.clone())
         .global_work_size(input.len())
         .arg(&flag)
-        .arg(&input)
+        .arg(input)
         .build()?;
 
     unsafe { kernel.enq()? }
@@ -87,16 +87,17 @@ pub fn reduce<T: CDatatype>(
     init: T,
     reduce: &'static str,
     queue: Queue,
-    mut buffer: Buffer<T>,
+    input: &Buffer<T>,
     collector: impl Fn(T, T) -> T + Send + Sync,
 ) -> Result<T, Error> {
     const MIN_SIZE: usize = 65_536;
 
     let min_size = MIN_SIZE * num_cpus::get();
 
-    if buffer.len() < min_size {
-        let mut result = vec![init; buffer.len()];
-        buffer.read(&mut result).enq()?;
+    if input.len() < min_size {
+        let mut result = vec![init; input.len()];
+        input.read(&mut result).enq()?;
+
         return Ok(result.into_par_iter().reduce(|| init, collector));
     }
 
@@ -145,6 +146,30 @@ pub fn reduce<T: CDatatype>(
     );
 
     let program = Program::builder().source(src).build(&queue.context())?;
+
+    let mut buffer = {
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(div_ceil(input.len(), WG_SIZE))
+            .fill_val(init)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("reduce")
+            .program(&program)
+            .queue(queue.clone())
+            .local_work_size(WG_SIZE)
+            .global_work_size(WG_SIZE * output.len())
+            .arg(input.len() as u64)
+            .arg(input)
+            .arg(&output)
+            .arg_local::<T>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        output
+    };
 
     while buffer.len() >= min_size {
         let input = buffer;
