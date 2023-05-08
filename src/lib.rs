@@ -330,6 +330,49 @@ impl FromIterator<ocl::Device> for DeviceList {
     }
 }
 
+pub trait BufferInstance: Clone + Send + Sync {
+    type DType: CDatatype;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<Self::DType>, Error>;
+}
+
+impl<T: CDatatype> BufferInstance for Vec<T> {
+    type DType = T;
+
+    #[allow(unused_variables)]
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+        // TODO: there must be a better way to do this
+        #[cfg(feature = "opencl")]
+        if let Some(cl_queue) = &queue.cl_queue {
+            let buffer = ocl::Buffer::builder()
+                .queue(cl_queue.clone())
+                .len(self.len())
+                .copy_host_slice(&self[..])
+                .build()?;
+
+            return Ok(Buffer::CL(buffer));
+        }
+
+        Ok(Buffer::Host(self.to_vec()))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+        let cl_queue = queue
+            .cl_queue
+            .clone()
+            .ok_or_else(|| Error::Interface("missing CL queue for CL buffer".into()))?;
+
+        let mut copy = self.clone();
+        copy.set_default_queue(cl_queue);
+        Ok(Buffer::CL(self.clone()))
+    }
+}
+
 #[cfg(feature = "opencl")]
 #[derive(Clone)]
 pub enum Buffer<T: CDatatype> {
@@ -349,6 +392,18 @@ impl<T: CDatatype> Buffer<T> {
             Self::Host(buffer) => buffer.len(),
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => buffer.len(),
+        }
+    }
+}
+
+impl<T: CDatatype> BufferInstance for Buffer<T> {
+    type DType = T;
+
+    fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
+        match self {
+            Self::Host(buffer) => BufferInstance::read(buffer, queue),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => BufferInstance::read(buffer, queue),
         }
     }
 }
@@ -535,6 +590,7 @@ impl Queue {
     pub fn new(context: Context, size_hint: usize) -> Result<Self, Error> {
         if let Some(device) = context.select_device(size_hint) {
             let cl_queue = ocl::Queue::new(context.cl_context(), device, None)?;
+
             Ok(Self {
                 context,
                 cl_queue: Some(cl_queue),
