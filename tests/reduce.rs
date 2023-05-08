@@ -6,7 +6,7 @@ fn test_reduce_sum_all() -> Result<(), Error> {
 
     for x in 1..9 {
         let data = vec![1; 10_usize.pow(x)];
-        let array = ArrayBase::<i32>::with_context(context.clone(), vec![data.len()], data)?;
+        let array = ArrayBase::<Vec<i32>>::with_context(context.clone(), vec![data.len()], data)?;
 
         assert_eq!(array.size() as i32, array.sum()?);
     }
@@ -29,7 +29,8 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
 
     for shape in shapes {
         let size = shape.iter().product();
-        let array = ArrayBase::<u32>::with_context(context.clone(), shape.to_vec(), vec![1; size])?;
+        let array =
+            ArrayBase::<Vec<u32>>::with_context(context.clone(), shape.to_vec(), vec![1; size])?;
 
         for x in 0..shape.len() {
             let sum = array.sum_axis(x)?;

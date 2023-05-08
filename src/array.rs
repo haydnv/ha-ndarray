@@ -13,7 +13,7 @@ use super::{
 
 #[derive(Clone)]
 pub enum Array<T> {
-    Base(ArrayBase<T>),
+    Base(ArrayBase<Vec<T>>),
     Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
     Slice(Box<ArraySlice<Self>>),
     View(Box<ArrayView<Self>>),
@@ -86,13 +86,13 @@ impl<T: CDatatype> fmt::Debug for Array<T> {
 }
 
 #[derive(Clone)]
-pub struct ArrayBase<T> {
+pub struct ArrayBase<Buf> {
     context: Context,
     shape: Shape,
-    data: Vec<T>,
+    data: Buf,
 }
 
-impl<T: CDatatype> ArrayBase<T> {
+impl<T: CDatatype> ArrayBase<Vec<T>> {
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -138,7 +138,7 @@ impl<T: CDatatype> ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArray for ArrayBase<T> {
+impl<T: CDatatype> NDArray for ArrayBase<Vec<T>> {
     type DType = T;
 
     fn context(&self) -> &Context {
@@ -150,7 +150,7 @@ impl<T: CDatatype> NDArray for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
+impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     #[allow(unused_variables)]
     fn read(&self, queue: &Queue) -> Result<Buffer<T>, Error> {
         // TODO: there must be a better way to do this
@@ -169,7 +169,7 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
+impl<T: CDatatype> NDArrayTransform for ArrayBase<Vec<T>> {
     type Broadcast = ArrayView<Self>;
     type Expand = Self;
     type Reshape = Self;
@@ -223,10 +223,10 @@ impl<T: CDatatype> NDArrayTransform for ArrayBase<T> {
 
 macro_rules! impl_base_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype> $op<ArrayBase<T>> for ArrayBase<T> {
-            type Output = ArrayOp<ArrayDual<T, Self, ArrayBase<T>>>;
+        impl<T: CDatatype> $op<ArrayBase<Vec<T>>> for ArrayBase<Vec<T>> {
+            type Output = ArrayOp<ArrayDual<T, Self, ArrayBase<Vec<T>>>>;
 
-            fn $name(self, rhs: ArrayBase<T>) -> Self::Output {
+            fn $name(self, rhs: ArrayBase<Vec<T>>) -> Self::Output {
                 let shape = self.shape().to_vec();
                 assert_eq!(shape, rhs.shape());
 
@@ -245,7 +245,7 @@ impl_base_op!(Sub, sub);
 
 macro_rules! impl_base_dual_op {
     ($op:ident, $name:ident, $o:ty) => {
-        impl<T: CDatatype, O> $op<$o> for ArrayBase<T>
+        impl<T: CDatatype, O> $op<$o> for ArrayBase<Vec<T>>
         where
             $o: NDArray<DType = T>,
         {
@@ -282,7 +282,7 @@ impl_base_dual_op!(Sub, sub, ArrayView<O>);
 
 macro_rules! impl_base_scalar_op {
     ($op:ident, $name:ident) => {
-        impl<T: CDatatype> $op<T> for ArrayBase<T> {
+        impl<T: CDatatype> $op<T> for ArrayBase<Vec<T>> {
             type Output = ArrayOp<ArrayScalar<T, Self>>;
 
             fn $name(self, rhs: T) -> Self::Output {
@@ -300,7 +300,7 @@ impl_base_scalar_op!(Mul, mul);
 impl_base_scalar_op!(Rem, rem);
 impl_base_scalar_op!(Sub, sub);
 
-impl<T: CDatatype> Neg for ArrayBase<T> {
+impl<T: CDatatype> Neg for ArrayBase<Vec<T>> {
     type Output = ArrayOp<ArrayUnary<T, <T as CDatatype>::Neg, Self>>;
 
     fn neg(self) -> Self::Output {
@@ -310,7 +310,7 @@ impl<T: CDatatype> Neg for ArrayBase<T> {
     }
 }
 
-impl<T: CDatatype> Not for ArrayBase<T> {
+impl<T: CDatatype> Not for ArrayBase<Vec<T>> {
     type Output = ArrayOp<ArrayUnary<T, u8, Self>>;
 
     fn not(self) -> Self::Output {
@@ -320,7 +320,7 @@ impl<T: CDatatype> Not for ArrayBase<T> {
     }
 }
 
-impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
+impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<Vec<A::DType>> {
     fn write(&mut self, other: &A) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
@@ -345,13 +345,13 @@ impl<A: NDArrayRead + fmt::Debug> NDArrayWrite<A> for ArrayBase<A::DType> {
     }
 }
 
-impl<T> From<ArrayBase<T>> for Array<T> {
-    fn from(base: ArrayBase<T>) -> Self {
+impl<T> From<ArrayBase<Vec<T>>> for Array<T> {
+    fn from(base: ArrayBase<Vec<T>>) -> Self {
         Self::Base(base)
     }
 }
 
-impl<T: CDatatype> fmt::Debug for ArrayBase<T> {
+impl<T: CDatatype> fmt::Debug for ArrayBase<Vec<T>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} array with shape {:?}", T::TYPE_STR, self.shape)
     }
