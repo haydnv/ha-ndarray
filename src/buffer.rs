@@ -2,6 +2,10 @@ use std::fmt;
 use std::ops::{Add, Mul};
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "stream")]
+use async_trait::async_trait;
+#[cfg(feature = "stream")]
+use destream::de;
 use rayon::prelude::*;
 
 #[cfg(feature = "opencl")]
@@ -569,6 +573,106 @@ impl<T: CDatatype> From<Vec<T>> for Buffer<T> {
         Self::Host(buffer)
     }
 }
+
+#[cfg(feature = "stream")]
+struct BufferVisitor<T> {
+    data: Vec<T>,
+}
+
+#[cfg(feature = "stream")]
+impl<T> BufferVisitor<T> {
+    fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+}
+
+#[cfg(feature = "stream")]
+macro_rules! decode_buffer {
+    ($t:ty, $name:expr, $decode:ident, $visit:ident) => {
+        #[async_trait]
+        impl de::Visitor for BufferVisitor<$t> {
+            type Value = Buffer<$t>;
+
+            fn expecting() -> &'static str {
+                $name
+            }
+
+            async fn $visit<A: de::ArrayAccess<$t>>(
+                self,
+                mut array: A,
+            ) -> Result<Self::Value, A::Error> {
+                const BUF_SIZE: usize = 4_096;
+                let mut data = self.data;
+
+                let mut buf = [<$t>::zero(); BUF_SIZE];
+                loop {
+                    let len = array.buffer(&mut buf).await?;
+                    if len == 0 {
+                        break;
+                    } else {
+                        data.extend_from_slice(&buf[..len]);
+                    }
+                }
+
+                Ok(Buffer::Host(data))
+            }
+        }
+
+        #[async_trait]
+        impl de::FromStream for Buffer<$t> {
+            type Context = ();
+
+            async fn from_stream<D: de::Decoder>(
+                _cxt: (),
+                decoder: &mut D,
+            ) -> Result<Self, D::Error> {
+                decoder.$decode(BufferVisitor::<$t>::new()).await
+            }
+        }
+    };
+}
+
+#[cfg(feature = "stream")]
+decode_buffer!(u8, "byte array", decode_array_u8, visit_array_u8);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    u16,
+    "16-bit unsigned int array",
+    decode_array_u16,
+    visit_array_u16
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    u32,
+    "32-bit unsigned int array",
+    decode_array_u32,
+    visit_array_u32
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    u64,
+    "64-bit unsigned int array",
+    decode_array_u64,
+    visit_array_u64
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(i16, "16-bit int array", decode_array_i16, visit_array_i16);
+
+#[cfg(feature = "stream")]
+decode_buffer!(i32, "32-bit int array", decode_array_i32, visit_array_i32);
+
+#[cfg(feature = "stream")]
+decode_buffer!(i64, "64-bit int array", decode_array_i64, visit_array_i64);
+
+#[cfg(feature = "stream")]
+decode_buffer!(f32, "32-bit int array", decode_array_f32, visit_array_f32);
+
+#[cfg(feature = "stream")]
+decode_buffer!(f64, "64-bit int array", decode_array_f64, visit_array_f64);
 
 impl<T: CDatatype + fmt::Debug> fmt::Debug for Buffer<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
