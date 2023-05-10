@@ -12,10 +12,10 @@ fn test_gather_cond() -> Result<(), Error> {
         .map(|n| if n % 2 == 0 { 1 } else { 0 })
         .collect::<Vec<_>>();
 
-    let cond = ArrayBase::with_context(context.clone(), vec![size], Arc::new(data))?;
+    let cond = ArrayBase::<Arc<Vec<_>>>::with_context(context.clone(), vec![size], Arc::new(data))?;
 
-    let left = ArrayBase::with_context(context.clone(), vec![size], vec![1.; size])?;
-    let right = ArrayBase::with_context(context, vec![size], vec![0.; size])?;
+    let left = ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size], vec![1.; size])?;
+    let right = ArrayBase::<Vec<_>>::with_context(context, vec![size], vec![0.; size])?;
 
     let result = cond.clone().gather_cond(left, right)?;
 

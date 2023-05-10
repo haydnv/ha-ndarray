@@ -17,9 +17,9 @@ fn test_matmul() -> Result<(), Error> {
         let context = Context::new(0, 0, None)?;
 
         let left = vec![1.; left_shape.iter().product()];
-        let left = ArrayBase::with_context(context.clone(), left_shape, left)?;
+        let left = ArrayBase::<Vec<_>>::with_context(context.clone(), left_shape, left)?;
         let right = vec![1.; right_shape.iter().product()];
-        let right = ArrayBase::with_context(context.clone(), right_shape, right)?;
+        let right = ArrayBase::<Vec<_>>::with_context(context.clone(), right_shape, right)?;
 
         let expected = *left.shape().last().unwrap();
         let actual = left.matmul(right)?;

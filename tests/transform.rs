@@ -79,7 +79,7 @@ fn test_transpose_2d() -> Result<(), Error> {
         (0..6).into_iter().collect(),
     )?;
 
-    let expected = ArrayBase::with_context(
+    let expected = ArrayBase::<Vec<_>>::with_context(
         context,
         vec![3, 2],
         vec![

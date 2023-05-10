@@ -1102,15 +1102,15 @@ pub trait NDArrayTransform: NDArray + fmt::Debug {
     type Slice: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
     type Transpose: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error>;
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error>;
 
-    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error>;
+    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error>;
 
-    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error>;
+    fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error>;
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error>;
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error>;
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error>;
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error>;
 }
 
 #[derive(Clone)]

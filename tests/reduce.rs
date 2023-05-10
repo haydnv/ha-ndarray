@@ -31,8 +31,11 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
 
     for shape in shapes {
         let size = shape.iter().product();
-        let array =
-            ArrayBase::with_context(context.clone(), shape.to_vec(), Arc::new(vec![1; size]))?;
+        let array = ArrayBase::<Arc<Vec<_>>>::with_context(
+            context.clone(),
+            shape.to_vec(),
+            Arc::new(vec![1; size]),
+        )?;
 
         for x in 0..shape.len() {
             let sum = array.clone().sum_axis(x)?;

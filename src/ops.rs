@@ -318,7 +318,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<T>, Error> {
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
-        debug_assert_eq!(left.size(), right.size());
+        debug_assert_eq!(left.len(), right.len());
 
         let output = left
             .as_ref()
@@ -1082,7 +1082,7 @@ where
 
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
         let (left, right) = try_join_read(&self.left, &self.right, queue)?;
-        debug_assert_eq!(left.size(), right.size());
+        debug_assert_eq!(left.len(), right.len());
 
         let output = left
             .as_ref()
@@ -1558,8 +1558,8 @@ where
             || try_join_read(&self.then, &self.or_else, queue),
         )?;
 
-        debug_assert_eq!(cond.size(), left.size());
-        debug_assert_eq!(cond.size(), right.size());
+        debug_assert_eq!(cond.len(), left.len());
+        debug_assert_eq!(cond.len(), right.len());
 
         let lr = left
             .as_ref()

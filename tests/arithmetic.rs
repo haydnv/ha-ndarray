@@ -20,7 +20,7 @@ fn test_add() -> Result<(), Error> {
     )?;
 
     let actual = left + right;
-    let expected = ArrayBase::new(shape, vec![9; 10])?;
+    let expected = ArrayBase::<Vec<_>>::new(shape, vec![9; 10])?;
     assert!(expected.eq(actual)?.all()?);
     Ok(())
 }
@@ -36,9 +36,9 @@ fn test_expand_and_broadcast_and_sub() -> Result<(), Error> {
         (0i32..6).into_iter().collect(),
     )?;
 
-    let right = ArrayBase::with_context(context.clone(), vec![2], vec![0, 1])?;
+    let right = ArrayBase::<Vec<_>>::with_context(context.clone(), vec![2], vec![0, 1])?;
 
-    let expected = ArrayBase::new(vec![2, 3], vec![0, 1, 2, 2, 3, 4])?;
+    let expected = ArrayBase::<Vec<_>>::new(vec![2, 3], vec![0, 1, 2, 2, 3, 4])?;
     let actual = left - right.expand_dims(vec![1])?.broadcast(vec![2, 3])?;
     assert!(expected.eq(actual)?.all()?);
     Ok(())

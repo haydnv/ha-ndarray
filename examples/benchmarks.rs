@@ -12,13 +12,13 @@ fn broadcast_and_multiply(context: &Context) -> Result<(), Error> {
         let size = shape.iter().product::<usize>();
         let queue = Queue::new(context.clone(), size)?;
 
-        let left = ArrayBase::with_context(
+        let left = ArrayBase::<Vec<_>>::with_context(
             context.clone(),
             vec![dim, 5, 10],
             vec![1.0f64; dim * 5 * 10],
         )?;
 
-        let right = ArrayBase::with_context(
+        let right = ArrayBase::<Vec<_>>::with_context(
             context.clone(),
             vec![3, dim, 1, 10],
             vec![1.0f64; 3 * dim * 10],
@@ -46,13 +46,13 @@ fn matmul(context: &Context) -> Result<(), Error> {
     for m in 1..16usize {
         let dim = 2usize.pow(m as u32);
 
-        let l = ArrayBase::with_context(
+        let l = ArrayBase::<Vec<_>>::with_context(
             context.clone(),
             vec![16 * m, dim],
             vec![1.0f32; 16 * m * dim],
         )?;
 
-        let r = ArrayBase::with_context(
+        let r = ArrayBase::<Vec<_>>::with_context(
             context.clone(),
             vec![dim, m * 32],
             vec![1.0f32; dim * m * 32],
@@ -80,7 +80,7 @@ fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
     let queue = Queue::new(context.clone(), size)?;
-    let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
+    let x = ArrayBase::<Vec<_>>::with_context(context.clone(), shape, vec![1; size])?;
 
     println!("reduce axis {} of {:?} (size {})", 2, x, x.size());
 
@@ -96,10 +96,14 @@ fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
 }
 
 fn reduce_sum_all(context: &Context) -> Result<(), Error> {
-    for m in 1..8 {
+    for m in 2..8 {
         let shape = (1..m).map(|dim| dim * 10).collect::<Vec<usize>>();
         let size = shape.iter().product();
-        let x = ArrayBase::with_context(context.clone(), shape, Arc::new(vec![1; size]))?;
+        let x = ArrayBase::<Arc<Vec<_>>>::with_context(
+            context.clone(),
+            shape,
+            Arc::new(vec![1; size]),
+        )?;
 
         println!("reduce {:?} (size {})...", x, x.size());
 
@@ -117,17 +121,14 @@ fn reduce_sum_all(context: &Context) -> Result<(), Error> {
 fn transpose(context: &Context) -> Result<(), Error> {
     let shape = vec![10, 20, 30, 40, 50];
     let size = shape.iter().product();
+    let permutation = vec![2, 4, 3, 0, 1];
+
     let queue = Queue::new(context.clone(), size)?;
-    let x = ArrayBase::with_context(context.clone(), shape, vec![1; size])?;
-    let transposed = x.transpose(Some(vec![2, 4, 3, 0, 1]))?;
+    let x = ArrayBase::<Vec<_>>::with_context(context.clone(), shape, vec![1; size])?;
 
-    println!(
-        "transpose {:?} (size {}) to {:?}...",
-        x,
-        x.size(),
-        transposed
-    );
+    println!("transpose axes {permutation:?} of {x:?}...");
 
+    let transposed = x.transpose(Some(permutation))?;
     for _ in 0..ITERATIONS {
         let start = Instant::now();
         transposed.read(&queue)?;

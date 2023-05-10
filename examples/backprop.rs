@@ -16,7 +16,11 @@ fn main() -> Result<(), Error> {
     let inputs = ArrayBase::<Arc<Buffer<f32>>>::copy(&inputs)?;
 
     let inputs_bool = inputs.clone().lt_scalar(1.0)?;
-    let inputs_left = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?;
+
+    let inputs_left = inputs_bool
+        .clone()
+        .slice(vec![(0..NUM_EXAMPLES).into(), 0.into()])?;
+
     let inputs_right = inputs_bool.slice(vec![(0..NUM_EXAMPLES).into(), 1.into()])?;
 
     let labels = inputs_left

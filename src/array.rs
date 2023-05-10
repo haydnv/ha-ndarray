@@ -48,33 +48,30 @@ impl<T: CDatatype> NDArrayRead for Array<T> {
     }
 }
 
-impl<T: CDatatype> NDArrayTransform for Array<T>
-where
-    Self: Clone,
-{
+impl<T: CDatatype> NDArrayTransform for Array<T> {
     type Broadcast = Self;
     type Expand = Self;
     type Reshape = Self;
     type Slice = Self;
     type Transpose = Self;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self, Error> {
+    fn broadcast(self, shape: Shape) -> Result<Self, Error> {
         array_dispatch!(self, this, this.broadcast(shape).map(Self::from))
     }
 
-    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self, Error> {
+    fn expand_dims(self, axes: Vec<usize>) -> Result<Self, Error> {
         array_dispatch!(self, this, this.expand_dims(axes).map(Self::from))
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+    fn reshape(self, shape: Shape) -> Result<Self, Error> {
         array_dispatch!(self, this, this.reshape(shape).map(Self::from))
     }
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self, Error> {
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self, Error> {
         array_dispatch!(self, this, this.slice(bounds).map(Self::from))
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self, Error> {
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self, Error> {
         array_dispatch!(self, this, this.transpose(axes).map(Self::from))
     }
 }
@@ -92,15 +89,9 @@ pub struct ArrayBase<Buf> {
     data: Buf,
 }
 
-impl<Buf: BufferInstance> ArrayBase<Buf> {
-    pub fn new(shape: Shape, data: Buf) -> Result<Self, Error> {
-        Context::default().and_then(|cxt| Self::with_context(cxt, shape, data))
-    }
-
-    pub fn with_context(context: Context, shape: Shape, data: Buf) -> Result<Self, Error> {
-        let size = shape.iter().product();
-
-        if data.size() == size {
+impl<Buf> ArrayBase<Buf> {
+    fn new_inner(context: Context, shape: Shape, size: usize, data: Buf) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == size {
             Ok(Self {
                 context,
                 data,
@@ -109,9 +100,9 @@ impl<Buf: BufferInstance> ArrayBase<Buf> {
         } else {
             Err(Error::Bounds(format!(
                 "expected {} elements for shape {:?} but found {}",
-                size,
+                shape.iter().product::<usize>(),
                 shape,
-                data.size()
+                size,
             )))
         }
     }
@@ -120,6 +111,53 @@ impl<Buf: BufferInstance> ArrayBase<Buf> {
         self.data
     }
 }
+
+macro_rules! construct_array {
+    ($buf:ty) => {
+        impl<T: CDatatype> ArrayBase<$buf> {
+            pub fn new(shape: Shape, data: $buf) -> Result<Self, Error> {
+                Context::default().and_then(|cxt| Self::with_context(cxt, shape, data))
+            }
+
+            pub fn with_context(context: Context, shape: Shape, data: $buf) -> Result<Self, Error> {
+                Self::new_inner(context, shape, data.len(), data)
+            }
+        }
+    };
+}
+
+construct_array!(Vec<T>);
+construct_array!(Arc<Vec<T>>);
+#[cfg(feature = "opencl")]
+construct_array!(ocl::Buffer<T>);
+#[cfg(feature = "opencl")]
+construct_array!(Arc<ocl::Buffer<T>>);
+construct_array!(Buffer<T>);
+construct_array!(Arc<Buffer<T>>);
+
+macro_rules! construct_array_lock {
+    ($buf:ty) => {
+        impl<T: CDatatype> ArrayBase<Arc<RwLock<$buf>>> {
+            pub fn new(shape: Shape, data: $buf) -> Result<Self, Error> {
+                let context = Context::default()?;
+                let size = data.len();
+                let data = Arc::new(RwLock::new(data));
+                Self::new_inner(context, shape, size, data)
+            }
+
+            pub fn with_context(context: Context, shape: Shape, data: $buf) -> Result<Self, Error> {
+                let size = data.len();
+                let data = Arc::new(RwLock::new(data));
+                Self::new_inner(context, shape, size, data)
+            }
+        }
+    };
+}
+
+construct_array_lock!(Vec<T>);
+#[cfg(feature = "opencl")]
+construct_array_lock!(ocl::Buffer<T>);
+construct_array_lock!(Buffer<T>);
 
 impl<T: CDatatype> ArrayBase<Vec<T>> {
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
@@ -348,7 +386,7 @@ impl<T: CDatatype> ArrayBase<Buffer<T>> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let buffer = other.read(&queue)?;
-            debug_assert_eq!(self.data.len(), buffer.size());
+            debug_assert_eq!(self.data.len(), buffer.len());
             self.data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
@@ -398,7 +436,7 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
             let buffer = other.read(&queue)?;
 
             let mut data = self.data.write().expect("write buffer");
-            debug_assert_eq!(data.len(), buffer.size());
+            debug_assert_eq!(data.len(), buffer.len());
             data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
@@ -516,26 +554,26 @@ where
     type Slice = ArraySlice<Self>;
     type Transpose = ArrayView<Self>;
 
-    fn broadcast(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        ArrayView::broadcast(self.clone(), shape)
+    fn broadcast(self, shape: Shape) -> Result<ArrayView<Self>, Error> {
+        ArrayView::broadcast(self, shape)
     }
 
-    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(self, axes)?;
+    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        let shape = expand_dims(&self, axes)?;
 
         Ok(Self {
-            context: self.context.clone(),
-            data: self.data.clone(),
+            context: self.context,
+            data: self.data,
             shape,
         })
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self, Error> {
+    fn reshape(self, shape: Shape) -> Result<Self, Error> {
         if shape.iter().product::<usize>() == self.size() {
             Ok(Self {
-                context: self.context.clone(),
+                context: self.context,
                 shape,
-                data: self.data.clone(),
+                data: self.data,
             })
         } else {
             Err(Error::Bounds(format!(
@@ -545,19 +583,19 @@ where
         }
     }
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
-        ArraySlice::new(self.clone(), bounds)
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
+        ArraySlice::new(self, bounds)
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
-        let axes = permutation(self, axes)?;
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
+        let axes = permutation(&self, axes)?;
 
         let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
 
         let source_strides = strides_for(&self.shape, self.ndim());
         let strides = axes.into_iter().map(|x| source_strides[x]).collect();
 
-        ArrayView::new(self.clone(), shape, strides)
+        ArrayView::new(self, shape, strides)
     }
 }
 
@@ -804,32 +842,25 @@ impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
     }
 }
 
-impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op>
-where
-    Self: Clone,
-    Op: Clone,
-{
+impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op> {
     type Broadcast = ArrayView<Self>;
     type Expand = Self;
     type Reshape = Self;
     type Slice = ArraySlice<Self>;
     type Transpose = ArrayView<Self>;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
-        ArrayView::broadcast(self.clone(), shape)
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
+        ArrayView::broadcast(self, shape)
     }
 
-    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(self, axes)?;
+    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        let shape = expand_dims(&self, axes)?;
         self.reshape(shape)
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error> {
+    fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error> {
         if shape.iter().product::<usize>() == self.size() {
-            Ok(Self {
-                shape,
-                op: self.op.clone(),
-            })
+            Ok(Self { shape, op: self.op })
         } else {
             Err(Error::Bounds(format!(
                 "cannot reshape {:?} into {:?} (wrong size)",
@@ -838,16 +869,16 @@ where
         }
     }
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self.clone(), bounds)
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        ArraySlice::new(self, bounds)
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(self, axes)?;
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
+        let axes = permutation(&self, axes)?;
         let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
         let strides = strides_for(self.shape(), self.ndim());
         let strides = axes.into_iter().map(|x| strides[x]).collect();
-        ArrayView::new(self.clone(), shape, strides)
+        ArrayView::new(self, shape, strides)
     }
 }
 
@@ -1121,30 +1152,27 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     }
 }
 
-impl<A: NDArray + fmt::Debug> NDArrayTransform for ArraySlice<A>
-where
-    Self: NDArrayRead + Clone,
-{
+impl<A: NDArrayRead + fmt::Debug> NDArrayTransform for ArraySlice<A> {
     type Broadcast = ArrayView<Self>;
     type Expand = ArrayView<Self>;
     type Reshape = ArrayView<Self>;
     type Slice = ArraySlice<Self>;
     type Transpose = ArrayView<Self>;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
-        ArrayView::broadcast(self.clone(), shape)
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
+        ArrayView::broadcast(self, shape)
     }
 
-    fn expand_dims(&self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(self, axes)?;
+    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
+        let shape = expand_dims(&self, axes)?;
         let strides = strides_for(&shape, shape.len());
-        ArrayView::new(self.clone(), shape, strides)
+        ArrayView::new(self, shape, strides)
     }
 
-    fn reshape(&self, shape: Shape) -> Result<ArrayView<Self>, Error> {
+    fn reshape(self, shape: Shape) -> Result<ArrayView<Self>, Error> {
         if shape.iter().product::<usize>() == self.size() {
             let strides = strides_for(&shape, shape.len());
-            ArrayView::new(self.clone(), shape, strides)
+            ArrayView::new(self, shape, strides)
         } else {
             Err(Error::Bounds(format!(
                 "cannot reshape {:?} into {:?}",
@@ -1153,15 +1181,15 @@ where
         }
     }
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self.clone(), bounds)
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        ArraySlice::new(self, bounds)
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(self, axes)?;
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
+        let axes = permutation(&self, axes)?;
         let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
         let strides = axes.into_iter().map(|x| self.strides[x]).collect();
-        ArrayView::new(self.clone(), shape, strides)
+        ArrayView::new(self, shape, strides)
     }
 }
 
@@ -1491,17 +1519,14 @@ impl<A: NDArrayRead> Not for ArrayView<A> {
     }
 }
 
-impl<A: NDArray + Clone + fmt::Debug> NDArrayTransform for ArrayView<A>
-where
-    Self: NDArrayRead + Clone,
-{
+impl<A: NDArrayRead + fmt::Debug> NDArrayTransform for ArrayView<A> {
     type Broadcast = Self;
     type Expand = Self;
     type Reshape = ArrayView<Self>;
     type Slice = ArraySlice<Self>;
     type Transpose = Self;
 
-    fn broadcast(&self, shape: Shape) -> Result<Self::Broadcast, Error> {
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
         if shape.len() < self.ndim() {
             return Err(Error::Bounds(format!(
                 "cannot broadcast {:?} into {:?}",
@@ -1527,10 +1552,10 @@ where
 
         debug_assert_eq!(strides.len(), shape.len());
 
-        ArrayView::new(self.source.clone(), shape, strides)
+        ArrayView::new(self.source, shape, strides)
     }
 
-    fn expand_dims(&self, mut axes: Vec<usize>) -> Result<Self::Expand, Error> {
+    fn expand_dims(self, mut axes: Vec<usize>) -> Result<Self::Expand, Error> {
         axes.sort();
 
         if axes.last().copied() > Some(self.ndim()) {
@@ -1553,23 +1578,23 @@ where
 
         debug_assert_eq!(shape.len(), strides.len());
 
-        ArrayView::new(self.source.clone(), shape, strides)
+        ArrayView::new(self.source, shape, strides)
     }
 
-    fn reshape(&self, shape: Shape) -> Result<Self::Reshape, Error> {
+    fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error> {
         let strides = strides_for(&shape, shape.len());
-        ArrayView::new(self.clone(), shape, strides)
+        ArrayView::new(self, shape, strides)
     }
 
-    fn slice(&self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self.clone(), bounds)
+    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
+        ArraySlice::new(self, bounds)
     }
 
-    fn transpose(&self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(self, axes)?;
+    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
+        let axes = permutation(&self, axes)?;
         let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
         let strides = axes.into_iter().map(|x| self.strides[x]).collect();
-        ArrayView::new(self.source.clone(), shape, strides)
+        ArrayView::new(self.source, shape, strides)
     }
 }
 

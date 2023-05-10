@@ -103,5 +103,5 @@ fn constant<T: CDatatype>(
     shape: Vec<usize>,
 ) -> Result<ArrayBase<Arc<Vec<T>>>, Error> {
     let size = shape.iter().product();
-    ArrayBase::with_context(context, shape, Arc::new(vec![value; size]))
+    ArrayBase::<Arc<Vec<_>>>::with_context(context, shape, Arc::new(vec![value; size]))
 }

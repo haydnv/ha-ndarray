@@ -14,8 +14,6 @@ use super::{CDatatype, Error, Queue};
 
 pub trait BufferInstance: Clone + Send + Sync {
     type DType: CDatatype;
-
-    fn size(&self) -> usize;
 }
 
 pub trait BufferReduce {
@@ -48,7 +46,7 @@ impl<'a, T: Clone> SliceConverter<'a, T> {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Self::Vec(vec) => vec.len(),
             Self::Slice(slice) => slice.len(),
@@ -125,11 +123,11 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => buffer.len(),
-            Self::Host(buffer) => buffer.size(),
+            Self::Host(buffer) => buffer.len(),
         }
     }
 
@@ -270,10 +268,6 @@ impl<'a, T: CDatatype> From<&'a Buffer<T>> for BufferConverter<'a, T> {
 
 impl<T: CDatatype> BufferInstance for Vec<T> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        self.len()
-    }
 }
 
 impl<T: CDatatype> BufferReduce for Vec<T> {
@@ -358,28 +352,15 @@ impl<T: CDatatype> BufferReduce for [T] {
 
 impl<T: CDatatype> BufferInstance for Arc<Vec<T>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        self.len()
-    }
 }
 
 impl<T: CDatatype> BufferInstance for Arc<RwLock<Vec<T>>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        let data = RwLock::read(self).expect("read buffer");
-        data.len()
-    }
 }
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> BufferInstance for ocl::Buffer<T> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        self.len()
-    }
 }
 
 #[cfg(feature = "opencl")]
@@ -436,20 +417,11 @@ impl<T: CDatatype> BufferReduce for ocl::Buffer<T> {
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> BufferInstance for Arc<ocl::Buffer<T>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        self.len()
-    }
 }
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> BufferInstance for Arc<RwLock<ocl::Buffer<T>>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        let data = RwLock::read(self).expect("read buffer");
-        data.len()
-    }
 }
 
 #[cfg(feature = "opencl")]
@@ -506,10 +478,6 @@ macro_rules! buffer_dispatch {
 
 impl<T: CDatatype> BufferInstance for Buffer<T> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        buffer_dispatch!(self, this, this.size())
-    }
 }
 
 impl<T: CDatatype> BufferReduce for Buffer<T> {
@@ -542,23 +510,10 @@ impl<T: CDatatype> BufferReduce for Buffer<T> {
 
 impl<T: CDatatype> BufferInstance for Arc<Buffer<T>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        match &**self {
-            Buffer::Host(buffer) => buffer.len(),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(buffer) => buffer.len(),
-        }
-    }
 }
 
 impl<T: CDatatype> BufferInstance for Arc<RwLock<Buffer<T>>> {
     type DType = T;
-
-    fn size(&self) -> usize {
-        let data = RwLock::read(self).expect("read buffer");
-        data.size()
-    }
 }
 
 #[cfg(feature = "opencl")]
