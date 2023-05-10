@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
-pub trait BufferInstance: Clone + Send + Sync {
+pub trait BufferInstance: Send + Sync {
     type DType: CDatatype;
 }
 
@@ -513,6 +513,16 @@ impl<T: CDatatype> BufferInstance for Arc<Buffer<T>> {
 }
 
 impl<T: CDatatype> BufferInstance for Arc<RwLock<Buffer<T>>> {
+    type DType = T;
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CDatatype> BufferInstance for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
+    type DType = T;
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CDatatype> BufferInstance for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
     type DType = T;
 }
 

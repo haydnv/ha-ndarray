@@ -159,6 +159,56 @@ construct_array_lock!(Vec<T>);
 construct_array_lock!(ocl::Buffer<T>);
 construct_array_lock!(Buffer<T>);
 
+#[cfg(feature = "freqfs")]
+impl<FE, T: CDatatype> ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>> {
+    pub fn new(
+        shape: Shape,
+        data: freqfs::FileReadGuardOwned<FE, Buffer<T>>,
+    ) -> Result<Self, Error> {
+        Context::default().and_then(|context| Self::with_context(context, shape, data))
+    }
+
+    pub fn with_context(
+        context: Context,
+        shape: Shape,
+        data: freqfs::FileReadGuardOwned<FE, Buffer<T>>,
+    ) -> Result<Self, Error> {
+        Self::new_inner(context, shape, data.len(), data)
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>> {
+    pub fn new(
+        shape: Shape,
+        data: freqfs::FileWriteGuardOwned<FE, Buffer<T>>,
+    ) -> Result<Self, Error> {
+        Context::default().and_then(|context| Self::with_context(context, shape, data))
+    }
+
+    pub fn with_context(
+        context: Context,
+        shape: Shape,
+        data: freqfs::FileWriteGuardOwned<FE, Buffer<T>>,
+    ) -> Result<Self, Error> {
+        Self::new_inner(context, shape, data.len(), data)
+    }
+
+    pub fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+        if self.shape == other.shape() {
+            let queue = Queue::new(self.context().clone(), self.size())?;
+            let buffer = other.read(&queue)?;
+            debug_assert_eq!(self.data.len(), buffer.len());
+            self.data.write(buffer)
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot write {:?} to {:?}",
+                other, self
+            )))
+        }
+    }
+}
+
 impl<T: CDatatype> ArrayBase<Vec<T>> {
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
