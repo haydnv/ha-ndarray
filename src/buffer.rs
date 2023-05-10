@@ -16,6 +16,48 @@ pub trait BufferInstance: Send + Sync {
     type DType: CDatatype;
 }
 
+impl<B: BufferInstance + ?Sized> BufferInstance for Box<B> {
+    type DType = B::DType;
+}
+
+pub trait BufferRead: BufferInstance {
+    fn read(&self) -> BufferConverter<Self::DType>;
+}
+
+impl<T: CDatatype> BufferRead for Arc<Vec<T>> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        SliceConverter::Slice(self).into()
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferRead for Arc<ocl::Buffer<T>> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        CLConverter::Borrowed(self).into()
+    }
+}
+
+impl<T: CDatatype> BufferRead for Arc<Buffer<T>> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        match &**self {
+            Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE, T: CDatatype> BufferRead for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        match &*self {
+            Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
+    }
+}
+
 pub trait BufferReduce {
     type DType: CDatatype;
 
@@ -217,6 +259,19 @@ impl<'a, T: CDatatype> BufferReduce for BufferConverter<'a, T> {
 
     fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
         buffer_reduce!(self, this, this.sum(queue))
+    }
+}
+
+impl<'a, T: CDatatype> From<SliceConverter<'a, T>> for BufferConverter<'a, T> {
+    fn from(buffer: SliceConverter<'a, T>) -> Self {
+        Self::Host(buffer)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> From<CLConverter<'a, T>> for BufferConverter<'a, T> {
+    fn from(buffer: CLConverter<'a, T>) -> Self {
+        Self::CL(buffer)
     }
 }
 

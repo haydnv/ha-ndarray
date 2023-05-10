@@ -7,13 +7,12 @@ use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    strides_for, AxisBound, Buffer, BufferConverter, BufferInstance, CDatatype, Context, Error,
-    NDArray, NDArrayRead, NDArrayTransform, Queue, Shape,
+    strides_for, AxisBound, Buffer, BufferConverter, BufferInstance, BufferRead, CDatatype,
+    Context, Error, NDArray, NDArrayRead, NDArrayTransform, Queue, Shape,
 };
 
-#[derive(Clone)]
 pub enum Array<T: CDatatype> {
-    Base(ArrayBase<Arc<Buffer<T>>>),
+    Base(ArrayBase<Box<dyn BufferRead<DType = T>>>),
     Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
     Slice(Box<ArraySlice<Self>>),
     View(Box<ArrayView<Self>>),
@@ -509,6 +508,12 @@ impl<Buf: BufferInstance> NDArray for ArrayBase<Buf> {
     }
 }
 
+impl<T: CDatatype> NDArrayRead for ArrayBase<Box<dyn BufferRead<DType = T>>> {
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
+        Ok(self.data.read())
+    }
+}
+
 impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data[..]))
@@ -763,6 +768,16 @@ impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Arc<Vec<T>>> {
     }
 }
 
+impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Box<dyn BufferRead<DType = T>>> {
+    fn from(base: ArrayBase<Vec<T>>) -> Self {
+        ArrayBase {
+            context: base.context,
+            data: Box::new(Arc::new(base.data)),
+            shape: base.shape,
+        }
+    }
+}
+
 impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Buffer<T>> {
     fn from(base: ArrayBase<Vec<T>>) -> Self {
         ArrayBase {
@@ -816,6 +831,17 @@ impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Arc<Buffer<T>>>
     }
 }
 
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Box<dyn BufferRead<DType = T>>> {
+    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
+        ArrayBase {
+            context: base.context,
+            data: Box::new(Arc::new(base.data)),
+            shape: base.shape,
+        }
+    }
+}
+
 impl<T: CDatatype> From<ArrayBase<Buffer<T>>> for ArrayBase<Arc<Buffer<T>>> {
     fn from(base: ArrayBase<Buffer<T>>) -> Self {
         ArrayBase {
@@ -841,12 +867,26 @@ impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for Array<T> {
 
 impl<T: CDatatype> From<ArrayBase<Buffer<T>>> for Array<T> {
     fn from(base: ArrayBase<Buffer<T>>) -> Self {
-        Self::Base(base.into())
+        Self::Base(ArrayBase {
+            context: base.context,
+            shape: base.shape,
+            data: Box::new(Arc::new(base.data)),
+        })
     }
 }
 
 impl<T: CDatatype> From<ArrayBase<Arc<Buffer<T>>>> for Array<T> {
     fn from(base: ArrayBase<Arc<Buffer<T>>>) -> Self {
+        Self::Base(ArrayBase {
+            context: base.context,
+            shape: base.shape,
+            data: Box::new(base.data),
+        })
+    }
+}
+
+impl<T: CDatatype> From<ArrayBase<Box<dyn BufferRead<DType = T>>>> for Array<T> {
+    fn from(base: ArrayBase<Box<dyn BufferRead<DType = T>>>) -> Self {
         Self::Base(base)
     }
 }
