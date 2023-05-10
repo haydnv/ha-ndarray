@@ -97,7 +97,6 @@ pub fn reduce<T: CDatatype>(
     if input.len() < min_size {
         let mut result = vec![init; input.len()];
         input.read(&mut result).enq()?;
-
         return Ok(result.into_par_iter().reduce(|| init, collector));
     }
 

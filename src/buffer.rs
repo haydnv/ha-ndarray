@@ -275,46 +275,28 @@ impl<T: CDatatype> BufferInstance for Vec<T> {
 impl<T: CDatatype> BufferReduce for Vec<T> {
     type DType = T;
 
-    fn all(&self, _queue: &Queue) -> Result<bool, Error> {
-        let zero = Self::DType::zero();
-        Ok(self.par_iter().copied().all(|n| n != zero))
+    fn all(&self, queue: &Queue) -> Result<bool, Error> {
+        self.as_slice().all(queue)
     }
 
-    fn any(&self, _queue: &Queue) -> Result<bool, Error> {
-        let zero = Self::DType::zero();
-        Ok(self.par_iter().copied().any(|n| n != zero))
+    fn any(&self, queue: &Queue) -> Result<bool, Error> {
+        self.as_slice().any(queue)
     }
 
-    fn max(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        let collector = |l, r| {
-            if r > l {
-                r
-            } else {
-                l
-            }
-        };
-
-        Ok(self.par_iter().copied().reduce(T::min, collector))
+    fn max(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        self.as_slice().max(queue)
     }
 
-    fn min(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        let collector = |l, r| {
-            if r < l {
-                r
-            } else {
-                l
-            }
-        };
-
-        Ok(self.par_iter().copied().reduce(T::max, collector))
+    fn min(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        self.as_slice().min(queue)
     }
 
-    fn product(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        Ok(self.par_iter().copied().reduce(T::one, Mul::mul))
+    fn product(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        self.as_slice().product(queue)
     }
 
-    fn sum(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        Ok(self.par_iter().copied().reduce(T::zero, Add::add))
+    fn sum(&self, queue: &Queue) -> Result<Self::DType, Error> {
+        self.as_slice().sum(queue)
     }
 }
 
@@ -356,11 +338,17 @@ impl<T: CDatatype> BufferReduce for [T] {
     }
 
     fn product(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        Ok(self.par_iter().copied().reduce(T::one, Mul::mul))
+        Ok(self
+            .par_chunks(8)
+            .map(|chunk| chunk.into_iter().copied().fold(T::one(), Mul::mul))
+            .reduce(T::one, Mul::mul))
     }
 
     fn sum(&self, _queue: &Queue) -> Result<Self::DType, Error> {
-        Ok(self.par_iter().copied().reduce(T::zero, Add::add))
+        Ok(self
+            .par_chunks(8)
+            .map(|chunk| chunk.into_iter().copied().fold(T::zero(), Add::add))
+            .reduce(T::zero, Add::add))
     }
 }
 
