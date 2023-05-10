@@ -13,7 +13,7 @@ categories = ["data-structures", "hardware-support", "mathematics"]
 
 [features]
 opencl = ["ocl"]
-stream = ["async-trait", "destream"]
+stream = ["async-trait", "destream", "futures"]
 
 [build-dependencies]
 pkg-config = "0.3"
@@ -21,6 +21,7 @@ pkg-config = "0.3"
 [dependencies]
 async-trait = { version = "0.1", optional = true }
 destream = { path = "../destream", optional = true }
+futures = { version = "0.3", optional = true }
 num_cpus = "1.15"
 ocl = { version = "0.19", optional = true }
 rand = "0.8"

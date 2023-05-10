@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 #[cfg(feature = "stream")]
 use async_trait::async_trait;
 #[cfg(feature = "stream")]
-use destream::de;
+use destream::{de, en};
 use rayon::prelude::*;
 
 #[cfg(feature = "opencl")]
@@ -588,7 +588,7 @@ impl<T> BufferVisitor<T> {
 
 #[cfg(feature = "stream")]
 macro_rules! decode_buffer {
-    ($t:ty, $name:expr, $decode:ident, $visit:ident) => {
+    ($t:ty, $name:expr, $decode:ident, $visit:ident, $encode:ident) => {
         #[async_trait]
         impl de::Visitor for BufferVisitor<$t> {
             type Value = Buffer<$t>;
@@ -629,18 +629,60 @@ macro_rules! decode_buffer {
                 decoder.$decode(BufferVisitor::<$t>::new()).await
             }
         }
+
+        impl<'en> en::ToStream<'en> for Buffer<$t> {
+            fn to_stream<E: en::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
+                match self {
+                    Self::Host(buffer) => {
+                        let chunk = buffer.into_iter().copied();
+                        let fut = futures::future::ready(chunk);
+                        let stream = futures::stream::once(fut);
+                        encoder.$encode(stream)
+                    }
+                    #[cfg(feature = "opencl")]
+                    Self::CL(buffer) => {
+                        let mut data = Vec::with_capacity(buffer.len());
+                        buffer.read(&mut data).enq().map_err(en::Error::custom)?;
+                        encoder.$encode(futures::stream::once(futures::future::ready(data)))
+                    }
+                }
+            }
+        }
+
+        impl<'en> en::IntoStream<'en> for Buffer<$t> {
+            fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
+                match self {
+                    Self::Host(buffer) => {
+                        encoder.$encode(futures::stream::once(futures::future::ready(buffer)))
+                    }
+                    #[cfg(feature = "opencl")]
+                    Self::CL(buffer) => {
+                        let mut data = Vec::with_capacity(buffer.len());
+                        buffer.read(&mut data).enq().map_err(en::Error::custom)?;
+                        encoder.$encode(futures::stream::once(futures::future::ready(data)))
+                    }
+                }
+            }
+        }
     };
 }
 
 #[cfg(feature = "stream")]
-decode_buffer!(u8, "byte array", decode_array_u8, visit_array_u8);
+decode_buffer!(
+    u8,
+    "byte array",
+    decode_array_u8,
+    visit_array_u8,
+    encode_array_u8
+);
 
 #[cfg(feature = "stream")]
 decode_buffer!(
     u16,
     "16-bit unsigned int array",
     decode_array_u16,
-    visit_array_u16
+    visit_array_u16,
+    encode_array_u16
 );
 
 #[cfg(feature = "stream")]
@@ -648,7 +690,8 @@ decode_buffer!(
     u32,
     "32-bit unsigned int array",
     decode_array_u32,
-    visit_array_u32
+    visit_array_u32,
+    encode_array_u32
 );
 
 #[cfg(feature = "stream")]
@@ -656,23 +699,54 @@ decode_buffer!(
     u64,
     "64-bit unsigned int array",
     decode_array_u64,
-    visit_array_u64
+    visit_array_u64,
+    encode_array_u64
 );
 
 #[cfg(feature = "stream")]
-decode_buffer!(i16, "16-bit int array", decode_array_i16, visit_array_i16);
+decode_buffer!(
+    i16,
+    "16-bit int array",
+    decode_array_i16,
+    visit_array_i16,
+    encode_array_i16
+);
 
 #[cfg(feature = "stream")]
-decode_buffer!(i32, "32-bit int array", decode_array_i32, visit_array_i32);
+decode_buffer!(
+    i32,
+    "32-bit int array",
+    decode_array_i32,
+    visit_array_i32,
+    encode_array_i32
+);
 
 #[cfg(feature = "stream")]
-decode_buffer!(i64, "64-bit int array", decode_array_i64, visit_array_i64);
+decode_buffer!(
+    i64,
+    "64-bit int array",
+    decode_array_i64,
+    visit_array_i64,
+    encode_array_i64
+);
 
 #[cfg(feature = "stream")]
-decode_buffer!(f32, "32-bit int array", decode_array_f32, visit_array_f32);
+decode_buffer!(
+    f32,
+    "32-bit int array",
+    decode_array_f32,
+    visit_array_f32,
+    encode_array_f32
+);
 
 #[cfg(feature = "stream")]
-decode_buffer!(f64, "64-bit int array", decode_array_f64, visit_array_f64);
+decode_buffer!(
+    f64,
+    "64-bit int array",
+    decode_array_f64,
+    visit_array_f64,
+    encode_array_f64
+);
 
 impl<T: CDatatype + fmt::Debug> fmt::Debug for Buffer<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
