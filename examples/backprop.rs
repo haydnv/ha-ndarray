@@ -36,7 +36,7 @@ fn main() -> Result<(), Error> {
 
     let d_loss = error * 2.;
     let weights_t = weights.clone().transpose(None)?;
-    let gradient = d_loss.matmul(weights_t.clone())?;
+    let gradient = d_loss.matmul(weights_t)?;
     let deltas = gradient.sum_axis(0)?.expand_dims(vec![1])?;
     let new_weights = weights.clone().add(deltas * LEARNING_RATE)?;
 

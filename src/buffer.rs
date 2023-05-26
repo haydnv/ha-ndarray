@@ -48,9 +48,9 @@ impl<T: CDatatype> BufferRead for Arc<Buffer<T>> {
 }
 
 #[cfg(feature = "freqfs")]
-impl<FE, T: CDatatype> BufferRead for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
+impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
-        match &*self {
+        match &**self {
             Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
             #[cfg(feature = "opencl")]
             Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
@@ -518,6 +518,20 @@ impl<T: CDatatype> Buffer<T> {
         }
 
         Ok(())
+    }
+
+    pub fn write_value(&mut self, offset: usize, value: T) -> Result<(), Error> {
+        match self {
+            Self::Host(this) => {
+                this[offset] = value;
+                Ok(())
+            }
+            #[cfg(feature = "ocl")]
+            Self::CL(this) => {
+                let this = this.create_sub_buffer(None, offset, 1)?;
+                this.write(&vec![value]).enq().map_err(Error::from)
+            }
+        }
     }
 }
 

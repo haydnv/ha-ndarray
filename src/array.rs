@@ -75,6 +75,21 @@ impl<T: CDatatype> NDArrayTransform for Array<T> {
     }
 }
 
+#[cfg(feature = "freqfs")]
+impl<FE, T> From<ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>> for Array<T>
+where
+    FE: Send + Sync + 'static,
+    T: CDatatype,
+{
+    fn from(base: ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>) -> Self {
+        Self::Base(ArrayBase {
+            context: base.context,
+            shape: base.shape,
+            data: Box::new(base.data),
+        })
+    }
+}
+
 impl<T: CDatatype> fmt::Debug for Array<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         array_dispatch!(self, this, this.fmt(f))
@@ -206,6 +221,12 @@ impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Bu
             )))
         }
     }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, &self.shape);
+        self.data.write_value(offset, value)
+    }
 }
 
 impl<T: CDatatype> ArrayBase<Vec<T>> {
@@ -248,6 +269,15 @@ impl<T: CDatatype> ArrayBase<Vec<T>> {
                 other, self
             )))
         }
+    }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+
+        let offset = offset_of(coord, &self.shape);
+        self.data[offset] = value;
+
+        Ok(())
     }
 }
 
@@ -312,6 +342,14 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
             )))
         }
     }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let mut data = self.data.write().expect("write buffer");
+        let offset = offset_of(coord, &self.shape);
+        data[offset] = value;
+        Ok(())
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -349,6 +387,13 @@ impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
                 other, self
             )))
         }
+    }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, &self.shape);
+        let data = self.data.create_sub_buffer(None, offset, 1)?;
+        data.write(&vec![value]).enq().map_err(Error::from)
     }
 }
 
@@ -413,6 +458,14 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
             )))
         }
     }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let data = self.data.write().expect("write buffer");
+        let offset = offset_of(coord, &self.shape);
+        let data = data.create_sub_buffer(None, offset, 1)?;
+        data.write(&vec![value]).enq().map_err(Error::from)
+    }
 }
 
 impl<T: CDatatype> ArrayBase<Buffer<T>> {
@@ -443,6 +496,12 @@ impl<T: CDatatype> ArrayBase<Buffer<T>> {
                 other, self
             )))
         }
+    }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, &self.shape);
+        self.data.write_value(offset, value)
     }
 }
 
@@ -493,6 +552,13 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
                 other, self
             )))
         }
+    }
+
+    pub fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+        validate_coord(self, coord)?;
+        let mut data = self.data.write().expect("write buffer");
+        let offset = offset_of(coord, &self.shape);
+        data.write_value(offset, value)
     }
 }
 
@@ -596,6 +662,17 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
                 Ok(BufferConverter::from(copy))
             }
         }
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE, T> NDArrayRead for ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>
+where
+    FE: Send + Sync,
+    T: CDatatype,
+{
+    fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
+        Ok(self.data.read())
     }
 }
 
@@ -1741,6 +1818,24 @@ fn expand_dims<A: NDArray + fmt::Debug>(source: &A, mut axes: Vec<usize>) -> Res
 }
 
 #[inline]
+fn offset_of(coord: &[usize], shape: &[usize]) -> usize {
+    let strides = shape.iter().enumerate().map(|(x, dim)| {
+        if *dim == 1 {
+            0
+        } else {
+            shape.iter().rev().take(shape.len() - 1 - x).product()
+        }
+    });
+
+    coord
+        .iter()
+        .copied()
+        .zip(strides)
+        .map(|(i, dim)| i * dim)
+        .sum()
+}
+
+#[inline]
 fn permutation<A: NDArray + fmt::Debug>(
     source: &A,
     axes: Option<Vec<usize>>,
@@ -1761,5 +1856,17 @@ fn permutation<A: NDArray + fmt::Debug>(
         }
     } else {
         Ok((0..ndim).into_iter().rev().collect())
+    }
+}
+
+#[inline]
+fn validate_coord<A: NDArray + fmt::Debug>(array: &A, coord: &[usize]) -> Result<(), Error> {
+    if coord.len() == array.ndim() || coord.iter().zip(array.shape()).all(|(i, dim)| i < dim) {
+        Ok(())
+    } else {
+        Err(Error::Bounds(format!(
+            "invalid coordinate for {:?}: {:?}",
+            array, coord
+        )))
     }
 }
