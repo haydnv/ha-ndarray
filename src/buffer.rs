@@ -58,6 +58,17 @@ impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileReadGuardOwned<FE
     }
 }
 
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        match &**self {
+            Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
+    }
+}
+
 pub trait BufferReduce {
     type DType: CDatatype;
 

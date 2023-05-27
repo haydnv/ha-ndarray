@@ -90,6 +90,21 @@ where
     }
 }
 
+#[cfg(feature = "freqfs")]
+impl<FE, T> From<ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>> for Array<T>
+where
+    FE: Send + Sync + 'static,
+    T: CDatatype,
+{
+    fn from(base: ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>) -> Self {
+        Self::Base(ArrayBase {
+            context: base.context,
+            shape: base.shape,
+            data: Box::new(base.data),
+        })
+    }
+}
+
 impl<T: CDatatype> fmt::Debug for Array<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         array_dispatch!(self, this, this.fmt(f))
