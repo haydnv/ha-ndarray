@@ -590,6 +590,12 @@ pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     }
 }
 
+pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
+    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error>;
+
+    fn write_value(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
+}
+
 pub trait NDArrayBoolean<O>: NDArray + Sized
 where
     O: NDArray<DType = Self::DType>,

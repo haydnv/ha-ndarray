@@ -9,7 +9,7 @@ const NUM_EXAMPLES: usize = 2048;
 fn main() -> Result<(), Error> {
     let weights = RandomNormal::new(2)?;
     let weights = ArrayOp::new(vec![2, 1], weights) - 0.5;
-    let weights = ArrayBase::<Arc<RwLock<Buffer<f32>>>>::copy(&weights)?;
+    let mut weights = ArrayBase::<Arc<RwLock<Buffer<f32>>>>::copy(&weights)?;
 
     let inputs = RandomUniform::new(NUM_EXAMPLES * 2)?;
     let inputs = ArrayOp::new(vec![NUM_EXAMPLES, 2], inputs) * 2.;

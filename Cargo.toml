@@ -12,6 +12,7 @@ keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["data-structures", "hardware-support", "mathematics"]
 
 [features]
+all = ["freqfs", "opencl", "stream"]
 opencl = ["ocl"]
 stream = ["async-trait", "destream", "futures"]
 
