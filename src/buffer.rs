@@ -1,6 +1,6 @@
-use std::fmt;
 use std::ops::{Add, Mul};
 use std::sync::{Arc, RwLock};
+use std::{fmt, iter};
 
 #[cfg(feature = "stream")]
 use async_trait::async_trait;
@@ -531,13 +531,29 @@ impl<T: CDatatype> Buffer<T> {
         Ok(())
     }
 
-    pub fn write_value(&mut self, offset: usize, value: T) -> Result<(), Error> {
+    pub fn write_value(&mut self, value: T) -> Result<(), Error> {
+        match self {
+            Self::Host(this) => {
+                let len = this.len();
+                this.clear();
+                this.extend(iter::repeat(value).take(len));
+                Ok(())
+            }
+            #[cfg(feature = "opencl")]
+            Self::CL(this) => this
+                .write(&vec![value; this.len()])
+                .enq()
+                .map_err(Error::from),
+        }
+    }
+
+    pub fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             Self::Host(this) => {
                 this[offset] = value;
                 Ok(())
             }
-            #[cfg(feature = "ocl")]
+            #[cfg(feature = "opencl")]
             Self::CL(this) => {
                 let this = this.create_sub_buffer(None, offset, 1)?;
                 this.write(&vec![value]).enq().map_err(Error::from)

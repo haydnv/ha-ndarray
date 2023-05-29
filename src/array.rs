@@ -434,7 +434,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        let len = self.data.len();
+        self.data.clear();
+        self.data.extend(iter::repeat(value).take(len));
+        Ok(())
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
 
         let offset = offset_of(coord, &self.shape);
@@ -474,7 +481,15 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        let mut data = self.data.write().expect("write buffer");
+        let len = data.len();
+        data.clear();
+        data.extend(iter::repeat(value).take(len));
+        Ok(())
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
 
         let mut data = self.data.write().expect("write buffer");
@@ -515,7 +530,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        self.data
+            .write(&vec![value; self.data.len()])
+            .enq()
+            .map_err(Error::from)
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         let data = self.data.create_sub_buffer(None, offset, 1)?;
@@ -571,7 +593,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        let mut data = self.data.write().expect("write buffer");
+        data.write(&vec![value; data.len()])
+            .enq()
+            .map_err(Error::from)
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         let data = self.data.write().expect("write buffer");
@@ -601,10 +630,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        self.data.write_value(value)
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
-        self.data.write_value(offset, value)
+        self.data.write_value_at(offset, value)
     }
 }
 
@@ -653,11 +686,16 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        let mut data = self.data.write().expect("write buffer");
+        data.write_value(value)
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
-        data.write_value(offset, value)
+        data.write_value_at(offset, value)
     }
 }
 
@@ -703,10 +741,14 @@ where
         }
     }
 
-    fn write_value(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        self.data.write_value(value)
+    }
+
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
-        self.data.write_value(offset, value)
+        self.data.write_value_at(offset, value)
     }
 }
 
