@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul};
+use std::ops::{Add, Deref, DerefMut, Mul};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
@@ -12,6 +12,17 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
+pub trait AsBuffer<'a> {
+    type DType: CDatatype;
+    type Buffer: BufferRead + BufferWrite;
+    type Read: Deref<Target = Self::Buffer>;
+    type Write: DerefMut<Target = Self::Buffer>;
+
+    fn read_buffer(&'a self) -> Self::Read;
+
+    fn write_buffer(&'a mut self) -> Self::Write;
+}
+
 pub trait BufferInstance: Send + Sync {
     type DType: CDatatype;
 }
@@ -24,6 +35,12 @@ pub trait BufferRead: BufferInstance {
     fn read(&self) -> BufferConverter<Self::DType>;
 }
 
+impl<T: CDatatype> BufferRead for Vec<T> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        SliceConverter::Slice(self).into()
+    }
+}
+
 impl<T: CDatatype> BufferRead for Arc<Vec<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
         SliceConverter::Slice(self).into()
@@ -34,6 +51,16 @@ impl<T: CDatatype> BufferRead for Arc<Vec<T>> {
 impl<T: CDatatype> BufferRead for Arc<ocl::Buffer<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
         CLConverter::Borrowed(self).into()
+    }
+}
+
+impl<T: CDatatype> BufferRead for Buffer<T> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        match self {
+            Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
     }
 }
 
