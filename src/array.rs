@@ -543,7 +543,7 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> AsBuffer for ArrayBase<ocl::Buffer<T>> {
+impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<ocl::Buffer<T>> {
     type DType = T;
     type Buffer = ocl::Buffer<T>;
     type Read = &'a ocl::Buffer<T>;
@@ -588,10 +588,10 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
-            debug_assert_eq!(data.len(), buffer.len());
+
             other
                 .read(&queue)
-                .and_then(|buffer| BufferWrite::write(&mut data, buffer))
+                .and_then(|buffer| BufferWrite::write(&mut *data, buffer))
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -614,7 +614,7 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> AsBuffer for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
+impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
     type DType = T;
     type Buffer = ocl::Buffer<T>;
     type Read = RwLockReadGuard<'a, ocl::Buffer<T>>;
@@ -1341,7 +1341,7 @@ impl<A: NDArray> ArraySlice<A> {
         let source_strides = strides_for(source.shape(), source.ndim());
 
         #[cfg(feature = "opencl")]
-        let kernel_op = crate::cl_programs::slice::<A::DType>(
+        let kernel_op = crate::cl_programs::read_slice::<A::DType>(
             source.context(),
             &shape,
             &strides,

@@ -59,7 +59,7 @@ impl<'a> fmt::Display for Bounds<'a> {
     }
 }
 
-pub fn slice<T: CDatatype>(
+pub fn read_slice<T: CDatatype>(
     context: &Context,
     shape: &[usize],
     strides: &[usize],

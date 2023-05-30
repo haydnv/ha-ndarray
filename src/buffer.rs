@@ -12,9 +12,13 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
-pub trait AsBuffer<'a> {
+pub trait AsBuffer<'a>
+where
+    BufferConverter<'a, Self::DType>: From<&'a Self::Buffer>,
+    BufferConverterMut<'a, Self::DType>: From<&'a mut Self::Buffer>,
+{
     type DType: CDatatype;
-    type Buffer: BufferRead + BufferWrite;
+    type Buffer: BufferRead + BufferWrite + 'a;
     type Read: Deref<Target = Self::Buffer>;
     type Write: DerefMut<Target = Self::Buffer>;
 
@@ -44,6 +48,13 @@ impl<T: CDatatype> BufferRead for Vec<T> {
 impl<T: CDatatype> BufferRead for Arc<Vec<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
         SliceConverter::Slice(self).into()
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferRead for ocl::Buffer<T> {
+    fn read(&self) -> BufferConverter<Self::DType> {
+        CLConverter::Borrowed(self).into()
     }
 }
 
@@ -151,13 +162,13 @@ impl<T: CDatatype> BufferWrite for ocl::Buffer<T> {
         other: O,
     ) -> Result<(), Error> {
         match other.into() {
-            BufferConverter::Host(buffer) => {
-                self.data.write(buffer.as_ref()).enq().map_err(Error::from)
-            }
+            BufferConverter::Host(buffer) => ocl::Buffer::write(self, buffer.as_ref())
+                .enq()
+                .map_err(Error::from),
             #[cfg(feature = "opencl")]
             BufferConverter::CL(buffer) => buffer
                 .as_ref()
-                .copy(&mut self.data, None, None)
+                .copy(self, None, None)
                 .enq()
                 .map_err(Error::from),
         }
@@ -170,7 +181,7 @@ impl<T: CDatatype> BufferWrite for ocl::Buffer<T> {
     }
 
     fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error> {
-        let data = self.data.create_sub_buffer(None, offset, 1)?;
+        let data = self.create_sub_buffer(None, offset, 1)?;
         data.write(&vec![value]).enq().map_err(Error::from)
     }
 }
@@ -210,6 +221,12 @@ impl<'a, T: Clone> SliceConverter<'a, T> {
             Self::Vec(vec) => vec.len(),
             Self::Slice(slice) => slice.len(),
         }
+    }
+}
+
+impl<'a, T> From<&'a Vec<T>> for SliceConverter<'a, T> {
+    fn from(slice: &'a Vec<T>) -> Self {
+        Self::Slice(slice)
     }
 }
 
@@ -335,6 +352,12 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
     }
 }
 
+impl<'a, T: CDatatype> From<&'a Vec<T>> for BufferConverter<'a, T> {
+    fn from(slice: &'a Vec<T>) -> Self {
+        Self::Host(slice.into())
+    }
+}
+
 macro_rules! buffer_reduce {
     ($this:ident, $var:ident, $call:expr) => {
         match $this {
@@ -434,6 +457,107 @@ impl<'a, T: CDatatype> From<&'a Buffer<T>> for BufferConverter<'a, T> {
             Buffer::Host(buffer) => BufferConverter::Host(SliceConverter::Slice(buffer)),
             #[cfg(feature = "opencl")]
             Buffer::CL(buffer) => BufferConverter::CL(CLConverter::Borrowed(buffer)),
+        }
+    }
+}
+
+pub enum SliceConverterMut<'a, T> {
+    Vec(Vec<T>),
+    Slice(&'a mut [T]),
+}
+
+impl<'a, T> From<&'a mut Vec<T>> for SliceConverterMut<'a, T> {
+    fn from(slice: &'a mut Vec<T>) -> Self {
+        Self::Slice(slice)
+    }
+}
+
+impl<'a, T> From<SliceConverterMut<'a, T>> for SliceConverter<'a, T> {
+    fn from(slice: SliceConverterMut<'a, T>) -> Self {
+        match slice {
+            SliceConverterMut::Vec(slice) => Self::Vec(slice),
+            SliceConverterMut::Slice(slice) => Self::Slice(slice),
+        }
+    }
+}
+
+impl<'a, T> AsMut<[T]> for SliceConverterMut<'a, T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        match self {
+            Self::Vec(data) => &mut data[..],
+            Self::Slice(slice) => slice,
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+pub enum CLConverterMut<'a, T: CDatatype> {
+    Owned(ocl::Buffer<T>),
+    Borrowed(&'a mut ocl::Buffer<T>),
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> From<&'a mut ocl::Buffer<T>> for CLConverterMut<'a, T> {
+    fn from(buffer: &'a mut ocl::Buffer<T>) -> Self {
+        Self::Borrowed(buffer)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> From<CLConverterMut<'a, T>> for CLConverter<'a, T> {
+    fn from(buffer: CLConverterMut<'a, T>) -> Self {
+        match buffer {
+            CLConverterMut::Owned(buffer) => CLConverter::Owned(buffer),
+            CLConverterMut::Borrowed(buffer) => CLConverter::Borrowed(buffer),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> AsMut<ocl::Buffer<T>> for CLConverterMut<'a, T> {
+    fn as_mut(&mut self) -> &mut ocl::Buffer<T> {
+        match self {
+            Self::Owned(buffer) => buffer,
+            Self::Borrowed(buffer) => buffer,
+        }
+    }
+}
+
+pub enum BufferConverterMut<'a, T: CDatatype> {
+    Host(SliceConverterMut<'a, T>),
+    #[cfg(feature = "opencl")]
+    CL(CLConverterMut<'a, T>),
+}
+
+impl<'a, T: CDatatype> From<&'a mut Vec<T>> for BufferConverterMut<'a, T> {
+    fn from(buffer: &'a mut Vec<T>) -> Self {
+        Self::Host(buffer.into())
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> From<&'a mut ocl::Buffer<T>> for BufferConverterMut<'a, T> {
+    fn from(buffer: &'a mut ocl::Buffer<T>) -> Self {
+        Self::CL(buffer.into())
+    }
+}
+
+impl<'a, T: CDatatype> From<&'a mut Buffer<T>> for BufferConverterMut<'a, T> {
+    fn from(buffer: &'a mut Buffer<T>) -> Self {
+        match buffer {
+            Buffer::Host(slice) => Self::Host(slice.into()),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => Self::CL(buffer.into()),
+        }
+    }
+}
+
+impl<'a, T: CDatatype> From<BufferConverterMut<'a, T>> for BufferConverter<'a, T> {
+    fn from(buffer: BufferConverterMut<'a, T>) -> Self {
+        match buffer {
+            BufferConverterMut::Host(slice) => BufferConverter::Host(slice.into()),
+            #[cfg(feature = "opencl")]
+            BufferConverterMut::CL(buffer) => BufferConverter::CL(buffer.into()),
         }
     }
 }
@@ -631,7 +755,7 @@ impl<T: CDatatype> BufferWrite for Buffer<T> {
             },
             #[cfg(feature = "opencl")]
             Self::CL(this) => match other {
-                BufferConverter::Host(that) => this.write(that.as_ref()).enq()?,
+                BufferConverter::Host(that) => this.write(that.as_ref())?,
                 BufferConverter::CL(that) => that.as_ref().copy(this, None, None).enq()?,
             },
         }
@@ -648,8 +772,7 @@ impl<T: CDatatype> BufferWrite for Buffer<T> {
                 Ok(())
             }
             #[cfg(feature = "opencl")]
-            Self::CL(this) => this
-                .write(&vec![value; this.len()])
+            Self::CL(this) => ocl::Buffer::write(this, &vec![value; this.len()])
                 .enq()
                 .map_err(Error::from),
         }
