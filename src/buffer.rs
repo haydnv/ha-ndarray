@@ -69,6 +69,85 @@ impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileWriteGuardOwned<F
     }
 }
 
+pub trait BufferWrite: BufferInstance {
+    fn write<'a, O: Into<BufferConverter<'a, Self::DType>>>(
+        &mut self,
+        other: O,
+    ) -> Result<(), Error>;
+
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error>;
+
+    fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error>;
+}
+
+impl<T: CDatatype> BufferWrite for Vec<T> {
+    fn write<'a, O: Into<BufferConverter<'a, T>>>(&mut self, other: O) -> Result<(), Error> {
+        match other.into() {
+            BufferConverter::Host(buffer) => {
+                self.copy_from_slice(buffer.as_ref());
+                Ok(())
+            }
+            #[cfg(feature = "opencl")]
+            BufferConverter::CL(buffer) => buffer
+                .as_ref()
+                .read(&mut self[..])
+                .enq()
+                .map_err(Error::from),
+        }
+    }
+
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
+        let len = self.len();
+        self.clear();
+        self.extend(iter::repeat(value).take(len));
+        Ok(())
+    }
+
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
+        if offset < self.len() {
+            self[offset] = value;
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "offset {} is out of bounds for buffer of size {}",
+                offset,
+                self.len()
+            )))
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CDatatype> BufferWrite for ocl::Buffer<T> {
+    fn write<'a, O: Into<BufferConverter<'a, Self::DType>>>(
+        &mut self,
+        other: O,
+    ) -> Result<(), Error> {
+        match other.into() {
+            BufferConverter::Host(buffer) => {
+                self.data.write(buffer.as_ref()).enq().map_err(Error::from)
+            }
+            #[cfg(feature = "opencl")]
+            BufferConverter::CL(buffer) => buffer
+                .as_ref()
+                .copy(&mut self.data, None, None)
+                .enq()
+                .map_err(Error::from),
+        }
+    }
+
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
+        ocl::Buffer::write(self, &vec![value; self.len()])
+            .enq()
+            .map_err(Error::from)
+    }
+
+    fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error> {
+        let data = self.data.create_sub_buffer(None, offset, 1)?;
+        data.write(&vec![value]).enq().map_err(Error::from)
+    }
+}
+
 pub trait BufferReduce {
     type DType: CDatatype;
 
@@ -511,8 +590,10 @@ impl<T: CDatatype> Buffer<T> {
             Self::CL(buffer) => buffer.len(),
         }
     }
+}
 
-    pub fn write<'a, O: Into<BufferConverter<'a, T>>>(&mut self, other: O) -> Result<(), Error> {
+impl<T: CDatatype> BufferWrite for Buffer<T> {
+    fn write<'a, O: Into<BufferConverter<'a, T>>>(&mut self, other: O) -> Result<(), Error> {
         let other = other.into();
 
         match self {
@@ -531,7 +612,7 @@ impl<T: CDatatype> Buffer<T> {
         Ok(())
     }
 
-    pub fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
             Self::Host(this) => {
                 let len = this.len();
@@ -547,7 +628,7 @@ impl<T: CDatatype> Buffer<T> {
         }
     }
 
-    pub fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             Self::Host(this) => {
                 this[offset] = value;
