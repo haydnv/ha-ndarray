@@ -1,4 +1,4 @@
-use std::ops::{Add, Deref, DerefMut, Mul};
+use std::ops::{Add, Mul};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
@@ -12,19 +12,10 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
-pub trait AsBuffer<'a>
-where
-    BufferConverter<'a, Self::DType>: From<&'a Self::Buffer>,
-    BufferConverterMut<'a, Self::DType>: From<&'a mut Self::Buffer>,
-{
-    type DType: CDatatype;
-    type Buffer: BufferRead + BufferWrite + 'a;
-    type Read: Deref<Target = Self::Buffer>;
-    type Write: DerefMut<Target = Self::Buffer>;
+pub trait AsBuffer: BufferInstance {
+    fn as_buffer(&self) -> BufferConverter<Self::DType>;
 
-    fn read_buffer(&'a self) -> Self::Read;
-
-    fn write_buffer(&'a mut self) -> Self::Write;
+    fn as_buffer_mut(&self) -> BufferConverterMut<Self::DType>;
 }
 
 pub trait BufferInstance: Send + Sync {
@@ -165,6 +156,7 @@ impl<T: CDatatype> BufferWrite for ocl::Buffer<T> {
             BufferConverter::Host(buffer) => ocl::Buffer::write(self, buffer.as_ref())
                 .enq()
                 .map_err(Error::from),
+
             #[cfg(feature = "opencl")]
             BufferConverter::CL(buffer) => buffer
                 .as_ref()

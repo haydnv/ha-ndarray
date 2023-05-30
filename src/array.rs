@@ -1,15 +1,15 @@
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
 
 use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    strides_for, AsBuffer, AxisBound, Buffer, BufferConverter, BufferInstance, BufferRead,
-    BufferWrite, CDatatype, Context, Error, NDArray, NDArrayRead, NDArrayTransform, NDArrayWrite,
-    Queue, Shape,
+    strides_for, AsBuffer, AxisBound, Buffer, BufferConverter, BufferConverterMut, BufferInstance,
+    BufferRead, BufferWrite, CDatatype, Context, Error, NDArray, NDArrayRead, NDArrayTransform,
+    NDArrayWrite, Queue, Shape,
 };
 
 pub enum Array<T: CDatatype> {
@@ -411,8 +411,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     }
 }
 
-impl<T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Vec<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let buffer = other.read(&queue)?;
@@ -425,29 +425,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
-    }
-}
-
-impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<Vec<T>> {
-    type DType = T;
-    type Buffer = Vec<T>;
-    type Read = &'a Vec<T>;
-    type Write = &'a mut Vec<T>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        &self.data
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        &mut self.data
     }
 }
 
@@ -464,8 +449,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Vec<T>>>> {
     }
 }
 
-impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Vec<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -478,32 +463,17 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
 
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
         data.write_value_at(offset, value)
-    }
-}
-
-impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<Arc<RwLock<Vec<T>>>> {
-    type DType = T;
-    type Buffer = Vec<T>;
-    type Read = RwLockReadGuard<'a, Vec<T>>;
-    type Write = RwLockWriteGuard<'a, Vec<T>>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        self.data.read().expect("read buffer")
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        self.data.write().expect("write buffer")
     }
 }
 
@@ -515,8 +485,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<ocl::Buffer<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
@@ -531,30 +501,14 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<ocl::Buffer<T>> {
-    type DType = T;
-    type Buffer = ocl::Buffer<T>;
-    type Read = &'a ocl::Buffer<T>;
-    type Write = &'a mut ocl::Buffer<T>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        &self.data
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        &mut self.data
     }
 }
 
@@ -583,8 +537,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -600,32 +554,16 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
         data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    type DType = T;
-    type Buffer = ocl::Buffer<T>;
-    type Read = RwLockReadGuard<'a, ocl::Buffer<T>>;
-    type Write = RwLockWriteGuard<'a, ocl::Buffer<T>>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        self.data.read().expect("read buffer")
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        self.data.write().expect("write buffer")
     }
 }
 
@@ -635,8 +573,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
     }
 }
 
-impl<T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Buffer<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             other
@@ -650,11 +588,11 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
@@ -690,8 +628,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
     }
 }
 
-impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Buffer<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -704,31 +642,16 @@ impl<T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
         data.write_value_at(offset, value)
-    }
-}
-
-impl<'a, T: CDatatype> AsBuffer<'a> for ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    type DType = T;
-    type Buffer = Buffer<T>;
-    type Read = RwLockReadGuard<'a, Buffer<T>>;
-    type Write = RwLockWriteGuard<'a, Buffer<T>>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        self.data.read().expect("read buffer")
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        self.data.write().expect("write buffer")
     }
 }
 
@@ -755,12 +678,12 @@ where
 }
 
 #[cfg(feature = "freqfs")]
-impl<FE, T> NDArrayWrite for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
+impl<'a, FE, T> NDArrayWrite<'a> for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
 where
     FE: Send + Sync,
     T: CDatatype,
 {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
+    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
@@ -775,34 +698,14 @@ where
         }
     }
 
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<'a, FE, T> AsBuffer<'a> for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
-where
-    FE: Send + Sync,
-    T: CDatatype,
-{
-    type DType = T;
-    type Buffer = Buffer<T>;
-    type Read = &'a freqfs::FileWriteGuardOwned<FE, Buffer<T>>;
-    type Write = &'a mut freqfs::FileWriteGuardOwned<FE, Buffer<T>>;
-
-    fn read_buffer(&'a self) -> Self::Read {
-        &self.data
-    }
-
-    fn write_buffer(&'a mut self) -> Self::Write {
-        &mut self.data
     }
 }
 
@@ -1290,7 +1193,11 @@ pub struct ArraySlice<A> {
     strides: Vec<usize>,
     source_strides: Vec<usize>,
     #[cfg(feature = "opencl")]
-    kernel_op: ocl::Program,
+    kernel_read_op: ocl::Program,
+    #[cfg(feature = "opencl")]
+    kernel_write_op: ocl::Program,
+    #[cfg(feature = "opencl")]
+    kernel_write_value_op: ocl::Program,
 }
 
 impl<A: NDArray> ArraySlice<A> {
@@ -1341,7 +1248,25 @@ impl<A: NDArray> ArraySlice<A> {
         let source_strides = strides_for(source.shape(), source.ndim());
 
         #[cfg(feature = "opencl")]
-        let kernel_op = crate::cl_programs::read_slice::<A::DType>(
+        let kernel_read_op = crate::cl_programs::read_slice::<A::DType>(
+            source.context(),
+            &shape,
+            &strides,
+            &bounds,
+            &source_strides,
+        )?;
+
+        #[cfg(feature = "opencl")]
+        let kernel_write_op = crate::cl_programs::write_to_slice::<A::DType>(
+            source.context(),
+            &shape,
+            &strides,
+            &bounds,
+            &source_strides,
+        )?;
+
+        #[cfg(feature = "opencl")]
+        let kernel_write_value_op = crate::cl_programs::write_value_to_slice::<A::DType>(
             source.context(),
             &shape,
             &strides,
@@ -1356,47 +1281,88 @@ impl<A: NDArray> ArraySlice<A> {
             strides,
             source_strides,
             #[cfg(feature = "opencl")]
-            kernel_op,
+            kernel_read_op,
+            #[cfg(feature = "opencl")]
+            kernel_write_op,
+            #[cfg(feature = "opencl")]
+            kernel_write_value_op,
         })
+    }
+
+    fn source_offset(
+        offset: usize,
+        strides: &[usize],
+        shape: &[usize],
+        source_strides: &[usize],
+        bounds: &[AxisBound],
+    ) -> usize {
+        let coord = strides
+            .iter()
+            .zip(shape)
+            .map(|(stride, dim)| (offset / stride) % dim)
+            .collect::<Vec<usize>>();
+
+        let mut offset = 0;
+        let mut x = 0;
+        for (stride, bound) in source_strides.iter().zip(bounds.iter()) {
+            let i = match bound {
+                AxisBound::At(i) => *i,
+                AxisBound::In(start, stop, step) => {
+                    let i = start + (coord[x] * step);
+                    debug_assert!(i < *stop);
+                    x += 1;
+                    i
+                }
+                AxisBound::Of(indices) => {
+                    let i = indices[coord[x]];
+                    x += 1;
+                    i
+                }
+            };
+
+            offset += i * stride;
+        }
+
+        offset
     }
 
     fn read_vec(&self, source: &[A::DType]) -> Result<Vec<A::DType>, Error> {
         let output = (0..self.size())
             .into_par_iter()
             .map(|offset_out| {
-                let coord = self
-                    .strides
-                    .iter()
-                    .zip(&self.shape)
-                    .map(|(stride, dim)| (offset_out / stride) % dim)
-                    .collect::<Vec<usize>>();
-
-                let mut offset_in = 0;
-                let mut x = 0;
-                for (stride, bound) in self.source_strides.iter().zip(self.bounds.iter()) {
-                    let i = match bound {
-                        AxisBound::At(i) => *i,
-                        AxisBound::In(start, stop, step) => {
-                            let i = start + (coord[x] * step);
-                            debug_assert!(i < *stop);
-                            x += 1;
-                            i
-                        }
-                        AxisBound::Of(indices) => {
-                            let i = indices[coord[x]];
-                            x += 1;
-                            i
-                        }
-                    };
-
-                    offset_in += i * stride;
-                }
+                let offset_in = Self::source_offset(
+                    offset_out,
+                    &self.strides,
+                    &self.shape,
+                    &self.source_strides,
+                    &self.bounds,
+                );
 
                 source[offset_in]
             })
             .collect();
 
         Ok(output)
+    }
+
+    fn write_slice<Data>(
+        size: usize,
+        strides: &[usize],
+        shape: &[usize],
+        source_strides: &[usize],
+        bounds: &[AxisBound],
+        source: &mut [A::DType],
+        data: Data,
+    ) -> Result<(), Error>
+    where
+        Data: Iterator<Item = A::DType>,
+    {
+        for (offset, value) in (0..size).into_iter().zip(data) {
+            let source_offset = Self::source_offset(offset, strides, shape, source_strides, bounds);
+            source[source_offset] = value;
+        }
+
+        Ok(())
     }
 
     #[cfg(feature = "opencl")]
@@ -1410,7 +1376,7 @@ impl<A: NDArray> ArraySlice<A> {
 
         let kernel = ocl::Kernel::builder()
             .name("slice")
-            .program(&self.kernel_op)
+            .program(&self.kernel_read_op)
             .queue(cl_queue)
             .global_work_size(output.len())
             .arg(source)
@@ -1420,6 +1386,50 @@ impl<A: NDArray> ArraySlice<A> {
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn write_cl(
+        &self,
+        source: &mut ocl::Buffer<A::DType>,
+        data: &ocl::Buffer<A::DType>,
+    ) -> Result<(), Error> {
+        let cl_queue = source.default_queue().expect("queue").clone();
+
+        let kernel = ocl::Kernel::builder()
+            .name("write_slice")
+            .program(&self.kernel_write_op)
+            .queue(cl_queue)
+            .global_work_size(data.len())
+            .arg(source)
+            .arg(data)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "opencl")]
+    fn write_cl_value(
+        &self,
+        source: &mut ocl::Buffer<A::DType>,
+        value: A::DType,
+    ) -> Result<(), Error> {
+        let cl_queue = source.default_queue().expect("queue").clone();
+
+        let kernel = ocl::Kernel::builder()
+            .name("write_slice")
+            .program(&self.kernel_write_value_op)
+            .queue(cl_queue)
+            .global_work_size(self.size())
+            .arg(source)
+            .arg(value)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(())
     }
 }
 
@@ -1449,17 +1459,75 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     }
 }
 
-impl<Buf: BufferWrite> NDArrayWrite for ArraySlice<ArrayBase<Buf>> {
-    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error> {
-        todo!()
+impl<'a, Buf: BufferWrite> NDArrayWrite<'a> for ArraySlice<ArrayBase<Buf>>
+where
+    ArrayBase<Buf>: AsBuffer<DType = <ArrayBase<Buf> as NDArray>::DType>,
+{
+    fn write<O: NDArrayRead<DType = Self::DType>>(&'a mut self, other: &O) -> Result<(), Error> {
+        let size = self.size();
+        let queue = Queue::new(self.context().clone(), size)?;
+        let that = other.read(&queue)?;
+
+        match self.source.as_buffer_mut() {
+            BufferConverterMut::Host(mut this) => {
+                let that = that.to_slice()?;
+
+                Self::write_slice(
+                    size,
+                    &self.strides,
+                    &self.shape,
+                    &self.source_strides,
+                    &self.bounds,
+                    this.as_mut(),
+                    that.as_ref().into_iter().copied(),
+                )
+            }
+            #[cfg(feature = "opencl")]
+            BufferConverterMut::CL(mut this) => {
+                let that = that.to_cl(&queue)?;
+                self.write_cl(this.as_mut(), that.as_ref())
+            },
+        }
     }
 
-    fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
-        todo!()
+    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error> {
+        let size = self.size();
+
+        match self.source.as_buffer_mut() {
+            BufferConverterMut::Host(mut this) => Self::write_slice(
+                size,
+                &self.strides,
+                &self.shape,
+                &self.source_strides,
+                &self.bounds,
+                this.as_mut(),
+                iter::repeat(value).take(size),
+            ),
+            #[cfg(feature = "opencl")]
+            BufferConverterMut::CL(mut this) => self.write_cl_value(this.as_mut(), value),
+        }
     }
 
-    fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
-        todo!()
+    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
+        let offset = offset_of(coord, &self.shape);
+        let source_offset = Self::source_offset(
+            offset,
+            &self.strides,
+            &self.shape,
+            &self.source_strides,
+            &self.bounds,
+        );
+
+        match self.source.as_buffer_mut() {
+            BufferConverterMut::Host(mut slice) => {
+                slice.as_mut()[source_offset] = value;
+                Ok(())
+            }
+            #[cfg(feature = "opencl")]
+            BufferConverterMut::CL(mut buffer) => {
+                buffer.as_mut().write_value_at(source_offset, value)
+            }
+        }
     }
 }
 
@@ -1599,7 +1667,11 @@ impl<T: CDatatype, A: Into<Array<T>>> From<ArraySlice<A>> for Array<T> {
             strides: slice.strides,
             source_strides: slice.source_strides,
             #[cfg(feature = "opencl")]
-            kernel_op: slice.kernel_op,
+            kernel_read_op: slice.kernel_read_op,
+            #[cfg(feature = "opencl")]
+            kernel_write_op: slice.kernel_write_op,
+            #[cfg(feature = "opencl")]
+            kernel_write_value_op: slice.kernel_write_value_op,
         }))
     }
 }
