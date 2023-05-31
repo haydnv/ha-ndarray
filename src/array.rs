@@ -411,6 +411,16 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     }
 }
 
+impl<T: CDatatype> AsBuffer for ArrayBase<Vec<T>> {
+    fn as_buffer(&self) -> BufferConverter<Self::DType> {
+        (&self.data).into()
+    }
+
+    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
+        (&mut self.data).into()
+    }
+}
+
 impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
     fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
@@ -481,6 +491,17 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
 impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> AsBuffer for ArrayBase<ocl::Buffer<T>> {
+    fn as_buffer(&self) -> BufferConverter<Self::DType> {
+        (&self.data).into()
+    }
+
+    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
+        (&mut self.data).into()
     }
 }
 
@@ -570,6 +591,16 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data))
+    }
+}
+
+impl<T: CDatatype> AsBuffer for ArrayBase<Buffer<T>> {
+    fn as_buffer(&self) -> BufferConverter<Self::DType> {
+        (&self.data).into()
+    }
+
+    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
+        (&mut self.data).into()
     }
 }
 
@@ -674,6 +705,21 @@ where
 {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         Ok(self.data.clone().into())
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE, T> AsBuffer for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
+where
+    FE: Send + Sync,
+    T: CDatatype,
+{
+    fn as_buffer(&self) -> BufferConverter<Self::DType> {
+        (&*self.data).into()
+    }
+
+    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
+        (&mut *self.data).into()
     }
 }
 
@@ -1390,7 +1436,7 @@ impl<A: NDArray> ArraySlice<A> {
 
     #[cfg(feature = "opencl")]
     fn write_cl(
-        &self,
+        kernel_write_op: &ocl::Program,
         source: &mut ocl::Buffer<A::DType>,
         data: &ocl::Buffer<A::DType>,
     ) -> Result<(), Error> {
@@ -1398,7 +1444,7 @@ impl<A: NDArray> ArraySlice<A> {
 
         let kernel = ocl::Kernel::builder()
             .name("write_slice")
-            .program(&self.kernel_write_op)
+            .program(kernel_write_op)
             .queue(cl_queue)
             .global_work_size(data.len())
             .arg(source)
@@ -1412,17 +1458,18 @@ impl<A: NDArray> ArraySlice<A> {
 
     #[cfg(feature = "opencl")]
     fn write_cl_value(
-        &self,
+        kernel_write_value_op: &ocl::Program,
         source: &mut ocl::Buffer<A::DType>,
         value: A::DType,
+        size: usize,
     ) -> Result<(), Error> {
         let cl_queue = source.default_queue().expect("queue").clone();
 
         let kernel = ocl::Kernel::builder()
             .name("write_slice")
-            .program(&self.kernel_write_value_op)
+            .program(&kernel_write_value_op)
             .queue(cl_queue)
-            .global_work_size(self.size())
+            .global_work_size(size)
             .arg(source)
             .arg(value)
             .build()?;
@@ -1461,7 +1508,7 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
 
 impl<'a, Buf: BufferWrite> NDArrayWrite for ArraySlice<ArrayBase<Buf>>
 where
-    ArrayBase<Buf>: AsBuffer<DType = <ArrayBase<Buf> as NDArray>::DType>,
+    ArrayBase<Buf>: AsBuffer,
 {
     fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error> {
         let size = self.size();
@@ -1485,7 +1532,7 @@ where
             #[cfg(feature = "opencl")]
             BufferConverterMut::CL(mut this) => {
                 let that = that.to_cl(&queue)?;
-                self.write_cl(this.as_mut(), that.as_ref())
+                Self::write_cl(&self.kernel_write_op, this.as_mut(), that.as_ref())
             }
         }
     }
@@ -1504,7 +1551,9 @@ where
                 iter::repeat(value).take(size),
             ),
             #[cfg(feature = "opencl")]
-            BufferConverterMut::CL(mut this) => self.write_cl_value(this.as_mut(), value),
+            BufferConverterMut::CL(mut this) => {
+                Self::write_cl_value(&self.kernel_write_value_op, this.as_mut(), value, size)
+            }
         }
     }
 

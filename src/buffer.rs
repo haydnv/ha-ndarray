@@ -12,12 +12,6 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
-pub trait AsBuffer: BufferInstance {
-    fn as_buffer(&self) -> BufferConverter<Self::DType>;
-
-    fn as_buffer_mut(&self) -> BufferConverterMut<Self::DType>;
-}
-
 pub trait BufferInstance: Send + Sync {
     type DType: CDatatype;
 }
@@ -175,6 +169,24 @@ impl<T: CDatatype> BufferWrite for ocl::Buffer<T> {
     fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error> {
         let data = self.create_sub_buffer(None, offset, 1)?;
         data.write(&vec![value]).enq().map_err(Error::from)
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CDatatype> BufferWrite for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
+    fn write<'a, O: Into<BufferConverter<'a, Self::DType>>>(
+        &mut self,
+        other: O,
+    ) -> Result<(), Error> {
+        Buffer::write(&mut *self, other)
+    }
+
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
+        Buffer::write_value(&mut *self, value)
+    }
+
+    fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error> {
+        Buffer::write_value_at(&mut *self, offset, value)
     }
 }
 

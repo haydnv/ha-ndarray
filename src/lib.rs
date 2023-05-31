@@ -575,6 +575,12 @@ impl<A: NDArray + ?Sized> NDArray for Box<A> {
     }
 }
 
+pub trait AsBuffer: NDArray {
+    fn as_buffer(&self) -> BufferConverter<Self::DType>;
+
+    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType>;
+}
+
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error>;
 
