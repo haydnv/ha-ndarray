@@ -411,8 +411,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     }
 }
 
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Vec<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let buffer = other.read(&queue)?;
@@ -425,11 +425,11 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Vec<T>> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
@@ -449,8 +449,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Vec<T>>>> {
     }
 }
 
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Vec<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -463,12 +463,12 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Vec<T>>>> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
 
         let mut data = self.data.write().expect("write buffer");
@@ -485,8 +485,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<ocl::Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
@@ -501,11 +501,11 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<ocl::Buffer<T>> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
@@ -537,8 +537,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -554,12 +554,12 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<ocl::Buffer<T>>
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
@@ -573,8 +573,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
     }
 }
 
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             other
@@ -588,11 +588,11 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Buffer<T>> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
@@ -628,8 +628,8 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
     }
 }
 
-impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
             let mut data = self.data.write().expect("write buffer");
@@ -642,12 +642,12 @@ impl<'a, T: CDatatype> NDArrayWrite<'a> for ArrayBase<Arc<RwLock<Buffer<T>>>> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         let mut data = self.data.write().expect("write buffer");
         data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let mut data = self.data.write().expect("write buffer");
         let offset = offset_of(coord, &self.shape);
@@ -678,12 +678,12 @@ where
 }
 
 #[cfg(feature = "freqfs")]
-impl<'a, FE, T> NDArrayWrite<'a> for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
+impl<'a, FE, T> NDArrayWrite for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
 where
     FE: Send + Sync,
     T: CDatatype,
 {
-    fn write<O: NDArrayRead<DType = T>>(&'a mut self, other: &O) -> Result<(), Error> {
+    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
 
@@ -698,11 +698,11 @@ where
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.data.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
         validate_coord(self, coord)?;
         let offset = offset_of(coord, &self.shape);
         self.data.write_value_at(offset, value)
@@ -1459,11 +1459,11 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
     }
 }
 
-impl<'a, Buf: BufferWrite> NDArrayWrite<'a> for ArraySlice<ArrayBase<Buf>>
+impl<'a, Buf: BufferWrite> NDArrayWrite for ArraySlice<ArrayBase<Buf>>
 where
     ArrayBase<Buf>: AsBuffer<DType = <ArrayBase<Buf> as NDArray>::DType>,
 {
-    fn write<O: NDArrayRead<DType = Self::DType>>(&'a mut self, other: &O) -> Result<(), Error> {
+    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error> {
         let size = self.size();
         let queue = Queue::new(self.context().clone(), size)?;
         let that = other.read(&queue)?;
@@ -1486,11 +1486,11 @@ where
             BufferConverterMut::CL(mut this) => {
                 let that = that.to_cl(&queue)?;
                 self.write_cl(this.as_mut(), that.as_ref())
-            },
+            }
         }
     }
 
-    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error> {
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
         let size = self.size();
 
         match self.source.as_buffer_mut() {
@@ -1508,7 +1508,7 @@ where
         }
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
         let offset = offset_of(coord, &self.shape);
         let source_offset = Self::source_offset(
             offset,
