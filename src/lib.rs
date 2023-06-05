@@ -1018,8 +1018,8 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.max(&queue)
     }
 
-    fn max_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(&self, axis)?;
+    fn max_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+        let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::max(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1030,8 +1030,8 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.min(&queue)
     }
 
-    fn min_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(&self, axis)?;
+    fn min_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+        let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::min(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1045,8 +1045,9 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
     fn product_axis(
         self,
         axis: usize,
+        keepdims: bool,
     ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(&self, axis)?;
+        let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::product(self, axis);
         Ok(ArrayOp::new(shape, op))
     }
@@ -1057,25 +1058,9 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.sum(&queue)
     }
 
-    fn sum_axis(self, axis: usize) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        if axis >= self.ndim() {
-            return Err(Error::Bounds(format!(
-                "axis {} is out of bounds for {:?}",
-                axis, self
-            )));
-        }
-
-        let shape = if self.ndim() == 1 {
-            vec![1]
-        } else {
-            let mut shape = vec![0; self.ndim() - 1];
-            shape[..axis].copy_from_slice(&self.shape()[..axis]);
-            shape[axis..].copy_from_slice(&self.shape()[(axis + 1)..]);
-            shape
-        };
-
+    fn sum_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+        let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::sum(self, axis);
-
         Ok(ArrayOp::new(shape, op))
     }
 }
@@ -1232,20 +1217,21 @@ fn div_ceil(num: usize, denom: usize) -> usize {
 }
 
 #[inline]
-fn reduce_axis<A: NDArray + fmt::Debug>(source: &A, axis: usize) -> Result<Shape, Error> {
-    if axis >= source.ndim() {
-        return Err(Error::Bounds(format!(
+fn reduce_axis(shape: &[usize], axis: usize, keepdims: bool) -> Result<Shape, Error> {
+    if axis >= shape.len() {
+        Err(Error::Bounds(format!(
             "axis {} is out of bounds for {:?}",
-            axis, source
-        )));
-    }
-
-    if source.ndim() == 1 {
+            axis, shape
+        )))
+    } else if keepdims {
+        let mut shape = shape.to_vec();
+        shape[axis] = 1;
+        Ok(shape)
+    } else if shape.len() == 1 {
         Ok(vec![1])
     } else {
-        let mut shape = Vec::with_capacity(source.ndim() - 1);
-        shape.extend(source.shape().iter().take(axis).copied());
-        shape.extend(source.shape().iter().skip(axis + 1).copied());
+        let mut shape = shape.to_vec();
+        shape.remove(axis);
         Ok(shape)
     }
 }

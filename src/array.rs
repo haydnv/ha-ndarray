@@ -463,8 +463,9 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
     fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
+            let buffer = other.read(&queue)?;
             let mut data = self.data.write().expect("write buffer");
-            other.read(&queue).and_then(|buffer| data.write(buffer))
+            data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -562,11 +563,10 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
     fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
-            let mut data = self.data.write().expect("write buffer");
+            let buffer = other.read(&queue)?;
 
-            other
-                .read(&queue)
-                .and_then(|buffer| BufferWrite::write(&mut *data, buffer))
+            let mut data = self.data.write().expect("write buffer");
+            BufferWrite::write(&mut *data, buffer)
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -608,6 +608,7 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
     fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
+
             other
                 .read(&queue)
                 .and_then(|buffer| self.data.write(buffer))
@@ -663,8 +664,9 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
     fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
         if self.shape == other.shape() {
             let queue = Queue::new(self.context().clone(), self.size())?;
+            let buffer = other.read(&queue)?;
             let mut data = self.data.write().expect("write buffer");
-            other.read(&queue).and_then(|buffer| data.write(buffer))
+            data.write(buffer)
         } else {
             Err(Error::Bounds(format!(
                 "cannot write {:?} to {:?}",
@@ -1421,7 +1423,7 @@ impl<A: NDArray> ArraySlice<A> {
             .build()?;
 
         let kernel = ocl::Kernel::builder()
-            .name("slice")
+            .name("read_slice")
             .program(&self.kernel_read_op)
             .queue(cl_queue)
             .global_work_size(output.len())

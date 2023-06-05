@@ -38,7 +38,7 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
         )?;
 
         for x in 0..shape.len() {
-            let sum = array.clone().sum_axis(x)?;
+            let sum = array.clone().sum_axis(x, false)?;
             let eq = sum.eq_scalar(shape[x] as u32)?;
             assert!(eq.all()?);
         }

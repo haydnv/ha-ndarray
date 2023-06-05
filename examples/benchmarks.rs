@@ -84,7 +84,8 @@ fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
 
     println!("reduce axis {} of {:?} (size {})", 2, x, x.size());
 
-    let reduced = x.sum_axis(2)?;
+    let reduced = x.sum_axis(2, false)?;
+
     for _ in 0..ITERATIONS {
         let start = Instant::now();
         let _output = reduced.read(&queue)?;
