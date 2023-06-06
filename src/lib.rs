@@ -629,8 +629,8 @@ where
 
 impl<T: CDatatype, A: NDArray<DType = T>, O: NDArray<DType = T>> NDArrayBoolean<O> for A {}
 
-pub trait NDArrayBooleanConst: NDArray + Sized {
-    fn and_const(
+pub trait NDArrayBooleanScalar: NDArray + Sized {
+    fn and_scalar(
         self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
@@ -639,7 +639,7 @@ pub trait NDArrayBooleanConst: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn or_const(
+    fn or_scalar(
         self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
@@ -648,7 +648,7 @@ pub trait NDArrayBooleanConst: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn xor_const(
+    fn xor_scalar(
         self,
         other: Self::DType,
     ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
@@ -658,7 +658,7 @@ pub trait NDArrayBooleanConst: NDArray + Sized {
     }
 }
 
-impl<T: CDatatype, A: NDArray<DType = T>> NDArrayBooleanConst for A {}
+impl<T: CDatatype, A: NDArray<DType = T>> NDArrayBooleanScalar for A {}
 
 pub trait NDArrayAbs: NDArray + Sized {
     fn abs(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
