@@ -1013,6 +1013,107 @@ where
 }
 
 #[derive(Clone)]
+pub struct ArrayBooleanScalar<L, T> {
+    left: L,
+    right: T,
+    host_cmp: fn(T, T) -> bool,
+    #[cfg(feature = "opencl")]
+    kernel_cmp: ocl::Program,
+}
+
+impl<L: NDArray, T: CDatatype> ArrayBooleanScalar<L, T> {
+    #[allow(unused_variables)]
+    fn new(
+        left: L,
+        right: T,
+        host_cmp: fn(T, T) -> bool,
+        kernel_cmp: &'static str,
+    ) -> Result<Self, Error> {
+        #[cfg(feature = "opencl")]
+        let kernel_cmp = cl_programs::scalar_boolean::<T>(kernel_cmp, left.context())?;
+
+        Ok(Self {
+            left,
+            right,
+            host_cmp,
+            #[cfg(feature = "opencl")]
+            kernel_cmp,
+        })
+    }
+
+    pub fn and(left: L, right: T) -> Result<Self, Error> {
+        fn and<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) && (r != T::zero())
+        }
+
+        Self::new(left, right, and, "&&")
+    }
+
+    pub fn or(left: L, right: T) -> Result<Self, Error> {
+        fn or<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) || (r != T::zero())
+        }
+
+        Self::new(left, right, or, "||")
+    }
+
+    pub fn xor(left: L, right: T) -> Result<Self, Error> {
+        fn xor<T: CDatatype>(l: T, r: T) -> bool {
+            (l != T::zero()) ^ (r != T::zero())
+        }
+
+        Self::new(left, right, xor, "^")
+    }
+}
+
+impl<L: NDArrayRead<DType = T>, T: CDatatype> Op for ArrayBooleanScalar<L, T> {
+    type Out = u8;
+
+    fn context(&self) -> &Context {
+        self.left.context()
+    }
+
+    fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let left = self.left.to_host(queue)?;
+
+        let output = left
+            .as_ref()
+            .par_iter()
+            .copied()
+            .map(|l| (self.host_cmp)(l, self.right))
+            .map(|cmp| if cmp { 1 } else { 0 })
+            .collect();
+
+        Ok(output)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let left = self.left.to_cl_buffer(queue)?;
+        let cl_queue = left.as_ref().default_queue().expect("queue");
+
+        let output = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(left.len())
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("scalar_boolean")
+            .program(&self.kernel_cmp)
+            .queue(cl_queue.clone())
+            .global_work_size(output.len())
+            .arg(left.as_ref())
+            .arg(self.right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
+    }
+}
+
+#[derive(Clone)]
 pub struct ArrayCompare<T, L, R> {
     left: L,
     right: R,

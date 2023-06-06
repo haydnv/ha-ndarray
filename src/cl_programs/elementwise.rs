@@ -168,6 +168,31 @@ where
     Program::builder().source(src).build(context.cl_context())
 }
 
+pub fn scalar_boolean<T: CDatatype>(
+    cmp: &'static str,
+    context: &Context,
+) -> Result<Program, Error> {
+    let src = format!(
+        r#"
+        __kernel void scalar_boolean(
+            __global const {dtype}* input,
+            const {dtype} right,
+            __global uchar* output)
+        {{
+            const ulong offset = get_global_id(0);
+            if (input[offset] != 0 {cmp} right != 0) {{
+                output[offset] = 1;
+            }} else {{
+                output[offset] = 0;
+            }}
+        }}
+        "#,
+        dtype = T::TYPE_STR
+    );
+
+    Program::builder().source(src).build(context.cl_context())
+}
+
 pub fn scalar_cmp<T: CDatatype>(cmp: &'static str, context: &Context) -> Result<Program, Error> {
     let src = format!(
         r#"

@@ -629,6 +629,37 @@ where
 
 impl<T: CDatatype, A: NDArray<DType = T>, O: NDArray<DType = T>> NDArrayBoolean<O> for A {}
 
+pub trait NDArrayBooleanConst: NDArray + Sized {
+    fn and_const(
+        self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayBooleanScalar::and(self, other)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn or_const(
+        self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayBooleanScalar::or(self, other)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn xor_const(
+        self,
+        other: Self::DType,
+    ) -> Result<ArrayOp<ArrayBooleanScalar<Self, Self::DType>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayBooleanScalar::xor(self, other)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+}
+
+impl<T: CDatatype, A: NDArray<DType = T>> NDArrayBooleanConst for A {}
+
 pub trait NDArrayAbs: NDArray + Sized {
     fn abs(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
@@ -1018,7 +1049,11 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.max(&queue)
     }
 
-    fn max_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+    fn max_axis(
+        self,
+        axis: usize,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::max(self, axis);
         Ok(ArrayOp::new(shape, op))
@@ -1030,7 +1065,11 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.min(&queue)
     }
 
-    fn min_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+    fn min_axis(
+        self,
+        axis: usize,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::min(self, axis);
         Ok(ArrayOp::new(shape, op))
@@ -1058,7 +1097,11 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         buffer.sum(&queue)
     }
 
-    fn sum_axis(self, axis: usize, keepdims: bool) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
+    fn sum_axis(
+        self,
+        axis: usize,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
         let shape = reduce_axis(self.shape(), axis, keepdims)?;
         let op = ArrayReduceAxis::sum(self, axis);
         Ok(ArrayOp::new(shape, op))
