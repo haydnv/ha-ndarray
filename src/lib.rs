@@ -98,6 +98,10 @@ pub trait CDatatype:
 
     fn exp(self) -> Self;
 
+    fn ln(self) -> Self {
+        Self::from_f64(self.to_f64().ln())
+    }
+
     fn log(self, base: f64) -> Self {
         Self::from_f64(self.to_f64().log(base))
     }
@@ -115,6 +119,8 @@ pub trait CDatatype:
     fn pow(self, exp: f64) -> Self {
         Self::from_f64(self.to_f64().powf(exp))
     }
+
+    fn round(self) -> Self;
 
     fn to_f64(self) -> f64;
 }
@@ -153,6 +159,10 @@ pub trait CDatatype:
 
     fn exp(self) -> Self;
 
+    fn ln(self) -> Self {
+        Self::from_f64(self.to_f64().ln())
+    }
+
     fn log(self, base: f64) -> Self {
         Self::from_f64(self.to_f64().log(base))
     }
@@ -171,11 +181,13 @@ pub trait CDatatype:
         Self::from_f64(self.to_f64().powf(exp))
     }
 
+    fn round(self) -> Self;
+
     fn to_f64(self) -> f64;
 }
 
 macro_rules! c_type {
-    ($t:ty, $ct:expr, $max:expr, $min: expr, $one:expr, $zero:expr, $abs:expr, $float:ty, $neg:ty) => {
+    ($t:ty, $ct:expr, $max:expr, $min: expr, $one:expr, $zero:expr, $abs:expr, $float:ty, $neg:ty, $round:expr) => {
         impl CDatatype for $t {
             const TYPE_STR: &'static str = $ct;
 
@@ -218,6 +230,10 @@ macro_rules! c_type {
                 }
             }
 
+            fn round(self) -> Self {
+                $round(self)
+            }
+
             fn to_f64(self) -> f64 {
                 self as f64
             }
@@ -225,7 +241,19 @@ macro_rules! c_type {
     };
 }
 
-c_type!(f32, "float", f32::MAX, f32::MIN, 1., 0., f32::abs, f32, f32);
+c_type!(
+    f32,
+    "float",
+    f32::MAX,
+    f32::MIN,
+    1.,
+    0.,
+    f32::abs,
+    f32,
+    f32,
+    f32::round
+);
+
 c_type!(
     f64,
     "double",
@@ -235,16 +263,113 @@ c_type!(
     0.,
     f64::abs,
     f64,
-    f64
+    f64,
+    f64::round
 );
-c_type!(u8, "uchar", u8::MAX, u8::MIN, 1, 0, identity, f32, i8);
-c_type!(u16, "ushort", u16::MAX, u16::MIN, 1, 0, identity, f32, i16);
-c_type!(u32, "uint", u32::MAX, u32::MIN, 1, 0, identity, f32, i32);
-c_type!(u64, "ulong", u64::MAX, u64::MIN, 1, 0, identity, f64, i64);
-c_type!(i8, "char", i8::MAX, i8::MIN, 1, 0, i8::abs, f32, i8);
-c_type!(i16, "short", i16::MAX, i16::MIN, 1, 0, i16::abs, f32, i16);
-c_type!(i32, "int", i32::MAX, i32::MIN, 1, 0, i32::abs, f32, i32);
-c_type!(i64, "long", i64::MAX, i64::MIN, 1, 0, i64::abs, f64, i64);
+
+c_type!(
+    u8,
+    "uchar",
+    u8::MAX,
+    u8::MIN,
+    1,
+    0,
+    identity,
+    f32,
+    i8,
+    identity
+);
+
+c_type!(
+    u16,
+    "ushort",
+    u16::MAX,
+    u16::MIN,
+    1,
+    0,
+    identity,
+    f32,
+    i16,
+    identity
+);
+
+c_type!(
+    u32,
+    "uint",
+    u32::MAX,
+    u32::MIN,
+    1,
+    0,
+    identity,
+    f32,
+    i32,
+    identity
+);
+
+c_type!(
+    u64,
+    "ulong",
+    u64::MAX,
+    u64::MIN,
+    1,
+    0,
+    identity,
+    f64,
+    i64,
+    identity
+);
+
+c_type!(
+    i8,
+    "char",
+    i8::MAX,
+    i8::MIN,
+    1,
+    0,
+    i8::abs,
+    f32,
+    i8,
+    identity
+);
+
+c_type!(
+    i16,
+    "short",
+    i16::MAX,
+    i16::MIN,
+    1,
+    0,
+    i16::abs,
+    f32,
+    i16,
+    identity
+);
+
+c_type!(
+    i32,
+    "int",
+    i32::MAX,
+    i32::MIN,
+    1,
+    0,
+    i32::abs,
+    f32,
+    i32,
+    identity
+);
+
+c_type!(
+    i64,
+    "long",
+    i64::MAX,
+    i64::MIN,
+    1,
+    0,
+    i64::abs,
+    f64,
+    i64,
+    identity
+);
 
 pub trait Float: CDatatype {
     fn is_inf(self) -> u8;
@@ -660,25 +785,39 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
 
 impl<T: CDatatype, A: NDArray<DType = T>> NDArrayBooleanScalar for A {}
 
-pub trait NDArrayAbs: NDArray + Sized {
+pub trait NDArrayUnary: NDArray + Sized {
     fn abs(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::abs(self)?;
         Ok(ArrayOp::new(shape, op))
     }
-}
 
-impl<A: NDArray> NDArrayAbs for A {}
-
-pub trait NDArrayExp: NDArray + Sized {
     fn exp(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::exp(self)?;
         Ok(ArrayOp::new(shape, op))
     }
+
+    fn ln(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::ln(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn not(self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::not(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn round(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::round(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 }
 
-impl<A: NDArray> NDArrayExp for A {}
+impl<A: NDArray> NDArrayUnary for A {}
 
 pub trait NDArrayMath: NDArray + Sized {
     fn add<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>

@@ -1541,8 +1541,17 @@ impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
         Self::new(array, T::abs, "fabs")
     }
 
+    pub fn ln(array: A) -> Result<Self, Error> {
+        // TODO: replace "logf" with "log" for integer types
+        Self::new(array, T::ln, "logf")
+    }
+
     pub fn exp(array: A) -> Result<Self, Error> {
         Self::new(array, T::exp, "exp")
+    }
+
+    pub fn round(array: A) -> Result<Self, Error> {
+        Self::new(array, T::round, "round")
     }
 }
 
