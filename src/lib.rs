@@ -1111,11 +1111,7 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
 impl<A: NDArrayRead + fmt::Debug> NDArrayReduce for A {}
 
 pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
-    fn gather_cond<T, L, R>(
-        self,
-        then: L,
-        or_else: R,
-    ) -> Result<ArrayOp<GatherCond<Self, T, L, R>>, Error>
+    fn cond<T, L, R>(self, then: L, or_else: R) -> Result<ArrayOp<GatherCond<Self, T, L, R>>, Error>
     where
         T: CDatatype,
         L: NDArray<DType = T> + fmt::Debug,
@@ -1280,7 +1276,7 @@ fn reduce_axis(shape: &[usize], axis: usize, keepdims: bool) -> Result<Shape, Er
 }
 
 #[inline]
-fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
+pub fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
     debug_assert!(ndim >= shape.len());
 
     let zeros = std::iter::repeat(0).take(ndim - shape.len());

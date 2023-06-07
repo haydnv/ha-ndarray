@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ha_ndarray::*;
 
 #[test]
-fn test_gather_cond() -> Result<(), Error> {
+fn test_cond() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
     let size = 10;
 
@@ -17,7 +17,7 @@ fn test_gather_cond() -> Result<(), Error> {
     let left = ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size], vec![1.; size])?;
     let right = ArrayBase::<Vec<_>>::with_context(context, vec![size], vec![0.; size])?;
 
-    let result = cond.clone().gather_cond(left, right)?;
+    let result = cond.clone().cond(left, right)?;
 
     let cond = cond.cast::<f32>()?;
     let eq = result.eq(cond)?;
