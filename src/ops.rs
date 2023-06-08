@@ -10,7 +10,8 @@ use rayon::prelude::*;
 #[cfg(feature = "opencl")]
 use super::cl_programs;
 use super::{
-    Buffer, CDatatype, Context, Error, Float, NDArray, NDArrayRead, Queue, SliceConverter,
+    Buffer, CDatatype, Context, Error, Float, Log, NDArray, NDArrayRead, Queue, SliceConverter,
+    Trig,
 };
 
 pub trait Op: Send + Sync {
@@ -362,24 +363,24 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
 }
 
 #[derive(Clone)]
-pub struct ArrayDualFloat<T, L, R> {
+pub struct ArrayDualFloat<T: CDatatype, L, R> {
     left: L,
     right: R,
-    cpu_op: fn(T, f64) -> T,
+    cpu_op: fn(T, T::Float) -> T,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
 
-impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloat<T, L, R> {
+impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T::Float>> ArrayDualFloat<T, L, R> {
     #[allow(unused_variables)]
     fn new(
         left: L,
         right: R,
-        cpu_op: fn(T, f64) -> T,
+        cpu_op: fn(T, T::Float) -> T,
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_dual::<T, f64>(kernel_op, left.context())?;
+        let kernel_op = cl_programs::elementwise_dual::<T, T::Float>(kernel_op, left.context())?;
 
         Ok(Self {
             left,
@@ -391,11 +392,21 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = f64>> ArrayDualFloa
     }
 
     pub fn log(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, T::log, "log_")
+        Self::new(
+            left,
+            right,
+            |l, r| T::from_float(l.to_float().log(r)),
+            "log_",
+        )
     }
 
     pub fn pow(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, T::pow, "pow_")
+        Self::new(
+            left,
+            right,
+            |l, r| T::from_float(l.to_float().pow(r)),
+            "pow_",
+        )
     }
 }
 
@@ -403,7 +414,7 @@ impl<T, L, R> Op for ArrayDualFloat<T, L, R>
 where
     T: CDatatype,
     L: NDArrayRead<DType = T>,
-    R: NDArrayRead<DType = f64>,
+    R: NDArrayRead<DType = T::Float>,
 {
     type Out = T;
 
@@ -562,10 +573,10 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
 }
 
 #[derive(Clone)]
-pub struct ArrayScalarFloat<T, A> {
+pub struct ArrayScalarFloat<T: CDatatype, A> {
     array: A,
-    scalar: f64,
-    host_op: fn(T, f64) -> T,
+    scalar: T::Float,
+    host_op: fn(T, T::Float) -> T,
     #[cfg(feature = "opencl")]
     kernel_op: ocl::Program,
 }
@@ -574,12 +585,12 @@ impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
     #[allow(unused_variables)]
     fn new(
         array: A,
-        scalar: f64,
-        host_op: fn(T, f64) -> T,
+        scalar: T::Float,
+        host_op: fn(T, T::Float) -> T,
         kernel_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::elementwise_scalar::<f64, T>(kernel_op, array.context())?;
+        let kernel_op = cl_programs::elementwise_scalar::<T::Float, T>(kernel_op, array.context())?;
 
         Ok(Self {
             array,
@@ -592,12 +603,22 @@ impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
 }
 
 impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
-    pub fn log(left: A, right: f64) -> Result<Self, Error> {
-        Self::new(left, right, T::log, "log")
+    pub fn log(left: A, right: T::Float) -> Result<Self, Error> {
+        Self::new(
+            left,
+            right,
+            |l, r| T::from_float(l.to_float().log(r)),
+            "log",
+        )
     }
 
-    pub fn pow(left: A, right: f64) -> Result<Self, Error> {
-        Self::new(left, right, T::pow, "pow_")
+    pub fn pow(left: A, right: T::Float) -> Result<Self, Error> {
+        Self::new(
+            left,
+            right,
+            |l, r| T::from_float(l.to_float().pow(r)),
+            "pow_",
+        )
     }
 }
 
@@ -1480,8 +1501,9 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
         let output = input
             .as_ref()
             .par_iter()
+            .copied()
             .map(|n| n.to_f64())
-            .map(|float| O::from_f64(float))
+            .map(|f| O::from_f64(f))
             .collect();
 
         Ok(output)
@@ -1543,15 +1565,62 @@ impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
 
     pub fn ln(array: A) -> Result<Self, Error> {
         // TODO: replace "logf" with "log" for integer types
-        Self::new(array, T::ln, "logf")
+        Self::new(array, |n| T::from_float(n.to_float().ln()), "logf")
     }
 
     pub fn exp(array: A) -> Result<Self, Error> {
-        Self::new(array, T::exp, "exp")
+        Self::new(array, |n| T::from_float(n.to_float().exp()), "exp")
     }
 
     pub fn round(array: A) -> Result<Self, Error> {
         Self::new(array, T::round, "round")
+    }
+}
+
+impl<T: CDatatype, A: NDArray> ArrayUnary<T, T::Float, A> {
+    // TODO: replace "asinf" with "asin" for integer types
+    pub fn asin(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().asin(), "asinf")
+    }
+
+    // TODO: replace "sinf" with "sin" for integer types
+    pub fn sin(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().sin(), "sinf")
+    }
+
+    // TODO: replace "sinhf" with "sinh" for integer types
+    pub fn sinh(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().sinh(), "sinhf")
+    }
+
+    // TODO: replace "acosf" with "acos" for integer types
+    pub fn acos(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().acos(), "acosf")
+    }
+
+    // TODO: replace "cosf" with "cos" for integer types
+    pub fn cos(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().cos(), "cosf")
+    }
+
+    // TODO: replace "coshf" with "cosh" for integer types
+    pub fn cosh(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().cosh(), "coshf")
+    }
+
+    // TODO: replace "atanf" with "atan" for integer types
+    pub fn atan(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().atan(), "atanf")
+    }
+
+    // TODO: replace "tanf" with "tan" for integer types
+    pub fn tan(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().tan(), "tanf")
+    }
+
+    // TODO: replace "tanhf" with "tanh" for integer types
+    pub fn tanh(array: A) -> Result<Self, Error> {
+        Self::new(array, |n| n.to_float().tanh(), "tanhf")
     }
 }
 

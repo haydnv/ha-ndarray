@@ -63,6 +63,7 @@ impl std::error::Error for Error {}
 pub type Shape = Vec<usize>;
 
 // TODO: is there a better way to implement the OclPrm trait bound?
+// TODO: rename to CType
 #[cfg(feature = "opencl")]
 pub trait CDatatype:
     ocl::OclPrm
@@ -92,19 +93,11 @@ pub trait CDatatype:
 
     fn zero() -> Self;
 
-    fn from_f64(float: f64) -> Self;
+    fn from_float(f: Self::Float) -> Self;
+
+    fn from_f64(f: f64) -> Self;
 
     fn abs(self) -> Self;
-
-    fn exp(self) -> Self;
-
-    fn ln(self) -> Self {
-        Self::from_f64(self.to_f64().ln())
-    }
-
-    fn log(self, base: f64) -> Self {
-        Self::from_f64(self.to_f64().log(base))
-    }
 
     fn neg(self) -> Self::Neg;
 
@@ -116,11 +109,9 @@ pub trait CDatatype:
         }
     }
 
-    fn pow(self, exp: f64) -> Self {
-        Self::from_f64(self.to_f64().powf(exp))
-    }
-
     fn round(self) -> Self;
+
+    fn to_float(self) -> Self::Float;
 
     fn to_f64(self) -> f64;
 }
@@ -153,19 +144,11 @@ pub trait CDatatype:
 
     fn zero() -> Self;
 
-    fn from_f64(float: f64) -> Self;
+    fn from_float(float: Self::Float) -> Self;
+
+    fn from_f64(f: f64) -> Self;
 
     fn abs(self) -> Self;
-
-    fn exp(self) -> Self;
-
-    fn ln(self) -> Self {
-        Self::from_f64(self.to_f64().ln())
-    }
-
-    fn log(self, base: f64) -> Self {
-        Self::from_f64(self.to_f64().log(base))
-    }
 
     fn neg(self) -> Self::Neg;
 
@@ -177,11 +160,9 @@ pub trait CDatatype:
         }
     }
 
-    fn pow(self, exp: f64) -> Self {
-        Self::from_f64(self.to_f64().powf(exp))
-    }
-
     fn round(self) -> Self;
+
+    fn to_float(self) -> Self::Float;
 
     fn to_f64(self) -> f64;
 }
@@ -210,16 +191,16 @@ macro_rules! c_type {
                 $zero
             }
 
-            fn from_f64(float: f64) -> Self {
+            fn from_float(float: Self::Float) -> Self {
                 float as $t
+            }
+
+            fn from_f64(f: f64) -> Self {
+                f as $t
             }
 
             fn abs(self) -> Self {
                 $abs(self)
-            }
-
-            fn exp(self) -> Self {
-                Self::from_f64(std::f64::consts::E.pow(self.to_f64()))
             }
 
             fn neg(self) -> Self::Neg {
@@ -232,6 +213,10 @@ macro_rules! c_type {
 
             fn round(self) -> Self {
                 $round(self)
+            }
+
+            fn to_float(self) -> Self::Float {
+                self as $float
             }
 
             fn to_f64(self) -> f64 {
@@ -371,7 +356,149 @@ c_type!(
     identity
 );
 
-pub trait Float: CDatatype {
+pub trait Log {
+    fn ln(self) -> Self;
+
+    fn log(self, base: Self) -> Self;
+
+    fn exp(self) -> Self;
+
+    fn pow(self, exp: Self) -> Self;
+}
+
+impl Log for f32 {
+    fn ln(self) -> Self {
+        f32::ln(self)
+    }
+
+    fn log(self, base: f32) -> Self {
+        f32::log(self, base)
+    }
+
+    fn exp(self) -> Self {
+        f32::exp(self)
+    }
+
+    fn pow(self, n: f32) -> Self {
+        f32::powf(self, n)
+    }
+}
+
+impl Log for f64 {
+    fn ln(self) -> Self {
+        f64::ln(self)
+    }
+
+    fn log(self, base: f64) -> Self {
+        f64::log(self, base)
+    }
+
+    fn exp(self) -> Self {
+        f64::exp(self)
+    }
+
+    fn pow(self, n: f64) -> Self {
+        f64::powf(self, n)
+    }
+}
+
+pub trait Trig {
+    fn sin(self) -> Self;
+
+    fn asin(self) -> Self;
+
+    fn sinh(self) -> Self;
+
+    fn cos(self) -> Self;
+
+    fn acos(self) -> Self;
+
+    fn cosh(self) -> Self;
+
+    fn tan(self) -> Self;
+
+    fn atan(self) -> Self;
+
+    fn tanh(self) -> Self;
+}
+
+impl Trig for f32 {
+    fn sin(self) -> Self {
+        f32::sin(self)
+    }
+
+    fn asin(self) -> Self {
+        f32::asin(self)
+    }
+
+    fn sinh(self) -> Self {
+        f32::sinh(self)
+    }
+
+    fn cos(self) -> Self {
+        f32::cos(self)
+    }
+
+    fn acos(self) -> Self {
+        f32::acos(self)
+    }
+
+    fn cosh(self) -> Self {
+        f32::cosh(self)
+    }
+
+    fn tan(self) -> Self {
+        f32::tan(self)
+    }
+
+    fn atan(self) -> Self {
+        f32::atan(self)
+    }
+
+    fn tanh(self) -> Self {
+        f32::tanh(self)
+    }
+}
+
+impl Trig for f64 {
+    fn sin(self) -> Self {
+        f64::sin(self)
+    }
+
+    fn asin(self) -> Self {
+        f64::asin(self)
+    }
+
+    fn sinh(self) -> Self {
+        f64::sinh(self)
+    }
+
+    fn cos(self) -> Self {
+        f64::cos(self)
+    }
+
+    fn acos(self) -> Self {
+        f64::acos(self)
+    }
+
+    fn cosh(self) -> Self {
+        f64::cosh(self)
+    }
+
+    fn tan(self) -> Self {
+        f64::tan(self)
+    }
+
+    fn atan(self) -> Self {
+        f64::atan(self)
+    }
+
+    fn tanh(self) -> Self {
+        f64::tanh(self)
+    }
+}
+
+pub trait Float: CDatatype + Log + Trig {
     fn is_inf(self) -> u8;
 
     fn is_nan(self) -> u8;
@@ -867,7 +994,7 @@ pub trait NDArrayMath: NDArray + Sized {
 
     fn log<O>(self, base: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = f64> + Sized,
+        O: NDArray<DType = <Self::DType as CDatatype>::Float> + Sized,
     {
         let shape = check_shape(self.shape(), base.shape())?;
         let op = ArrayDualFloat::log(self, base)?;
@@ -876,7 +1003,7 @@ pub trait NDArrayMath: NDArray + Sized {
 
     fn pow<O>(self, exp: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
-        O: NDArray<DType = f64> + Sized,
+        O: NDArray<DType = <Self::DType as CDatatype>::Float> + Sized,
     {
         let shape = check_shape(self.shape(), exp.shape())?;
         let op = ArrayDualFloat::pow(self, exp)?;
@@ -932,13 +1059,19 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn log_scalar(self, base: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
+    fn log_scalar(
+        self,
+        base: <Self::DType as CDatatype>::Float,
+    ) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::log(self, base)?;
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn pow_scalar(self, exp: f64) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
+    fn pow_scalar(
+        self,
+        exp: <Self::DType as CDatatype>::Float,
+    ) -> Result<ArrayOp<ArrayScalarFloat<Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayScalarFloat::pow(self, exp)?;
         Ok(ArrayOp::new(shape, op))
@@ -967,26 +1100,89 @@ where
 impl<A: NDArray> NDArrayNumeric for A where A::DType: Float {}
 
 pub trait NDArrayTrig: NDArray + Sized {
-    fn asin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn asin(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::asin(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn sin(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn sin(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::sin(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn sinh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn sinh(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::sinh(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn acos(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn acos(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::acos(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn cos(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn cos(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::cos(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn cosh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn cosh(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::cosh(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn atan(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn atan(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::atan(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn tan(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn tan(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::tan(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 
-    fn tanh(&self) -> ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>;
+    fn tanh(
+        self,
+    ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
+    {
+        let shape = self.shape().to_vec();
+        let op = ArrayUnary::tanh(self)?;
+        Ok(ArrayOp::new(shape, op))
+    }
 }
 
-// TODO: implement trigonometry methods
+impl<A: NDArray> NDArrayTrig for A {}
 
 pub trait NDArrayCast: NDArray + Sized {
     fn cast<O: CDatatype>(self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {

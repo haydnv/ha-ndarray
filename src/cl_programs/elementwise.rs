@@ -89,8 +89,8 @@ where
             return left + right;
         }}
 
-        inline {ltype} log_(const {ltype} left, const double right) {{
-            return log((double) left) / log(right);
+        inline {ltype} log_(const {ltype} left, const {rtype} right) {{
+            return log((double) left) / log((double) right);
         }}
 
         inline {ltype} div(const {ltype} left, const {rtype} right) {{
@@ -101,8 +101,8 @@ where
             return left * right;
         }}
 
-        inline {ltype} pow_(const {ltype} left, const double right) {{
-            return pow((double) left, right);
+        inline {ltype} pow_(const {ltype} left, const {rtype} right) {{
+            return pow(left, right);
         }}
 
         inline {ltype} sub(const {ltype} left, const {rtype} right) {{
@@ -144,8 +144,8 @@ where
             return left * right;
         }}
 
-        inline {otype} pow_(const {otype} left, const double right) {{
-            return pow((double) left, right);
+        inline {otype} pow_(const {otype} left, const {itype} right) {{
+            return pow(left, right);
         }}
 
         inline {otype} sub(const {otype} left, const {itype} right) {{
