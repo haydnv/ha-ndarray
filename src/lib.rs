@@ -1366,19 +1366,19 @@ pub trait MatrixMath: NDArray + fmt::Debug {
 impl<A: NDArray + fmt::Debug> MatrixMath for A {}
 
 pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
-    fn all(self) -> Result<bool, Error> {
+    fn all(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.all(&queue)
     }
 
-    fn any(self) -> Result<bool, Error> {
+    fn any(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.any(&queue)
     }
 
-    fn max(self) -> Result<Self::DType, Error> {
+    fn max(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.max(&queue)
@@ -1394,7 +1394,7 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn min(self) -> Result<Self::DType, Error> {
+    fn min(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.min(&queue)
@@ -1410,7 +1410,7 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn product(self) -> Result<Self::DType, Error> {
+    fn product(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.product(&queue)
@@ -1426,7 +1426,7 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         Ok(ArrayOp::new(shape, op))
     }
 
-    fn sum(self) -> Result<Self::DType, Error> {
+    fn sum(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.sum(&queue)
@@ -1616,8 +1616,8 @@ pub fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
 
     let zeros = std::iter::repeat(0).take(ndim - shape.len());
 
-    let strides = shape.iter().enumerate().map(|(x, dim)| {
-        if *dim == 1 {
+    let strides = shape.iter().copied().enumerate().map(|(x, dim)| {
+        if dim == 1 {
             0
         } else {
             shape.iter().rev().take(shape.len() - 1 - x).product()
