@@ -102,7 +102,7 @@ where
         }}
 
         inline {ltype} pow_(const {ltype} left, const {rtype} right) {{
-            return pow(left, right);
+            return powf(left, right);
         }}
 
         inline {ltype} sub(const {ltype} left, const {rtype} right) {{
