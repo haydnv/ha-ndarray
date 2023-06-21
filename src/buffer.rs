@@ -6,6 +6,7 @@ use std::{fmt, iter};
 use async_trait::async_trait;
 #[cfg(feature = "stream")]
 use destream::{de, en};
+use get_size::GetSize;
 use rayon::prelude::*;
 
 #[cfg(feature = "opencl")]
@@ -212,6 +213,15 @@ pub enum SliceConverter<'a, T> {
     Slice(&'a [T]),
 }
 
+impl<'a, T> SliceConverter<'a, T> {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Vec(vec) => vec.len(),
+            Self::Slice(slice) => slice.len(),
+        }
+    }
+}
+
 impl<'a, T: Clone> SliceConverter<'a, T> {
     pub fn into_vec(self) -> Vec<T> {
         match self {
@@ -219,12 +229,11 @@ impl<'a, T: Clone> SliceConverter<'a, T> {
             Self::Slice(slice) => slice.to_vec(),
         }
     }
+}
 
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Vec(vec) => vec.len(),
-            Self::Slice(slice) => slice.len(),
-        }
+impl<'a, T> GetSize for SliceConverter<'a, T> {
+    fn get_size(&self) -> usize {
+        self.len() * std::mem::size_of::<T>()
     }
 }
 
@@ -284,6 +293,13 @@ impl<'a, T: CDatatype> AsRef<ocl::Buffer<T>> for CLConverter<'a, T> {
             Self::Owned(buffer) => &buffer,
             Self::Borrowed(buffer) => buffer,
         }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CDatatype> GetSize for CLConverter<'a, T> {
+    fn get_size(&self) -> usize {
+        self.len() * std::mem::size_of::<T>()
     }
 }
 
@@ -352,6 +368,16 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
                 Ok(SliceConverter::Vec(copy))
             }
             Self::Host(buffer) => Ok(buffer),
+        }
+    }
+}
+
+impl<'a, T: CDatatype> GetSize for BufferConverter<'a, T> {
+    fn get_size(&self) -> usize {
+        match self {
+            Self::Host(slice) => slice.get_size(),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => buffer.get_size(),
         }
     }
 }
@@ -744,6 +770,12 @@ impl<T: CDatatype> Buffer<T> {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => buffer.len(),
         }
+    }
+}
+
+impl<T: CDatatype> GetSize for Buffer<T> {
+    fn get_size(&self) -> usize {
+        self.len() * std::mem::size_of::<T>()
     }
 }
 

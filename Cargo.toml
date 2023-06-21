@@ -24,6 +24,7 @@ async-trait = { version = "0.1", optional = true }
 destream = { path = "../destream", optional = true }
 futures = { version = "0.3", optional = true }
 freqfs = { path = "../freqfs", optional = true }
+get-size = "0.1"
 num_cpus = "1.15"
 ocl = { version = "0.19", optional = true }
 rand = "0.8"
