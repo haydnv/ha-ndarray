@@ -1,5 +1,6 @@
 use std::cmp::{PartialEq, PartialOrd};
 use std::f32::consts::PI;
+use std::fmt;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::sync::Arc;
@@ -72,6 +73,88 @@ impl<O: Op + ?Sized> Op for Box<O> {
 // constructors
 
 #[derive(Clone)]
+pub struct Range<T> {
+    context: Context,
+    size: usize,
+    start: T,
+    step: f64,
+    #[cfg(feature = "opencl")]
+    kernel_op: ocl::Program,
+}
+
+impl<T: CDatatype + fmt::Display> Range<T> {
+    pub fn new(start: T, stop: T, size: usize) -> Result<Self, Error> {
+        let context = Context::default()?;
+        Self::with_context(context, start, stop, size)
+    }
+
+    pub fn with_context(context: Context, start: T, stop: T, size: usize) -> Result<Self, Error> {
+        let step = if start < stop {
+            Ok((stop - start).to_f64() / (size as f64))
+        } else {
+            Err(Error::Bounds(format!("invalid range: [{start}..{stop})")))
+        }?;
+
+        #[cfg(feature = "opencl")]
+        let kernel_op = cl_programs::range::<T>(&context)?;
+
+        Ok(Self {
+            context,
+            size,
+            start,
+            step,
+            #[cfg(feature = "opencl")]
+            kernel_op,
+        })
+    }
+}
+
+impl<T: CDatatype> Op for Range<T> {
+    type Out = T;
+
+    fn context(&self) -> &Context {
+        &self.context
+    }
+
+    fn enqueue_cpu(&self, _queue: &Queue) -> Result<Vec<Self::Out>, Error> {
+        let start = self.start.to_f64();
+
+        let buffer = (0..self.size)
+            .into_par_iter()
+            .map(|i| i as f64)
+            .map(|i| i * self.step)
+            .map(|o| start.to_f64() + o)
+            .map(T::from_f64)
+            .collect();
+
+        Ok(buffer)
+    }
+
+    #[cfg(feature = "opencl")]
+    fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error> {
+        let cl_queue = queue.cl_queue.as_ref().expect("queue");
+
+        let buffer = ocl::Buffer::builder()
+            .queue(cl_queue.clone())
+            .len(self.size)
+            .build()?;
+
+        let kernel = ocl::Kernel::builder()
+            .name("range")
+            .queue(cl_queue.clone())
+            .program(&self.kernel_op)
+            .global_work_size(buffer.len())
+            .arg(self.step)
+            .arg(&buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(buffer)
+    }
+}
+
+#[derive(Clone)]
 pub struct RandomNormal {
     context: Context,
     size: usize,
@@ -82,15 +165,7 @@ pub struct RandomNormal {
 impl RandomNormal {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
-        #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::random_normal(&context)?;
-
-        Ok(Self {
-            context,
-            size,
-            #[cfg(feature = "opencl")]
-            kernel_op,
-        })
+        Self::with_context(context, size)
     }
 
     pub fn with_context(context: Context, size: usize) -> Result<Self, Error> {
@@ -197,15 +272,7 @@ pub struct RandomUniform {
 impl RandomUniform {
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
-        #[cfg(feature = "opencl")]
-        let kernel_op = cl_programs::random_uniform(&context)?;
-
-        Ok(Self {
-            context,
-            size,
-            #[cfg(feature = "opencl")]
-            kernel_op,
-        })
+        Self::with_context(context, size)
     }
 
     pub fn with_context(context: Context, size: usize) -> Result<Self, Error> {
@@ -531,15 +598,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
             .as_ref()
             .par_iter()
             .copied()
-            // chunk the input to encourage the compiler to vectorize
-            .chunks(8)
-            .map(|chunk| {
-                chunk
-                    .into_iter()
-                    .map(|l| (self.host_op)(l, right))
-                    .collect::<Vec<T>>()
-            })
-            .flatten()
+            .map(|l| (self.host_op)(l, right))
             .collect();
 
         Ok(output)

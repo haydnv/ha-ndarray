@@ -1,17 +1,17 @@
 use std::fmt;
 
+mod construct;
 mod elementwise;
 mod gather;
 mod linalg;
-mod random;
 mod reduce;
 mod slice;
 mod view;
 
+pub use construct::*;
 pub use elementwise::*;
 pub use gather::*;
 pub use linalg::*;
-pub use random::*;
 pub use reduce::*;
 pub use slice::*;
 pub use view::*;

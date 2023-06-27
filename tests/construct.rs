@@ -1,5 +1,22 @@
-use ha_ndarray::construct::{RandomNormal, RandomUniform};
+use ha_ndarray::construct::{RandomNormal, RandomUniform, Range};
 use ha_ndarray::*;
+
+#[test]
+fn test_range() -> Result<(), Error> {
+    let context = Context::new(0, 0, None)?;
+    let size = 1_000_000;
+    let op = Range::with_context(context, 0f32, 500_000f32, size)?;
+    let array = ArrayOp::new(vec![size], op);
+    let array = ArrayBase::<Vec<f32>>::copy(&array)?;
+    let buffer = array.into_inner();
+
+    for (i, a) in buffer.into_iter().enumerate() {
+        let e = (i as f32) / 2.0;
+        assert_eq!(e, a);
+    }
+
+    Ok(())
+}
 
 #[test]
 fn test_random_normal() -> Result<(), Error> {

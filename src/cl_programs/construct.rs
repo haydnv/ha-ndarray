@@ -1,6 +1,6 @@
 use ocl::{Error, Program};
 
-use crate::Context;
+use crate::{CDatatype, Context};
 
 const LIB: &'static str = r#"
 const float pi = 3.14159;
@@ -83,7 +83,23 @@ pub fn random_uniform(context: &Context) -> Result<Program, Error> {
             const ulong offset = get_global_id(0);
             output[offset] = random(seed, offset);
         }}
-    "#
+        "#
+    );
+
+    Program::builder().source(src).build(context.cl_context())
+}
+
+pub fn range<T: CDatatype>(context: &Context) -> Result<Program, Error> {
+    let src = format!(
+        r#"
+        {LIB}
+
+        __kernel void range(const double step, __global {dtype}* output) {{
+            const ulong offset = get_global_id(0);
+            output[offset] = offset * step;
+        }}
+        "#,
+        dtype = T::TYPE_STR
     );
 
     Program::builder().source(src).build(context.cl_context())

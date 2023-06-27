@@ -17,7 +17,7 @@ mod cl_programs;
 pub mod ops;
 
 pub mod construct {
-    pub use super::ops::{RandomNormal, RandomUniform};
+    pub use super::ops::{RandomNormal, RandomUniform, Range};
 }
 
 const GPU_MIN_DEFAULT: usize = 1024;
