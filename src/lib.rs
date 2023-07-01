@@ -1365,7 +1365,7 @@ pub trait MatrixMath: NDArray + fmt::Debug {
 
 impl<A: NDArray + fmt::Debug> MatrixMath for A {}
 
-pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
+pub trait NDArrayReduceBoolean: NDArrayRead {
     fn all(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
@@ -1377,73 +1377,109 @@ pub trait NDArrayReduce: NDArrayRead + fmt::Debug {
         let buffer = self.read(&queue)?;
         buffer.any(&queue)
     }
+}
 
-    fn max(&self) -> Result<Self::DType, Error> {
+impl<A: NDArrayRead> NDArrayReduceBoolean for A {}
+
+pub trait NDArrayReduceAll: NDArrayRead {
+    fn max_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.max(&queue)
     }
 
-    fn max_axis(
-        self,
-        axis: usize,
-        keepdims: bool,
-    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self.shape(), axis, keepdims)?;
-        let op = ArrayReduceAxis::max(self, axis);
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn min(&self) -> Result<Self::DType, Error> {
+    fn min_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.min(&queue)
     }
 
-    fn min_axis(
-        self,
-        axis: usize,
-        keepdims: bool,
-    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self.shape(), axis, keepdims)?;
-        let op = ArrayReduceAxis::min(self, axis);
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn product(&self) -> Result<Self::DType, Error> {
+    fn product_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.product(&queue)
     }
 
-    fn product_axis(
-        self,
-        axis: usize,
-        keepdims: bool,
-    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self.shape(), axis, keepdims)?;
-        let op = ArrayReduceAxis::product(self, axis);
-        Ok(ArrayOp::new(shape, op))
-    }
-
-    fn sum(&self) -> Result<Self::DType, Error> {
+    fn sum_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.sum(&queue)
     }
+}
 
-    fn sum_axis(
+impl<A: NDArrayRead> NDArrayReduceAll for A {}
+
+pub trait NDArrayReduce: NDArrayRead + NDArrayTransform + fmt::Debug
+where
+    Array<Self::DType>: From<Self> + From<Self::Transpose>,
+{
+    fn max(
         self,
-        axis: usize,
+        mut axes: Vec<usize>,
         keepdims: bool,
-    ) -> Result<ArrayOp<ArrayReduceAxis<Self::DType, Self>>, Error> {
-        let shape = reduce_axis(self.shape(), axis, keepdims)?;
-        let op = ArrayReduceAxis::sum(self, axis);
+    ) -> Result<ArrayOp<ArrayReduceAxes<Self::DType, Array<Self::DType>>>, Error> {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(self.shape(), &axes, keepdims)?;
+        let stride = axes.iter().copied().map(|x| self.shape()[x]).product();
+        let this = permute_for_reduce(self, axes)?;
+        let op = ArrayReduceAxes::max(this, stride);
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn min(
+        self,
+        mut axes: Vec<usize>,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxes<Self::DType, Array<Self::DType>>>, Error> {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(self.shape(), &axes, keepdims)?;
+        let stride = axes.iter().copied().map(|x| self.shape()[x]).product();
+        let this = permute_for_reduce(self, axes)?;
+        let op = ArrayReduceAxes::min(this, stride);
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn product(
+        self,
+        mut axes: Vec<usize>,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxes<Self::DType, Array<Self::DType>>>, Error> {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(self.shape(), &axes, keepdims)?;
+        let stride = axes.iter().copied().map(|x| self.shape()[x]).product();
+        let this = permute_for_reduce(self, axes)?;
+        let op = ArrayReduceAxes::product(this, stride);
+        Ok(ArrayOp::new(shape, op))
+    }
+
+    fn sum(
+        self,
+        mut axes: Vec<usize>,
+        keepdims: bool,
+    ) -> Result<ArrayOp<ArrayReduceAxes<Self::DType, Array<Self::DType>>>, Error> {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(self.shape(), &axes, keepdims)?;
+        let stride = axes.iter().copied().map(|x| self.shape()[x]).product();
+        let this = permute_for_reduce(self, axes)?;
+        let op = ArrayReduceAxes::sum(this, stride);
         Ok(ArrayOp::new(shape, op))
     }
 }
 
-impl<A: NDArrayRead + fmt::Debug> NDArrayReduce for A {}
+impl<A> NDArrayReduce for A
+where
+    Array<A::DType>: From<A> + From<A::Transpose>,
+    A: NDArrayRead + NDArrayTransform + fmt::Debug,
+{
+}
 
 pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
     fn cond<T, L, R>(self, then: L, or_else: R) -> Result<ArrayOp<GatherCond<Self, T, L, R>>, Error>
@@ -1591,21 +1627,43 @@ fn div_ceil(num: usize, denom: usize) -> usize {
 }
 
 #[inline]
-fn reduce_axis(shape: &[usize], axis: usize, keepdims: bool) -> Result<Shape, Error> {
-    if axis >= shape.len() {
-        Err(Error::Bounds(format!(
-            "axis {} is out of bounds for {:?}",
-            axis, shape
-        )))
-    } else if keepdims {
-        let mut shape = shape.to_vec();
-        shape[axis] = 1;
-        Ok(shape)
-    } else if shape.len() == 1 {
+fn permute_for_reduce<A: NDArrayTransform>(
+    array: A,
+    axes: Vec<usize>,
+) -> Result<Array<A::DType>, Error>
+where
+    Array<A::DType>: From<A> + From<A::Transpose>,
+{
+    let mut permutation = Vec::with_capacity(array.ndim());
+    permutation.extend((0..array.ndim()).into_iter().filter(|x| !axes.contains(x)));
+    permutation.extend(axes);
+
+    if permutation.iter().copied().enumerate().all(|(i, x)| i == x) {
+        Ok(array.into())
+    } else {
+        array.transpose(Some(permutation)).map(Array::from)
+    }
+}
+
+#[inline]
+fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape, Error> {
+    let mut shape = shape.to_vec();
+
+    for x in axes.iter().copied().rev() {
+        if x >= shape.len() {
+            return Err(Error::Bounds(format!(
+                "axis {x} is out of bounds for {shape:?}"
+            )));
+        } else if keepdims {
+            shape[x] = 1;
+        } else {
+            shape.remove(x);
+        }
+    }
+
+    if shape.is_empty() {
         Ok(vec![1])
     } else {
-        let mut shape = shape.to_vec();
-        shape.remove(axis);
         Ok(shape)
     }
 }

@@ -1409,32 +1409,30 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
 // reduction
 
 #[derive(Copy, Clone)]
-pub struct ArrayReduceAxis<T, A> {
+pub struct ArrayReduceAxes<T, A> {
     source: A,
-    axis: usize,
+    stride: usize,
     host_reduce: fn(T, T) -> T,
     #[allow(unused)]
     kernel_reduce: &'static str,
 }
 
-impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<T, A> {
+impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxes<T, A> {
     fn new(
         source: A,
-        axis: usize,
+        stride: usize,
         host_reduce: fn(T, T) -> T,
         kernel_reduce: &'static str,
     ) -> Self {
-        debug_assert!(axis < source.ndim());
-
         Self {
             source,
-            axis,
+            stride,
             host_reduce,
             kernel_reduce,
         }
     }
 
-    pub fn max(source: A, axis: usize) -> Self {
+    pub fn max(source: A, stride: usize) -> Self {
         fn max<T: PartialOrd>(l: T, r: T) -> T {
             if r > l {
                 r
@@ -1443,10 +1441,10 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<T, A> {
             }
         }
 
-        Self::new(source, axis, max, "max")
+        Self::new(source, stride, max, "max")
     }
 
-    pub fn min(source: A, axis: usize) -> Self {
+    pub fn min(source: A, stride: usize) -> Self {
         fn min<T: PartialOrd>(l: T, r: T) -> T {
             if r < l {
                 r
@@ -1455,19 +1453,19 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxis<T, A> {
             }
         }
 
-        Self::new(source, axis, min, "min")
+        Self::new(source, stride, min, "min")
     }
 
-    pub fn product(source: A, axis: usize) -> Self {
-        Self::new(source, axis, Mul::mul, "mul")
+    pub fn product(source: A, stride: usize) -> Self {
+        Self::new(source, stride, Mul::mul, "mul")
     }
 
-    pub fn sum(source: A, axis: usize) -> Self {
-        Self::new(source, axis, Add::add, "add")
+    pub fn sum(source: A, stride: usize) -> Self {
+        Self::new(source, stride, Add::add, "add")
     }
 }
 
-impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
+impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxes<T, A> {
     type Out = T;
 
     fn context(&self) -> &Context {
@@ -1478,11 +1476,9 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
         let input = self.source.to_host(queue)?;
         debug_assert!(!input.as_ref().is_empty());
 
-        let reduce_dim = self.source.shape()[self.axis];
-
         let output = input
             .as_ref()
-            .par_chunks_exact(reduce_dim)
+            .par_chunks_exact(self.stride)
             .map(|chunk| {
                 // encourage the compiler to vectorize the reduction
                 let reduced = chunk
@@ -1516,7 +1512,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayReduceAxis<T, A> {
             cl_queue,
             input.as_ref(),
             self.source.shape(),
-            self.axis,
+            self.stride,
         )?;
 
         Ok(output)

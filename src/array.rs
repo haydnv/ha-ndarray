@@ -76,36 +76,6 @@ impl<T: CDatatype> NDArrayTransform for Array<T> {
     }
 }
 
-#[cfg(feature = "freqfs")]
-impl<FE, T> From<ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>> for Array<T>
-where
-    FE: Send + Sync + 'static,
-    T: CDatatype,
-{
-    fn from(base: ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>) -> Self {
-        Self::Base(ArrayBase {
-            context: base.context,
-            shape: base.shape,
-            data: Box::new(base.data),
-        })
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> From<ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>> for Array<T>
-where
-    FE: Send + Sync + 'static,
-    T: CDatatype,
-{
-    fn from(base: ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>) -> Self {
-        Self::Base(ArrayBase {
-            context: base.context,
-            shape: base.shape,
-            data: Box::new(base.data),
-        })
-    }
-}
-
 impl<T: CDatatype> fmt::Debug for Array<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         array_dispatch!(self, this, this.fmt(f))
@@ -129,7 +99,7 @@ impl<Buf> ArrayBase<Buf> {
             })
         } else {
             Err(Error::Bounds(format!(
-                "expected {} elements for shape {:?} but found {}",
+                "expected {} elements for an array of shape {:?} but found {}",
                 shape.iter().product::<usize>(),
                 shape,
                 size,
@@ -1023,18 +993,48 @@ impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for Array<T> {
     }
 }
 
-impl<T: CDatatype> From<ArrayBase<Buffer<T>>> for Array<T> {
-    fn from(base: ArrayBase<Buffer<T>>) -> Self {
+macro_rules! array_from_base {
+    ($base:ty) => {
+        impl<T: CDatatype> From<$base> for Array<T> {
+            fn from(base: $base) -> Self {
+                Self::Base(ArrayBase {
+                    context: base.context,
+                    shape: base.shape,
+                    data: Box::new(base.data),
+                })
+            }
+        }
+    };
+}
+
+array_from_base!(ArrayBase<Arc<Vec<T>>>);
+#[cfg(feature = "opencl")]
+array_from_base!(ArrayBase<Arc<ocl::Buffer<T>>>);
+array_from_base!(ArrayBase<Buffer<T>>);
+array_from_base!(ArrayBase<Arc<Buffer<T>>>);
+
+#[cfg(feature = "freqfs")]
+impl<FE, T> From<ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>> for Array<T>
+where
+    FE: Send + Sync + 'static,
+    T: CDatatype,
+{
+    fn from(base: ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>) -> Self {
         Self::Base(ArrayBase {
             context: base.context,
             shape: base.shape,
-            data: Box::new(Arc::new(base.data)),
+            data: Box::new(base.data),
         })
     }
 }
 
-impl<T: CDatatype> From<ArrayBase<Arc<Buffer<T>>>> for Array<T> {
-    fn from(base: ArrayBase<Arc<Buffer<T>>>) -> Self {
+#[cfg(feature = "freqfs")]
+impl<FE, T> From<ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>> for Array<T>
+where
+    FE: Send + Sync + 'static,
+    T: CDatatype,
+{
+    fn from(base: ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>) -> Self {
         Self::Base(ArrayBase {
             context: base.context,
             shape: base.shape,
@@ -1346,8 +1346,15 @@ impl<A: NDArray> ArraySlice<A> {
     ) -> usize {
         let coord = strides
             .iter()
+            .copied()
             .zip(shape)
-            .map(|(stride, dim)| (offset / stride) % dim)
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            })
             .collect::<Vec<usize>>();
 
         let mut offset = 0;

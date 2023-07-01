@@ -26,7 +26,7 @@ fn test_random_normal() -> Result<(), Error> {
     let array = ArrayOp::new(vec![size], op);
 
     assert!(!array.clone().eq_scalar(0.)?.any()?);
-    assert_eq!(array.clone().sum()? as usize / size, 0);
+    assert_eq!(array.clone().sum_all()? as usize / size, 0);
     assert!(array.clone().gt_scalar(1.)?.any()?);
     assert!(array.lt_scalar(-1.)?.any()?);
 
@@ -41,7 +41,7 @@ fn test_random_uniform() -> Result<(), Error> {
     let array = ArrayOp::new(vec![size], op);
 
     assert!(!array.clone().eq_scalar(0.)?.any()?);
-    assert_eq!(array.clone().sum()? as usize / size, 0);
+    assert_eq!(array.clone().sum_all()? as usize / size, 0);
     assert!(array.clone().ge_scalar(-1.)?.all()?);
     assert!(array.clone().le_scalar(1.)?.all()?);
 

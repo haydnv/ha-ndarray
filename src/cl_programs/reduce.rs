@@ -210,25 +210,26 @@ pub fn reduce_axis<T: CDatatype>(
     queue: Queue,
     input: &Buffer<T>,
     shape: &[usize],
-    axis: usize,
+    mut stride: usize,
 ) -> Result<Buffer<T>, Error> {
-    assert!(axis < shape.len());
-    assert_eq!(input.len(), shape.iter().product());
     assert!(input.len() > 0);
+    assert!(stride > 0);
+    assert_eq!(input.len(), shape.iter().product());
+    assert_eq!(input.len() % stride, 0);
 
-    let mut reduce_dim = shape[axis];
-    debug_assert!(reduce_dim > 0);
-
-    let output_size = input.len() / reduce_dim;
+    let output_size = input.len() / stride;
     debug_assert!(output_size > 0);
 
-    let mut buffer = if reduce_dim < WG_SIZE {
-        return fold_axis(init, reduce, queue.clone(), input, reduce_dim, 1);
-    } else {
-        let log = (reduce_dim as f32).log(WG_SIZE as f32).fract();
-        let target_dim = WG_SIZE.pow(log as u32);
-        fold_axis(init, reduce, queue.clone(), input, reduce_dim, target_dim)?
-    };
+    if stride < WG_SIZE {
+        return fold_axis(init, reduce, queue.clone(), input, stride, 1);
+    }
+
+    let log = (stride as f32).log(WG_SIZE as f32).fract();
+    let target_dim = WG_SIZE.pow(log as u32);
+    let mut buffer = fold_axis(init, reduce, queue.clone(), input, stride, target_dim)?;
+
+    stride = target_dim;
+    debug_assert_eq!(output_size * stride, buffer.len());
 
     let src = format!(
         r#"
@@ -240,7 +241,7 @@ pub fn reduce_axis<T: CDatatype>(
             *left *= right;
         }}
 
-        __kernel void reduce_axis(
+        __kernel void reduce(
                 {dtype} init,
                 __global const {dtype}* input,
                 __global {dtype}* output,
@@ -278,13 +279,13 @@ pub fn reduce_axis<T: CDatatype>(
     while buffer.len() > output_size {
         let output = Buffer::builder()
             .queue(queue.clone())
-            .len(buffer.len() / reduce_dim)
+            .len(buffer.len() / stride)
             .build()?;
 
-        let wg_size = if reduce_dim < WG_SIZE {
-            reduce_dim
+        let wg_size = if stride < WG_SIZE {
+            stride
         } else {
-            debug_assert_eq!(reduce_dim % WG_SIZE, 0);
+            debug_assert_eq!(stride % WG_SIZE, 0);
             WG_SIZE
         };
 
@@ -303,7 +304,8 @@ pub fn reduce_axis<T: CDatatype>(
         unsafe { kernel.enq()? }
 
         buffer = output;
-        reduce_dim /= wg_size;
+        stride /= wg_size;
+        debug_assert_eq!(output_size * stride, buffer.len());
     }
 
     Ok(buffer)

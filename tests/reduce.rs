@@ -10,7 +10,7 @@ fn test_reduce_sum_all() -> Result<(), Error> {
         let data = vec![1; 10_usize.pow(x)];
         let array = ArrayBase::<Vec<i32>>::with_context(context.clone(), vec![data.len()], data)?;
 
-        assert_eq!(array.size() as i32, array.sum()?);
+        assert_eq!(array.size() as i32, array.sum_all()?);
     }
 
     Ok(())
@@ -38,7 +38,7 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
         )?;
 
         for x in 0..shape.len() {
-            let sum = array.clone().sum_axis(x, false)?;
+            let sum = array.clone().sum(vec![x], false)?;
             let eq = sum.eq_scalar(shape[x] as u32)?;
             assert!(eq.all()?);
         }

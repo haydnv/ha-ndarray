@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
     let d_loss = error * 2.;
     let weights_t = weights.clone().transpose(None)?;
     let gradient = d_loss.matmul(weights_t)?;
-    let deltas = gradient.sum_axis(0, false)?.expand_dims(vec![1])?;
+    let deltas = gradient.sum(vec![0], false)?.expand_dims(vec![1])?;
     let new_weights = weights.clone().add(deltas * LEARNING_RATE)?;
 
     let mut i = 0;
@@ -45,8 +45,8 @@ fn main() -> Result<(), Error> {
         if i % 100 == 0 {
             println!(
                 "loss: {} (max {})",
-                loss.clone().sum()?,
-                loss.clone().max()?
+                loss.clone().sum_all()?,
+                loss.clone().max_all()?
             );
 
             assert!(!loss.clone().is_inf()?.any()?, "diverged");

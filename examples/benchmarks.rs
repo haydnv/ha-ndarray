@@ -84,7 +84,7 @@ fn reduce_sum_axis(context: &Context) -> Result<(), Error> {
 
     println!("reduce axis {} of {:?} (size {})", 2, x, x.size());
 
-    let reduced = x.sum_axis(2, false)?;
+    let reduced = x.sum(vec![2], false)?;
 
     for _ in 0..ITERATIONS {
         let start = Instant::now();
@@ -110,7 +110,7 @@ fn reduce_sum_all(context: &Context) -> Result<(), Error> {
 
         for _ in 0..ITERATIONS {
             let start = Instant::now();
-            let _x = x.clone().sum()?;
+            let _x = x.clone().sum_all()?;
             let duration = start.elapsed();
             println!("{:?} us", duration.as_micros());
         }
