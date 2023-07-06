@@ -21,7 +21,7 @@ pkg-config = "0.3"
 
 [dependencies]
 async-trait = { version = "0.1", optional = true }
-destream = { path = "../destream", optional = true }
+destream = { version = "0.7", optional = true }
 futures = { version = "0.3", optional = true }
 freqfs = { path = "../freqfs", optional = true }
 get-size = "0.1"
