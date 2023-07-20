@@ -101,8 +101,12 @@ where
             return left * right;
         }}
 
-        inline {ltype} pow_(const {ltype} left, const {rtype} right) {{
+        inline double pow_(const double left, const double right) {{
             return powf(left, right);
+        }}
+
+        inline double rem(const double left, const double right) {{
+            return fmod(left, right);
         }}
 
         inline {ltype} sub(const {ltype} left, const {rtype} right) {{
@@ -144,8 +148,12 @@ where
             return left * right;
         }}
 
-        inline {otype} pow_(const {otype} left, const {itype} right) {{
-            return pow(left, right);
+        inline double pow_(const double left, const double right) {{
+            return powf(left, right);
+        }}
+
+        inline double rem(const double left, const double right) {{
+            return fmod(left, right);
         }}
 
         inline {otype} sub(const {otype} left, const {itype} right) {{

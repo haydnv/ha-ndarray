@@ -369,7 +369,7 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
     }
 
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
-        Self::new(left, right, Rem::rem, "fmod")
+        Self::new(left, right, Rem::rem, "rem")
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
@@ -575,7 +575,7 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayScalar<T, A> {
     }
 
     pub fn rem(left: A, right: T) -> Result<Self, Error> {
-        Self::new(left, right, Rem::rem, "fmod")
+        Self::new(left, right, Rem::rem, "rem")
     }
 
     pub fn sub(left: A, right: T) -> Result<Self, Error> {
