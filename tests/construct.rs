@@ -5,7 +5,7 @@ use ha_ndarray::*;
 fn test_range() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
     let size = 1_000_000;
-    let op = Range::with_context(context, 0f32, 500_000f32, size)?;
+    let op = Range::with_context(context, 0f32, 500_000f32, vec![size])?;
     let array = ArrayOp::new(vec![size], op);
     let array = ArrayBase::<Vec<f32>>::copy(&array)?;
     let buffer = array.into_inner();
@@ -37,7 +37,7 @@ fn test_random_normal() -> Result<(), Error> {
 fn test_random_uniform() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
     let size = 1_000_000;
-    let op = RandomUniform::with_context(context, size)?;
+    let op = RandomUniform::with_context(context, vec![size])?;
     let array = ArrayOp::new(vec![size], op);
 
     assert!(!array.clone().eq_scalar(0.)?.any()?);

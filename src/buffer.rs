@@ -23,17 +23,27 @@ impl<B: BufferInstance + ?Sized> BufferInstance for Box<B> {
 
 pub trait BufferRead: BufferInstance {
     fn read(&self) -> BufferConverter<Self::DType>;
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error>;
 }
 
 impl<T: CDatatype> BufferRead for Vec<T> {
     fn read(&self) -> BufferConverter<Self::DType> {
         SliceConverter::Slice(self).into()
     }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        Ok(self[offset])
+    }
 }
 
 impl<T: CDatatype> BufferRead for Arc<Vec<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
         SliceConverter::Slice(self).into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        Ok(self[offset])
     }
 }
 
@@ -42,12 +52,23 @@ impl<T: CDatatype> BufferRead for ocl::Buffer<T> {
     fn read(&self) -> BufferConverter<Self::DType> {
         CLConverter::Borrowed(self).into()
     }
+
+    fn read_value(&self, offset: usize) -> Self::DType {
+        let mut data = vec![T::zero()];
+        let buffer = self.create_sub_buffer(None, offset, 1)?;
+        buffer.read(&mut data)?;
+        Ok(data[0])
+    }
 }
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> BufferRead for Arc<ocl::Buffer<T>> {
     fn read(&self) -> BufferConverter<Self::DType> {
         CLConverter::Borrowed(self).into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        (**self).read_value(offset)
     }
 }
 
@@ -59,6 +80,14 @@ impl<T: CDatatype> BufferRead for Buffer<T> {
             Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
         }
     }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        match self {
+            Buffer::Host(buffer) => buffer.read_value(offset),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => buffer.read_value(offset),
+        }
+    }
 }
 
 impl<T: CDatatype> BufferRead for Arc<Buffer<T>> {
@@ -67,6 +96,14 @@ impl<T: CDatatype> BufferRead for Arc<Buffer<T>> {
             Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
             #[cfg(feature = "opencl")]
             Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
+    }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        match &**self {
+            Buffer::Host(buffer) => buffer.read_value(offset),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => buffer.read_value(offset),
         }
     }
 }
@@ -80,6 +117,14 @@ impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileReadGuardOwned<FE
             Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
         }
     }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        match &**self {
+            Buffer::Host(buffer) => buffer.read_value(offset),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => buffer.read_value(offset),
+        }
+    }
 }
 
 #[cfg(feature = "freqfs")]
@@ -89,6 +134,14 @@ impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileWriteGuardOwned<F
             Buffer::Host(buffer) => SliceConverter::Slice(buffer).into(),
             #[cfg(feature = "opencl")]
             Buffer::CL(buffer) => CLConverter::Borrowed(buffer).into(),
+        }
+    }
+
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
+        match &**self {
+            Buffer::Host(buffer) => buffer.read_value(offset),
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buffer) => buffer.read_value(offset),
         }
     }
 }

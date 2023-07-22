@@ -836,6 +836,8 @@ pub trait AsBuffer: NDArray {
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error>;
 
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error>;
+
     fn to_host(&self, queue: &Queue) -> Result<SliceConverter<Self::DType>, Error> {
         let converter = self.read(queue)?;
         converter.to_slice()
@@ -1640,6 +1642,24 @@ fn div_ceil(num: usize, denom: usize) -> usize {
     } else {
         (num / denom) + 1
     }
+}
+
+#[inline]
+fn offset_of(coord: &[usize], shape: &[usize]) -> usize {
+    let strides = shape.iter().enumerate().map(|(x, dim)| {
+        if *dim == 1 {
+            0
+        } else {
+            shape.iter().rev().take(shape.len() - 1 - x).product()
+        }
+    });
+
+    coord
+        .iter()
+        .copied()
+        .zip(strides)
+        .map(|(i, stride)| i * stride)
+        .sum()
 }
 
 #[inline]

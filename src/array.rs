@@ -7,9 +7,9 @@ use rayon::prelude::*;
 
 use super::ops::*;
 use super::{
-    strides_for, AsBuffer, AxisBound, Buffer, BufferConverter, BufferConverterMut, BufferInstance,
-    BufferRead, BufferWrite, CDatatype, Context, Error, NDArray, NDArrayRead, NDArrayTransform,
-    NDArrayWrite, Queue, Shape,
+    offset_of, strides_for, AsBuffer, AxisBound, Buffer, BufferConverter, BufferConverterMut,
+    BufferInstance, BufferRead, BufferWrite, CDatatype, Context, Error, NDArray, NDArrayRead,
+    NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
 pub enum Array<T: CDatatype> {
@@ -45,6 +45,10 @@ impl<T: CDatatype> NDArray for Array<T> {
 impl<T: CDatatype> NDArrayRead for Array<T> {
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         array_dispatch!(self, this, this.read(queue))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        array_dispatch!(self, this, this.read_value(coord))
     }
 }
 
@@ -373,11 +377,23 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Box<dyn BufferRead<DType = T>>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         Ok(self.data.read())
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
+    }
 }
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data[..]))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        Ok(self.data[offset])
     }
 }
 
@@ -420,12 +436,26 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Vec<T>>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data[..]))
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        Ok(self.data[offset])
+    }
 }
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Vec<T>>>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         let data = RwLock::read(&self.data).expect("read buffer");
         Ok(BufferConverter::from(data.to_vec()))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+
+        let data = RwLock::read(&self.data).expect("read buffer");
+        let offset = offset_of(coord, self.shape());
+        Ok(data[offset])
     }
 }
 
@@ -462,6 +492,12 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
 impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
     }
 }
 
@@ -509,6 +545,12 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<ocl::Buffer<T>>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&*self.data))
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -525,6 +567,13 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
         data.copy(&mut copy, None, None).enq()?;
 
         Ok(BufferConverter::from(copy))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let data = RwLock::read(&self.data).expect("read buffer");
+        let offset = offset_of(coord, self.shape());
+        data.read_value(offset)
     }
 }
 
@@ -561,6 +610,12 @@ impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&self.data))
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
     }
 }
 
@@ -605,6 +660,12 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Buffer<T>>> {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(&*self.data))
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
+    }
 }
 
 impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
@@ -627,6 +688,13 @@ impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
                 Ok(BufferConverter::from(copy))
             }
         }
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let data = RwLock::read(&self.data).expect("read buffer");
+        let offset = offset_of(coord, self.shape());
+        data.read_value(offset)
     }
 }
 
@@ -667,6 +735,12 @@ where
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         Ok(self.data.read())
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
+    }
 }
 
 #[cfg(feature = "freqfs")]
@@ -677,6 +751,12 @@ where
 {
     fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
         Ok(self.data.clone().into())
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+        let offset = offset_of(coord, self.shape());
+        self.data.read_value(offset)
     }
 }
 
@@ -1087,6 +1167,10 @@ impl<Op: super::ops::Op> NDArray for ArrayOp<Op> {
 impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Op::Out>, Error> {
         self.op.enqueue(queue).map(BufferConverter::from)
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        self.op.read_value(coord)
     }
 }
 
@@ -1524,6 +1608,35 @@ impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
             BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
         }
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+
+        let offset = offset_of(coord, self.shape());
+        let offset = Self::source_offset(
+            offset,
+            &self.strides,
+            &self.shape,
+            &self.source_strides,
+            &self.bounds,
+        );
+
+        let source_coord = self
+            .source_strides
+            .iter()
+            .copied()
+            .zip(self.source.shape())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            })
+            .collect::<Vec<usize>>();
+
+        self.source.read_value(&source_coord)
+    }
 }
 
 impl<'a, Buf: BufferWrite> NDArrayWrite for ArraySlice<ArrayBase<Buf>>
@@ -1886,6 +1999,28 @@ impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
             BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
         }
     }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        validate_coord(self, coord)?;
+
+        let offset = offset_of(coord, self.shape());
+
+        let source_coord = self
+            .strides
+            .iter()
+            .copied()
+            .zip(self.source.shape())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            })
+            .collect::<Vec<usize>>();
+
+        self.source.read_value(&source_coord)
+    }
 }
 
 macro_rules! impl_view_dual_op {
@@ -2100,24 +2235,6 @@ fn expand_dims<A: NDArray + fmt::Debug>(source: &A, mut axes: Vec<usize>) -> Res
             axes, source
         )))
     }
-}
-
-#[inline]
-fn offset_of(coord: &[usize], shape: &[usize]) -> usize {
-    let strides = shape.iter().enumerate().map(|(x, dim)| {
-        if *dim == 1 {
-            0
-        } else {
-            shape.iter().rev().take(shape.len() - 1 - x).product()
-        }
-    });
-
-    coord
-        .iter()
-        .copied()
-        .zip(strides)
-        .map(|(i, dim)| i * dim)
-        .sum()
 }
 
 #[inline]
