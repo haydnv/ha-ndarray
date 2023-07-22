@@ -93,6 +93,14 @@ where
             return log((double) left) / log((double) right);
         }}
 
+        inline {ltype} checked_div(const {ltype} left, const {rtype} right) {{
+            if right == 0 {{
+                return 0;
+            }} else {{
+                return left / right;
+            }}
+        }}
+
         inline {ltype} div(const {ltype} left, const {rtype} right) {{
             return left / right;
         }}

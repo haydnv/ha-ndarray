@@ -956,6 +956,15 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    fn checked_div<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
+    where
+        O: NDArray<DType = Self::DType> + Sized,
+    {
+        let shape = check_shape(self.shape(), rhs.shape())?;
+        let op = ArrayDual::checked_div(self, rhs)?;
+        Ok(ArrayOp::new(shape, op))
+    }
+
     fn div<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -1530,6 +1539,13 @@ pub enum AxisBound {
 }
 
 impl AxisBound {
+    pub fn is_index(&self) -> bool {
+        match self {
+            Self::At(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn size(&self) -> usize {
         match self {
             Self::At(_) => 0,

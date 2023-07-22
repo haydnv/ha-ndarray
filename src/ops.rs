@@ -360,6 +360,15 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         Self::new(left, right, Add::add, "add")
     }
 
+    pub fn checked_div(left: L, right: R) -> Result<Self, Error> {
+        Self::new(
+            left,
+            right,
+            |l, r| if r == T::zero() { T::zero() } else { l / r },
+            "checked_div",
+        )
+    }
+
     pub fn div(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Div::div, "div")
     }
