@@ -1248,9 +1248,11 @@ pub struct ArraySlice<A> {
     kernel_write_value_op: ocl::Program,
 }
 
-impl<A: NDArray> ArraySlice<A> {
+impl<A: NDArray + fmt::Debug> ArraySlice<A> {
     pub fn new(source: A, mut bounds: Vec<AxisBound>) -> Result<Self, Error> {
-        if bounds.len() > source.ndim() {
+        if source.shape().is_empty() {
+            return Err(Error::Bounds("array shape cannot be empty".to_string()));
+        } else if bounds.len() > source.ndim() {
             return Err(Error::Bounds(format!(
                 "shape {:?} does not support slice bounds {:?}",
                 source.shape(),
@@ -1291,6 +1293,12 @@ impl<A: NDArray> ArraySlice<A> {
             .map(|bound| bound.size())
             .filter(|size| *size > 0)
             .collect::<Vec<usize>>();
+
+        if shape.is_empty() || shape.iter().product::<usize>() == 0 {
+            return Err(Error::Bounds(format!(
+                "cannot slice {bounds:?} from {source:?}"
+            )));
+        }
 
         let strides = strides_for(&shape, shape.len());
         let source_strides = strides_for(source.shape(), source.ndim());
@@ -1344,6 +1352,9 @@ impl<A: NDArray> ArraySlice<A> {
         source_strides: &[usize],
         bounds: &[AxisBound],
     ) -> usize {
+        debug_assert!(!shape.is_empty());
+        debug_assert_eq!(shape.len(), strides.len());
+
         let coord = strides
             .iter()
             .copied()
