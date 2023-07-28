@@ -11,8 +11,8 @@ use rayon::prelude::*;
 #[cfg(feature = "opencl")]
 use super::cl_programs;
 use super::{
-    offset_of, strides_for, AxisBound, Buffer, BufferReduce, CDatatype, Context, Error, Float, Log,
-    NDArray, NDArrayMath, NDArrayRead, NDArrayTransform, Queue, Shape, SliceConverter, Trig,
+    offset_of, strides_for, Buffer, CDatatype, Context, Error, Float, Log, NDArray, NDArrayMath,
+    NDArrayRead, NDArrayTransform, Queue, Shape, SliceConverter, Trig,
 };
 
 pub trait Op: Send + Sync {
@@ -148,7 +148,7 @@ impl<T: CDatatype> Op for Range<T> {
 
         let buffer = ocl::Buffer::builder()
             .queue(cl_queue.clone())
-            .len(self.size)
+            .len(self.shape.iter().product::<usize>())
             .build()?;
 
         let kernel = ocl::Kernel::builder()
@@ -341,7 +341,7 @@ impl Op for RandomUniform {
         let seed: u32 = rand::thread_rng().gen();
         let cl_queue = queue.cl_queue.as_ref().expect("queue");
 
-        let size = self.shape.iter().product();
+        let size = self.shape.iter().product::<usize>();
         let output = ocl::Buffer::builder()
             .queue(cl_queue.clone())
             .len(size)
@@ -390,7 +390,7 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         left: L,
         right: R,
         cpu_op: fn(T, T) -> T,
-        #[allow(unused_variables)] cl_: &'static str,
+        #[allow(unused_variables)] cl_op: &'static str,
     ) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_op = cl_programs::elementwise_dual::<T, T>(cl_op, left.context())?;
@@ -958,8 +958,8 @@ where
 impl<T, L, R> Op for MatMul<T, L, R>
 where
     T: CDatatype,
-    L: NDArrayRead<DType = T> + NDArrayTransform + Clone,
-    R: NDArrayRead<DType = T> + NDArrayTransform + Clone,
+    L: NDArrayRead<DType = T> + NDArrayTransform,
+    R: NDArrayRead<DType = T> + NDArrayTransform,
     L::Slice: NDArrayMath,
 {
     type Out = T;
@@ -1067,40 +1067,9 @@ where
     }
 
     fn read_value(&self, coord: &[usize]) -> Result<Self::Out, Error> {
-        let ndim = self.left.ndim();
-
-        if coord.len() != ndim {
-            return Err(Error::Bounds(format!(
-                "{left:?} does not contain coordinate {coord:?}",
-                left = self.left
-            )));
-        }
-
-        let left_range = coord
-            .iter()
-            .take(ndim - 1)
-            .copied()
-            .map(|i| AxisBound::At(i))
-            .collect();
-
-        let mut right_range = Vec::with_capacity(ndim);
-        right_range.extend(
-            coord
-                .iter()
-                .take(ndim - 2)
-                .copied()
-                .map(|i| AxisBound::At(i)),
-        );
-        right_range.push(AxisBound::In(0, self.right.shape()[ndim - 2], 1));
-        right_range.push(AxisBound::At(coord[ndim - 1]));
-
-        let row = self.left.clone().slice(left_range)?;
-        let column = self.right.clone().slice(right_range)?;
-
-        let product = row.mul(column)?;
-        let queue = Queue::new(product.context().clone(), product.size())?;
-        let product = product.read(&queue)?;
-        product.sum(&queue)
+        Err(Error::Bounds(format!(
+            "reading the value at {coord:?} from a maxtrix multiplication is not implemented"
+        )))
     }
 }
 

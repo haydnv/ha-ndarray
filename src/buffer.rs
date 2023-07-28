@@ -53,10 +53,10 @@ impl<T: CDatatype> BufferRead for ocl::Buffer<T> {
         CLConverter::Borrowed(self).into()
     }
 
-    fn read_value(&self, offset: usize) -> Self::DType {
+    fn read_value(&self, offset: usize) -> Result<Self::DType, Error> {
         let mut data = vec![T::zero()];
         let buffer = self.create_sub_buffer(None, offset, 1)?;
-        buffer.read(&mut data)?;
+        buffer.read(&mut data).enq()?;
         Ok(data[0])
     }
 }

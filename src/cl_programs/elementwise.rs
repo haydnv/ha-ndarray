@@ -94,7 +94,7 @@ where
         }}
 
         inline {ltype} checked_div(const {ltype} left, const {rtype} right) {{
-            if right == 0 {{
+            if (right == 0) {{
                 return 0;
             }} else {{
                 return left / right;
@@ -110,7 +110,7 @@ where
         }}
 
         inline double pow_(const double left, const double right) {{
-            return powf(left, right);
+            return pow(left, right);
         }}
 
         inline double rem(const double left, const double right) {{
@@ -157,7 +157,7 @@ where
         }}
 
         inline double pow_(const double left, const double right) {{
-            return powf(left, right);
+            return pow(left, right);
         }}
 
         inline double rem(const double left, const double right) {{
