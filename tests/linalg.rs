@@ -1,7 +1,29 @@
 use ha_ndarray::*;
 
 #[test]
-fn test_matmul() -> Result<(), Error> {
+fn test_matmul_small() -> Result<(), Error> {
+    let l = ArrayBase::<Vec<u32>>::new(vec![3, 4], (0..12).into_iter().collect())?;
+    let r = ArrayBase::<Vec<u32>>::new(vec![4, 5], (0..20).into_iter().collect())?;
+
+    let actual = l.matmul(r)?;
+
+    let expected = ArrayBase::<Vec<u32>>::new(
+        vec![3, 5],
+        vec![
+            70, 76, 82, 88, 94, 190, 212, 234, 256, 278, 310, 348, 386, 424, 462,
+        ],
+    )?;
+
+    assert_eq!(actual.shape(), expected.shape());
+
+    let eq = actual.eq(expected)?;
+    assert!(eq.all()?);
+
+    Ok(())
+}
+
+#[test]
+fn test_matmul_large() -> Result<(), Error> {
     let shapes = [
         (vec![2, 3], vec![3, 4], vec![2, 4]),
         (vec![2, 2, 3], vec![2, 3, 4], vec![2, 2, 4]),

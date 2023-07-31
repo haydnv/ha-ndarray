@@ -982,7 +982,7 @@ where
             let start = n * right_size;
             let stop = start + right_size;
             let mut right_t = vec![T::zero(); right_size];
-            transpose::transpose(&right[start..stop], &mut right_t[..], b, c);
+            transpose::transpose(&right[start..stop], &mut right_t[..], c, b);
             right_t
         });
 
