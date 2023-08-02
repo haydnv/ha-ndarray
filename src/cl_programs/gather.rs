@@ -12,7 +12,7 @@ pub fn gather_cond<T: CDatatype>(context: &Context) -> Result<Program, Error> {
             __global {dtype}* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            if (cond[offset] == 1) {{
+            if (cond[offset] != 0) {{
                 output[offset] = then[offset];
             }} else {{
                 output[offset] = or_else[offset];
