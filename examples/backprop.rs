@@ -7,11 +7,12 @@ const LEARNING_RATE: f32 = 0.0001;
 const NUM_EXAMPLES: usize = 2048;
 
 fn main() -> Result<(), Error> {
-    let weights = RandomNormal::new(2)?;
+    let context = Context::default()?;
+    let weights = RandomNormal::with_context(context.clone(), 2)?;
     let weights = ArrayOp::new(vec![2, 1], weights) - 0.5;
     let mut weights = ArrayBase::<Arc<RwLock<Buffer<f32>>>>::copy(&weights)?;
 
-    let inputs = RandomUniform::new(vec![NUM_EXAMPLES, 2])?;
+    let inputs = RandomUniform::with_context(context, vec![NUM_EXAMPLES, 2])?;
     let inputs = ArrayOp::new(vec![NUM_EXAMPLES, 2], inputs) * 2.;
     let inputs = ArrayBase::<Arc<Buffer<f32>>>::copy(&inputs)?;
 
@@ -42,21 +43,23 @@ fn main() -> Result<(), Error> {
 
     let mut i = 0;
     loop {
+        let loss = ArrayBase::<Buffer<f32>>::copy(&loss)?;
+
+        if loss.clone().lt_scalar(1.0)?.all()? {
+            return Ok(());
+        }
+
         if i % 100 == 0 {
             println!(
                 "loss: {} (max {})",
                 loss.clone().sum_all()?,
                 loss.clone().max_all()?
             );
-
-            assert!(!loss.clone().is_inf()?.any()?, "diverged");
         }
 
-        if loss.clone().lt_scalar(1.0)?.all()? {
-            return Ok(());
-        }
+        assert!(!loss.clone().is_inf()?.any()?, "divergence at iteration {i}");
+        assert!(!loss.is_nan()?.any()?, "unstable by iteration {i}");
 
-        assert!(!weights.clone().is_nan()?.any()?, "NaN");
         weights.write(&new_weights)?;
 
         i += 1;

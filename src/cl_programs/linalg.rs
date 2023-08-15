@@ -29,7 +29,7 @@ pub fn matmul<T: CDatatype>(context: &Context) -> Result<Program, Error> {
                 ulong const reduce_tiles,
                 __global const {dtype}* restrict left,
                 __global const {dtype}* restrict right,
-                __global {dtype}* output)
+                __global {dtype}* restrict output)
         {{
             // x := output axis 0
             // y := reduce axis
