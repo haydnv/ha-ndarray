@@ -95,7 +95,9 @@ pub struct ArrayBase<Buf> {
 
 impl<Buf> ArrayBase<Buf> {
     fn new_inner(context: Context, shape: Shape, size: usize, data: Buf) -> Result<Self, Error> {
-        if shape.iter().product::<usize>() == size {
+        if shape.iter().copied().any(|dim| dim == 0) {
+            Err(Error::Bounds(format!("cannot construct an array of shape {shape:?}")))
+        } else if shape.iter().product::<usize>() == size {
             Ok(Self {
                 context,
                 data,
