@@ -1,3 +1,5 @@
+//! N-dimensional array [`Op`]s
+
 use std::cmp::{PartialEq, PartialOrd};
 use std::f32::consts::PI;
 use std::fmt;
@@ -15,11 +17,15 @@ use super::{
     NDArrayRead, NDArrayTransform, Queue, Shape, SliceConverter, Trig,
 };
 
+/// An n-dimensional array [`Op`]
 pub trait Op: Send + Sync {
+    /// The output data type of this [`Op`]
     type Out: CDatatype;
 
+    /// The execution context of this [`Op`]
     fn context(&self) -> &Context;
 
+    /// Enqueue this [`Op`] for execution.
     fn enqueue(&self, queue: &Queue) -> Result<Buffer<Self::Out>, Error> {
         // TODO: there must be a better way to do this
         #[cfg(feature = "opencl")]
@@ -30,11 +36,14 @@ pub trait Op: Send + Sync {
         self.enqueue_cpu(queue).map(Buffer::Host)
     }
 
+    /// Enqueue this [`Op`] on the host CPU.
     fn enqueue_cpu(&self, queue: &Queue) -> Result<Vec<Self::Out>, Error>;
 
+    /// Enqueue this [`Op`] on an OpenCL device.
     #[cfg(feature = "opencl")]
     fn enqueue_cl(&self, queue: &Queue) -> Result<ocl::Buffer<Self::Out>, Error>;
 
+    /// Read the result of this [`Op`] at a single `coord`.
     fn read_value(&self, coord: &[usize]) -> Result<Self::Out, Error>;
 }
 
@@ -82,6 +91,7 @@ impl<O: Op + ?Sized> Op for Box<O> {
 
 // constructors
 
+/// A range constructor
 #[derive(Clone)]
 pub struct Range<T> {
     context: Context,
@@ -93,11 +103,13 @@ pub struct Range<T> {
 }
 
 impl<T: CDatatype + fmt::Display> Range<T> {
+    /// Initialize a new [`Range`] constructor.
     pub fn new(start: T, stop: T, shape: Shape) -> Result<Self, Error> {
         let context = Context::default()?;
         Self::with_context(context, start, stop, shape)
     }
 
+    /// Initialize a new [`Range`] constructor with the given [`Context`].
     pub fn with_context(context: Context, start: T, stop: T, shape: Shape) -> Result<Self, Error> {
         let size = shape.iter().product::<usize>();
         let step = if start < stop {
@@ -182,6 +194,7 @@ impl<T: CDatatype> Op for Range<T> {
     }
 }
 
+/// A random normal constructor
 #[derive(Clone)]
 pub struct RandomNormal {
     context: Context,
@@ -191,11 +204,13 @@ pub struct RandomNormal {
 }
 
 impl RandomNormal {
+    /// Initialize a new [`RandomNormal`] constructor.
     pub fn new(size: usize) -> Result<Self, Error> {
         let context = Context::default()?;
         Self::with_context(context, size)
     }
 
+    /// Initialize a new [`RandomNormal`] constructor with the given [`Context`].
     pub fn with_context(context: Context, size: usize) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_op = cl_programs::random_normal(&context)?;
@@ -295,6 +310,7 @@ impl Op for RandomNormal {
     }
 }
 
+/// A random uniform constructor
 #[derive(Clone)]
 pub struct RandomUniform {
     context: Context,
@@ -304,11 +320,13 @@ pub struct RandomUniform {
 }
 
 impl RandomUniform {
+    /// Initialize a new [`RandomUniform`] constructor.
     pub fn new(shape: Shape) -> Result<Self, Error> {
         let context = Context::default()?;
         Self::with_context(context, shape)
     }
 
+    /// Initialize a new [`RandomUniform`] constructor with the given [`Context`].
     pub fn with_context(context: Context, shape: Shape) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_op = cl_programs::random_uniform(&context)?;
@@ -376,6 +394,7 @@ impl Op for RandomUniform {
 
 // arithmetic
 
+/// A dual-array [`Op`]
 #[derive(Clone)]
 pub struct ArrayDual<T, L, R> {
     left: L,
@@ -404,10 +423,12 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         })
     }
 
+    /// Initialize an addition [`Op`].
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Add::add, "add")
     }
 
+    /// Initialize a division [`Op`] which will return an error if `right` contains zeros.
     pub fn checked_div(left: L, right: R) -> Result<Self, Error> {
         Self::new(
             left,
@@ -417,18 +438,22 @@ impl<T: CDatatype, L: NDArray, R: NDArray> ArrayDual<T, L, R> {
         )
     }
 
+    /// Initialize a division [`Op`] with undefined behavior if `right` contains zeros.
     pub fn div(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Div::div, "div")
     }
 
+    /// Initialize a multiplication [`Op`].
     pub fn mul(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Mul::mul, "mul")
     }
 
+    /// Initialize a modulo [`Op`].
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Rem::rem, "rem")
     }
 
+    /// Initialize a subtraction [`Op`].
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, Sub::sub, "sub")
     }
@@ -495,6 +520,7 @@ impl<T: CDatatype, L: NDArrayRead<DType = T>, R: NDArrayRead<DType = T>> Op for 
     }
 }
 
+/// A dual floating-point array [`Op`]
 #[derive(Clone)]
 pub struct ArrayDualFloat<T: CDatatype, L, R> {
     left: L,
@@ -524,6 +550,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T::Float>> ArrayDua
         })
     }
 
+    /// Initialize a new logarithm [`Op`].
     pub fn log(left: L, right: R) -> Result<Self, Error> {
         Self::new(
             left,
@@ -533,6 +560,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T::Float>> ArrayDua
         )
     }
 
+    /// Initialize a new exponentiation [`Op`].
     pub fn pow(left: L, right: R) -> Result<Self, Error> {
         Self::new(
             left,
@@ -608,6 +636,7 @@ where
     }
 }
 
+/// An array [`Op`] with a scalar argument
 #[derive(Clone)]
 pub struct ArrayScalar<T, A> {
     array: A,
@@ -632,22 +661,27 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayScalar<T, A> {
         })
     }
 
+    /// Initialize a new scalar addition [`Op`].
     pub fn add(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Add::add, "add")
     }
 
+    /// Initialize a new scalar division [`Op`].
     pub fn div(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Div::div, "div")
     }
 
+    /// Initialize a new scalar multiplication [`Op`].
     pub fn mul(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Mul::mul, "mul")
     }
 
+    /// Initialize a new scalar modulo [`Op`].
     pub fn rem(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Rem::rem, "rem")
     }
 
+    /// Initialize a new scalar subtraction [`Op`].
     pub fn sub(left: A, right: T) -> Result<Self, Error> {
         Self::new(left, right, Sub::sub, "sub")
     }
@@ -707,6 +741,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalar<T, A> {
     }
 }
 
+/// An array [`Op`] with a scalar floating-point argument
 #[derive(Clone)]
 pub struct ArrayScalarFloat<T: CDatatype, A> {
     array: A,
@@ -738,6 +773,7 @@ impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
 }
 
 impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
+    /// Initialize a new logarithm [`Op`] with a scalar base.
     pub fn log(left: A, right: T::Float) -> Result<Self, Error> {
         Self::new(
             left,
@@ -747,6 +783,7 @@ impl<T: CDatatype, A: NDArray> ArrayScalarFloat<T, A> {
         )
     }
 
+    /// Initialize a new exponentiation [`Op`] with a scalar exponent.
     pub fn pow(left: A, right: T::Float) -> Result<Self, Error> {
         Self::new(
             left,
@@ -813,6 +850,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayScalarFloat<T, A> {
 
 // linear algebra
 
+/// A matrix diagonal read [`Op`]
 #[derive(Clone)]
 pub struct MatDiag<A> {
     source: A,
@@ -821,6 +859,7 @@ pub struct MatDiag<A> {
 }
 
 impl<A: NDArray> MatDiag<A> {
+    /// Initialize a new matrix diagonal read [`Op`].
     pub fn new(source: A) -> Result<Self, Error> {
         debug_assert!(source.ndim() >= 2);
         debug_assert_eq!(
@@ -903,6 +942,7 @@ impl<A: NDArrayRead> Op for MatDiag<A> {
     }
 }
 
+/// A matrix multiplication [`Op`]
 #[derive(Clone)]
 pub struct MatMul<T, L, R> {
     left: L,
@@ -918,6 +958,7 @@ where
     L: NDArray<DType = T>,
     R: NDArray<DType = T>,
 {
+    /// Initialize a new matrix multiplication [`Op`].
     pub fn new(left: L, right: R) -> Result<Self, Error> {
         debug_assert!(left.ndim() >= 2);
         debug_assert!(right.ndim() >= 2);
@@ -1075,6 +1116,7 @@ where
 
 // comparison
 
+/// An array comparison [`Op`]
 #[derive(Clone)]
 pub struct ArrayBoolean<T, L, R> {
     left: L,
@@ -1106,6 +1148,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<T,
         })
     }
 
+    /// Initialize a new boolean and [`Op`].
     pub fn and(left: L, right: R) -> Result<Self, Error> {
         fn and<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) && (r != T::zero())
@@ -1114,6 +1157,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<T,
         Self::new(left, right, and, "&&")
     }
 
+    /// Initialize a new boolean or [`Op`].
     pub fn or(left: L, right: R) -> Result<Self, Error> {
         fn or<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) || (r != T::zero())
@@ -1122,6 +1166,7 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayBoolean<T,
         Self::new(left, right, or, "||")
     }
 
+    /// Initialize a new boolean xor [`Op`].
     pub fn xor(left: L, right: R) -> Result<Self, Error> {
         fn xor<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) ^ (r != T::zero())
@@ -1201,6 +1246,7 @@ where
     }
 }
 
+/// A boolean array [`Op`] with a scalar argument
 #[derive(Clone)]
 pub struct ArrayBooleanScalar<L, T> {
     left: L,
@@ -1230,6 +1276,7 @@ impl<L: NDArray, T: CDatatype> ArrayBooleanScalar<L, T> {
         })
     }
 
+    /// Initialize a new boolean and [`Op`] with a scalar argument.
     pub fn and(left: L, right: T) -> Result<Self, Error> {
         fn and<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) && (r != T::zero())
@@ -1238,6 +1285,7 @@ impl<L: NDArray, T: CDatatype> ArrayBooleanScalar<L, T> {
         Self::new(left, right, and, "&&")
     }
 
+    /// Initialize a new boolean or [`Op`] with a scalar argument.
     pub fn or(left: L, right: T) -> Result<Self, Error> {
         fn or<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) || (r != T::zero())
@@ -1246,6 +1294,7 @@ impl<L: NDArray, T: CDatatype> ArrayBooleanScalar<L, T> {
         Self::new(left, right, or, "||")
     }
 
+    /// Initialize a new boolean xor [`Op`] with a scalar argument.
     pub fn xor(left: L, right: T) -> Result<Self, Error> {
         fn xor<T: CDatatype>(l: T, r: T) -> bool {
             (l != T::zero()) ^ (r != T::zero())
@@ -1313,6 +1362,7 @@ impl<L: NDArrayRead<DType = T>, T: CDatatype> Op for ArrayBooleanScalar<L, T> {
     }
 }
 
+/// An array comparison [`Op`]
 #[derive(Clone)]
 pub struct ArrayCompare<T, L, R> {
     left: L,
@@ -1344,26 +1394,32 @@ impl<T: CDatatype, L: NDArray<DType = T>, R: NDArray<DType = T>> ArrayCompare<T,
         })
     }
 
+    /// Initialize a new equality comparison [`Op`].
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::eq, "==")
     }
 
+    /// Initialize a new greater-than comparison [`Op`].
     pub fn gt(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::gt, ">")
     }
 
+    /// Initialize a new equal-or-greater-than comparison [`Op`].
     pub fn ge(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::ge, ">=")
     }
 
+    /// Initialize a new less-than comparison [`Op`].
     pub fn lt(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::lt, "<")
     }
 
+    /// Initialize a new equal-or-less-than comparison [`Op`].
     pub fn le(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialOrd::le, "<=")
     }
 
+    /// Initialize a new not-equal comparison [`Op`].
     pub fn ne(left: L, right: R) -> Result<Self, Error> {
         Self::new(left, right, PartialEq::ne, "!=")
     }
@@ -1439,6 +1495,7 @@ where
     }
 }
 
+/// An array comparison [`Op`] with a scalar argument
 #[derive(Clone)]
 pub struct ArrayCompareScalar<T, A> {
     array: A,
@@ -1468,26 +1525,32 @@ impl<T: CDatatype, A: NDArray> ArrayCompareScalar<T, A> {
         })
     }
 
+    /// Initialize a new equality comparison [`Op`].
     pub fn eq(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::eq, "==")
     }
 
+    /// Initialize a new greater-than comparison [`Op`].
     pub fn gt(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::gt, ">")
     }
 
+    /// Initialize a new equal-or-greater-than comparison [`Op`].
     pub fn ge(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::ge, ">=")
     }
 
+    /// Initialize a new less-than comparison [`Op`].
     pub fn lt(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::lt, "<")
     }
 
+    /// Initialize a new equal-or-less-than comparison [`Op`].
     pub fn le(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialOrd::le, "<=")
     }
 
+    /// Initialize a new not-equal comparison [`Op`].
     pub fn ne(array: A, scalar: T) -> Result<Self, Error> {
         Self::new(array, scalar, PartialEq::ne, "!=")
     }
@@ -1552,6 +1615,7 @@ impl<T: CDatatype, A: NDArrayRead<DType = T>> Op for ArrayCompareScalar<T, A> {
 
 // reduction
 
+/// An array reduction [`Op`]
 #[derive(Copy, Clone)]
 pub struct ArrayReduceAxes<T, A> {
     source: A,
@@ -1573,6 +1637,7 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxes<T, A> {
         }
     }
 
+    /// Initialize a new reduce-max [`Op`].
     pub fn max(source: A, stride: usize) -> Self {
         fn max<T: PartialOrd>(l: T, r: T) -> T {
             if r > l {
@@ -1585,6 +1650,7 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxes<T, A> {
         Self::new(source, stride, T::min(), max, "max")
     }
 
+    /// Initialize a new reduce-min [`Op`].
     pub fn min(source: A, stride: usize) -> Self {
         fn min<T: PartialOrd>(l: T, r: T) -> T {
             if r < l {
@@ -1597,10 +1663,12 @@ impl<T: CDatatype, A: NDArray<DType = T>> ArrayReduceAxes<T, A> {
         Self::new(source, stride, T::max(), min, "min")
     }
 
+    /// Initialize a new product-reduce [`Op`].
     pub fn product(source: A, stride: usize) -> Self {
         Self::new(source, stride, T::one(), Mul::mul, "mul")
     }
 
+    /// Initialize a new sum-reduce [`Op`].
     pub fn sum(source: A, stride: usize) -> Self {
         Self::new(source, stride, T::zero(), Add::add, "add")
     }
@@ -1685,6 +1753,7 @@ where
 
 // other unary ops
 
+/// A type cast [`Op`]
 #[derive(Clone)]
 pub struct ArrayCast<A, O> {
     source: A,
@@ -1694,6 +1763,7 @@ pub struct ArrayCast<A, O> {
 }
 
 impl<A: NDArray, O: CDatatype> ArrayCast<A, O> {
+    /// Initialize a new type-cast [`Op`]
     pub fn new(source: A) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_op = cl_programs::cast::<A::DType, O>(source.context())?;
@@ -1758,6 +1828,7 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
     }
 }
 
+/// A unary array [`Op`]
 #[derive(Clone)]
 pub struct ArrayUnary<IT, OT, A> {
     array: A,
@@ -1782,57 +1853,70 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArray> ArrayUnary<IT, OT, A> {
 }
 
 impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
+    /// Initialize a new absolute value [`Op`].
     pub fn abs(array: A) -> Result<Self, Error> {
         // TODO: replace "fabs" with "abs" for integer types
         Self::new(array, T::abs, "fabs")
     }
 
+    /// Initialize a new natural log [`Op`].
     pub fn ln(array: A) -> Result<Self, Error> {
         Self::new(array, |n| T::from_float(n.to_float().ln()), "_log")
     }
 
+    /// Initialize a new exponentiation [`Op`].
     pub fn exp(array: A) -> Result<Self, Error> {
         Self::new(array, |n| T::from_float(n.to_float().exp()), "exp")
     }
 
+    /// Initialize a new rounding [`Op`].
     pub fn round(array: A) -> Result<Self, Error> {
         Self::new(array, T::round, "round")
     }
 }
 
 impl<T: CDatatype, A: NDArray> ArrayUnary<T, T::Float, A> {
+    /// Initialize a new arcsine [`Op`].
     pub fn asin(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().asin(), "asin")
     }
 
+    /// Initialize a new sine [`Op`].
     pub fn sin(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().sin(), "sin")
     }
 
+    /// Initialize a new hyperbolic sine [`Op`].
     pub fn sinh(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().sinh(), "sinh")
     }
 
+    /// Initialize a new arccosine [`Op`].
     pub fn acos(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().acos(), "acos")
     }
 
+    /// Initialize a new cosine [`Op`].
     pub fn cos(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().cos(), "cos")
     }
 
+    /// Initialize a new hyperbolic cosine [`Op`].
     pub fn cosh(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().cosh(), "cosh")
     }
 
+    /// Initialize a new arctangent [`Op`].
     pub fn atan(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().atan(), "atan")
     }
 
+    /// Initialize a new tangent [`Op`].
     pub fn tan(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().tan(), "tan")
     }
 
+    /// Initialize a new hyperbolic tangent [`Op`].
     pub fn tanh(array: A) -> Result<Self, Error> {
         Self::new(array, |n| n.to_float().tanh(), "tanh")
     }
@@ -1911,6 +1995,7 @@ impl<IT: CDatatype, OT: CDatatype, A: NDArrayRead<DType = IT>> Op for ArrayUnary
 
 // gather ops
 
+/// A conditional selection (boolean logic) [`Op`]
 #[derive(Clone)]
 pub struct GatherCond<A, T, L, R> {
     cond: A,
@@ -1922,6 +2007,7 @@ pub struct GatherCond<A, T, L, R> {
 }
 
 impl<A: NDArray<DType = u8>, T: CDatatype, L, R> GatherCond<A, T, L, R> {
+    /// Initialize a new conditional selection [`Op`].
     pub fn new(cond: A, then: L, or_else: R) -> Result<Self, Error> {
         #[cfg(feature = "opencl")]
         let cl_op = cl_programs::gather_cond::<T>(cond.context())?;

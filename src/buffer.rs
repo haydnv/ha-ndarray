@@ -1,3 +1,5 @@
+//! The underlying [`Buffer`] types used to store array elements
+
 use std::ops::{Add, Mul};
 use std::sync::{Arc, RwLock};
 use std::{fmt, iter};
@@ -13,6 +15,7 @@ use rayon::prelude::*;
 use super::cl_programs;
 use super::{CDatatype, Error, Queue};
 
+/// An array buffer
 pub trait BufferInstance: Send + Sync {
     type DType: CDatatype;
 }
@@ -21,9 +24,12 @@ impl<B: BufferInstance + ?Sized> BufferInstance for Box<B> {
     type DType = B::DType;
 }
 
+/// Buffer read methods
 pub trait BufferRead: BufferInstance {
+    /// Access the elements of this buffer as a [`BufferConverter`].
     fn read(&self) -> BufferConverter<Self::DType>;
 
+    /// Read an individual element from this buffer.
     fn read_value(&self, offset: usize) -> Result<Self::DType, Error>;
 }
 
@@ -146,14 +152,18 @@ impl<FE: Send + Sync, T: CDatatype> BufferRead for freqfs::FileWriteGuardOwned<F
     }
 }
 
+/// Buffer write methods
 pub trait BufferWrite: BufferInstance {
+    /// Overwrite the elements of this buffer with the given `other` elements.
     fn write<'a, O: Into<BufferConverter<'a, Self::DType>>>(
         &mut self,
         other: O,
     ) -> Result<(), Error>;
 
+    /// Overwrite all elements of this buffer with the given scalar `value`.
     fn write_value(&mut self, value: Self::DType) -> Result<(), Error>;
 
+    /// Overwrite the element at `offset` with the given `value`.
     fn write_value_at(&mut self, offset: usize, value: Self::DType) -> Result<(), Error>;
 }
 
@@ -244,29 +254,38 @@ impl<FE: Send + Sync, T: CDatatype> BufferWrite for freqfs::FileWriteGuardOwned<
     }
 }
 
+/// Buffer reduce operations
 pub trait BufferReduce {
     type DType: CDatatype;
 
+    /// Return `true` if all elements in this buffer are non-zero.
     fn all(&self, queue: &Queue) -> Result<bool, Error>;
 
+    /// Return `true` if any elements in this buffer are non-zero.
     fn any(&self, queue: &Queue) -> Result<bool, Error>;
 
+    /// Return the maximum element in this buffer.
     fn max(&self, queue: &Queue) -> Result<Self::DType, Error>;
 
+    /// Return the minimum element in this buffer.
     fn min(&self, queue: &Queue) -> Result<Self::DType, Error>;
 
+    /// Return the product of all elements in this buffer.
     fn product(&self, queue: &Queue) -> Result<Self::DType, Error>;
 
+    /// Return the sum of all elements in this buffer.
     fn sum(&self, queue: &Queue) -> Result<Self::DType, Error>;
 }
 
 #[derive(Clone)]
+/// A buffer in host memory, either borrowed or owned
 pub enum SliceConverter<'a, T> {
     Vec(Vec<T>),
     Slice(&'a [T]),
 }
 
 impl<'a, T> SliceConverter<'a, T> {
+    /// Return the number of elements in this buffer.
     pub fn len(&self) -> usize {
         match self {
             Self::Vec(vec) => vec.len(),
@@ -276,6 +295,8 @@ impl<'a, T> SliceConverter<'a, T> {
 }
 
 impl<'a, T: Clone> SliceConverter<'a, T> {
+    /// Return this buffer as an owned [`Vec`].
+    /// This will allocate a new [`Vec`] only if this buffer is a borrowed slice.
     pub fn into_vec(self) -> Vec<T> {
         match self {
             Self::Vec(vec) => vec,
@@ -307,6 +328,7 @@ impl<'a, T> AsRef<[T]> for SliceConverter<'a, T> {
 
 #[cfg(feature = "opencl")]
 #[derive(Clone)]
+/// A buffer in OpenCL memory
 pub enum CLConverter<'a, T: CDatatype> {
     Owned(ocl::Buffer<T>),
     Borrowed(&'a ocl::Buffer<T>),
@@ -314,6 +336,8 @@ pub enum CLConverter<'a, T: CDatatype> {
 
 #[cfg(feature = "opencl")]
 impl<'a, T: CDatatype> CLConverter<'a, T> {
+    /// Return this buffer as an owned [`ocl::Buffer`].
+    /// This will allocate a new [`ocl::Buffer`] only if this buffer is borrowed.
     pub fn into_buffer(self) -> Result<ocl::Buffer<T>, Error> {
         match self {
             Self::Owned(buffer) => Ok(buffer),
@@ -331,6 +355,7 @@ impl<'a, T: CDatatype> CLConverter<'a, T> {
         }
     }
 
+    /// Return the number of elements in this buffer.
     pub fn len(&self) -> usize {
         match self {
             Self::Owned(buffer) => buffer.len(),
@@ -357,6 +382,7 @@ impl<'a, T: CDatatype> GetSize for CLConverter<'a, T> {
 }
 
 #[derive(Clone)]
+/// A sequence of elements in a single contiguous block of memory
 pub enum BufferConverter<'a, T: CDatatype> {
     Host(SliceConverter<'a, T>),
     #[cfg(feature = "opencl")]
@@ -364,6 +390,7 @@ pub enum BufferConverter<'a, T: CDatatype> {
 }
 
 impl<'a, T: CDatatype> BufferConverter<'a, T> {
+    /// Return an owned [`Buffer`], allocating memory only if this is a borrow.
     pub fn into_buffer(self) -> Result<Buffer<T>, Error> {
         match self {
             #[cfg(feature = "opencl")]
@@ -372,6 +399,7 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
         }
     }
 
+    /// Return the number of elements in this [`Buffer`].
     pub fn len(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
@@ -381,6 +409,7 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
     }
 
     #[cfg(feature = "opencl")]
+    /// Ensure that this [`Buffer`] is in OpenCL memory by making a copy if necessary.
     pub fn to_cl(self, queue: &Queue) -> Result<CLConverter<'a, T>, Error> {
         match self {
             Self::CL(buffer) => Ok(buffer),
@@ -411,6 +440,7 @@ impl<'a, T: CDatatype> BufferConverter<'a, T> {
         }
     }
 
+    /// Ensure that this buffer is in host memory by making a copy if necessary.
     pub fn to_slice(self) -> Result<SliceConverter<'a, T>, Error> {
         match self {
             #[cfg(feature = "opencl")]
@@ -544,6 +574,7 @@ impl<'a, T: CDatatype> From<&'a Buffer<T>> for BufferConverter<'a, T> {
     }
 }
 
+/// A mutable accessor for a buffer in host memory.
 pub enum SliceConverterMut<'a, T> {
     Vec(Vec<T>),
     Slice(&'a mut [T]),
@@ -574,6 +605,7 @@ impl<'a, T> AsMut<[T]> for SliceConverterMut<'a, T> {
 }
 
 #[cfg(feature = "opencl")]
+/// A mutable accessor for a buffer in OpenCL memory.
 pub enum CLConverterMut<'a, T: CDatatype> {
     Owned(ocl::Buffer<T>),
     Borrowed(&'a mut ocl::Buffer<T>),
@@ -606,6 +638,7 @@ impl<'a, T: CDatatype> AsMut<ocl::Buffer<T>> for CLConverterMut<'a, T> {
     }
 }
 
+/// A mutable accessor for a [`Buffer`].
 pub enum BufferConverterMut<'a, T: CDatatype> {
     Host(SliceConverterMut<'a, T>),
     #[cfg(feature = "opencl")]
@@ -805,6 +838,7 @@ impl<T: CDatatype> BufferInstance for Arc<RwLock<ocl::Buffer<T>>> {
 
 #[cfg(feature = "opencl")]
 #[derive(Clone)]
+/// A sequence of elements in a single contiguous block in memory
 pub enum Buffer<T: CDatatype> {
     Host(Vec<T>),
     CL(ocl::Buffer<T>),
@@ -812,11 +846,13 @@ pub enum Buffer<T: CDatatype> {
 
 #[cfg(not(feature = "opencl"))]
 #[derive(Clone)]
+/// A sequence of elements in a single contiguous block in memory
 pub enum Buffer<T: CDatatype> {
     Host(Vec<T>),
 }
 
 impl<T: CDatatype> Buffer<T> {
+    /// Return the number of elements in this [`Buffer`].
     pub fn len(&self) -> usize {
         match self {
             Self::Host(buffer) => buffer.len(),

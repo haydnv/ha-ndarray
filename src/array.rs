@@ -12,6 +12,7 @@ use super::{
     NDArrayTransform, NDArrayWrite, Queue, Shape,
 };
 
+/// A generic n-dimensional array
 pub enum Array<T: CDatatype> {
     Base(ArrayBase<Box<dyn BufferRead<DType = T>>>),
     Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
@@ -87,6 +88,7 @@ impl<T: CDatatype> fmt::Debug for Array<T> {
 }
 
 #[derive(Clone)]
+/// An n-dimensional array with a specific buffer type
 pub struct ArrayBase<Buf> {
     context: Context,
     shape: Shape,
@@ -115,6 +117,7 @@ impl<Buf> ArrayBase<Buf> {
         }
     }
 
+    /// Destructure this [`ArrayBase`] into its underlying buffer.
     pub fn into_inner(self) -> Buf {
         self.data
     }
@@ -169,6 +172,7 @@ construct_array_lock!(Buffer<T>);
 
 #[cfg(feature = "freqfs")]
 impl<FE, T: CDatatype> ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>> {
+    /// Construct a new [`ArrayBase`].
     pub fn new(
         shape: Shape,
         data: freqfs::FileReadGuardOwned<FE, Buffer<T>>,
@@ -176,6 +180,7 @@ impl<FE, T: CDatatype> ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>> {
         Context::default().and_then(|context| Self::with_context(context, shape, data))
     }
 
+    /// Construct a new [`ArrayBase`] with the given context.
     pub fn with_context(
         context: Context,
         shape: Shape,
@@ -187,6 +192,7 @@ impl<FE, T: CDatatype> ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>> {
 
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>> {
+    /// Construct a new [`ArrayBase`].
     pub fn new(
         shape: Shape,
         data: freqfs::FileWriteGuardOwned<FE, Buffer<T>>,
@@ -194,6 +200,7 @@ impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Bu
         Context::default().and_then(|context| Self::with_context(context, shape, data))
     }
 
+    /// Construct a new [`ArrayBase`] with the given context.
     pub fn with_context(
         context: Context,
         shape: Shape,
@@ -204,6 +211,7 @@ impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Bu
 }
 
 impl<T: CDatatype> ArrayBase<Vec<T>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -218,12 +226,14 @@ impl<T: CDatatype> ArrayBase<Vec<T>> {
         })
     }
 
+    /// Access this [`ArrayBase`]'s buffer as a slice.
     pub fn as_slice(&self) -> &[T] {
         &self.data
     }
 }
 
 impl<T: CDatatype> ArrayBase<Arc<Vec<T>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -239,12 +249,14 @@ impl<T: CDatatype> ArrayBase<Arc<Vec<T>>> {
         })
     }
 
+    /// Access this [`ArrayBase`]'s buffer as a slice.
     pub fn as_slice(&self) -> &[T] {
         &self.data
     }
 }
 
 impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -263,6 +275,7 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -280,6 +293,7 @@ impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> ArrayBase<Arc<ocl::Buffer<T>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -298,6 +312,7 @@ impl<T: CDatatype> ArrayBase<Arc<ocl::Buffer<T>>> {
 
 #[cfg(feature = "opencl")]
 impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -315,6 +330,7 @@ impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
 }
 
 impl<T: CDatatype> ArrayBase<Buffer<T>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -332,6 +348,7 @@ impl<T: CDatatype> ArrayBase<Buffer<T>> {
 }
 
 impl<T: CDatatype> ArrayBase<Arc<Buffer<T>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -349,6 +366,7 @@ impl<T: CDatatype> ArrayBase<Arc<Buffer<T>>> {
 }
 
 impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
+    /// Construct a new [`ArrayBase`] by copying the `other`.
     pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
         let context = other.context().clone();
         let queue = Queue::new(context.clone(), other.size())?;
@@ -1145,12 +1163,14 @@ impl<Buf: BufferInstance> fmt::Debug for ArrayBase<Buf> {
 }
 
 #[derive(Clone)]
+/// An array operation
 pub struct ArrayOp<Op> {
     op: Op,
     shape: Shape,
 }
 
 impl<Op> ArrayOp<Op> {
+    /// Construct a new array operation.
     pub fn new(shape: Shape, op: Op) -> Self {
         Self { op, shape }
     }
@@ -1322,6 +1342,7 @@ impl<Op: super::ops::Op> fmt::Debug for ArrayOp<Op> {
 }
 
 #[derive(Clone)]
+/// A slice of a larger array
 pub struct ArraySlice<A> {
     source: A,
     bounds: Vec<AxisBound>,
@@ -1337,6 +1358,7 @@ pub struct ArraySlice<A> {
 }
 
 impl<A: NDArray + fmt::Debug> ArraySlice<A> {
+    /// Construct a new slice with the `bounds` of the given `source` array.
     pub fn new(source: A, mut bounds: Vec<AxisBound>) -> Result<Self, Error> {
         if source.shape().is_empty() {
             return Err(Error::Bounds("array shape cannot be empty".to_string()));
@@ -1869,6 +1891,7 @@ impl<A: fmt::Debug> fmt::Debug for ArraySlice<A> {
 }
 
 #[derive(Clone)]
+/// A read-only view of a source array
 pub struct ArrayView<A> {
     source: A,
     shape: Shape,

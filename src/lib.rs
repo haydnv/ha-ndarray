@@ -1,3 +1,6 @@
+/// An n-dimensional array with automatic parallelization using [`rayon`]
+/// and optional support for hardware acceleration using the "opencl" feature flag.
+
 #[cfg(feature = "opencl")]
 extern crate ocl;
 
@@ -16,12 +19,14 @@ mod buffer;
 mod cl_programs;
 pub mod ops;
 
+/// N-dimensional array constructor op definitions
 pub mod construct {
     pub use super::ops::{RandomNormal, RandomUniform, Range};
 }
 
 const GPU_MIN_DEFAULT: usize = 1024;
 
+/// An array math error
 pub enum Error {
     Bounds(String),
     Interface(String),
@@ -60,10 +65,12 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// The shape of an [`NDArray`]
 pub type Shape = Vec<usize>;
 
 // TODO: is there a better way to implement the OclPrm trait bound?
 // TODO: rename to CType
+/// A type which supports hardware-accelerated arithmetic operations
 #[cfg(feature = "opencl")]
 pub trait CDatatype:
     ocl::OclPrm
@@ -117,6 +124,7 @@ pub trait CDatatype:
 }
 
 #[cfg(not(feature = "opencl"))]
+/// A type which supports hardware-accelerated arithmetic operations
 pub trait CDatatype:
     Copy
     + Add<Output = Self>
@@ -356,13 +364,18 @@ c_type!(
     identity
 );
 
+/// Logarithm-related operations on a scalar value
 pub trait Log {
+    /// Compute the natural log of this value.
     fn ln(self) -> Self;
 
+    /// Compute the logarithm of this value with respect to the given `base`.
     fn log(self, base: Self) -> Self;
 
+    /// Compute `e^self`.
     fn exp(self) -> Self;
 
+    /// Compute the exponent of this value to the given power.
     fn pow(self, exp: Self) -> Self;
 }
 
@@ -402,23 +415,33 @@ impl Log for f64 {
     }
 }
 
+/// Trigonometric operations on a scalar value
 pub trait Trig {
+    /// Compute the sine of this value.
     fn sin(self) -> Self;
 
+    /// Compute the arcsine of this value.
     fn asin(self) -> Self;
 
+    /// Compute the hyperbolic sine of this value.
     fn sinh(self) -> Self;
 
+    /// Compute the cosine of this value.
     fn cos(self) -> Self;
 
+    /// Compute the arccosine of this value.
     fn acos(self) -> Self;
 
+    /// Compute the hyperbolic cosine of this value.
     fn cosh(self) -> Self;
 
+    /// Compute the tangent of this value.
     fn tan(self) -> Self;
 
+    /// Compute the arctangent of this value.
     fn atan(self) -> Self;
 
+    /// Compute the hyperbolic tangent of this value.
     fn tanh(self) -> Self;
 }
 
@@ -498,9 +521,12 @@ impl Trig for f64 {
     }
 }
 
+/// Float-specific operations on a scalar floating point value
 pub trait Float: CDatatype + Log + Trig {
+    /// Return `1` if this value is infinite, otherwise `0`.
     fn is_inf(self) -> u8;
 
+    /// Return `1` if this value is not a number, otherwise `0`.
     fn is_nan(self) -> u8;
 }
 
@@ -581,6 +607,7 @@ impl FromIterator<ocl::Device> for DeviceList {
 }
 
 #[derive(Clone, Default)]
+/// An OpenCL platform
 pub struct Platform {
     #[cfg(feature = "opencl")]
     cl_cpus: DeviceList,
@@ -634,6 +661,7 @@ impl TryFrom<ocl::Platform> for Platform {
 
 #[derive(Clone)]
 #[allow(unused)]
+/// An execution context
 pub struct Context {
     platform: Platform,
     gpu_min: usize,
@@ -644,6 +672,7 @@ pub struct Context {
 
 impl Context {
     #[cfg(feature = "opencl")]
+    /// Construct a default [`Context`] with all available devices.
     pub fn default() -> Result<Self, Error> {
         let cl_platform = ocl::Platform::first()?;
         let cl_context = ocl::Context::builder().platform(cl_platform).build()?;
@@ -663,6 +692,7 @@ impl Context {
     }
 
     #[cfg(not(feature = "opencl"))]
+    /// Construct a default [`Context`] with the host device.
     pub fn default() -> Result<Self, Error> {
         Ok(Self {
             platform: Platform {},
@@ -672,6 +702,7 @@ impl Context {
     }
 
     #[cfg(feature = "opencl")]
+    /// Construct a default [`Context`] with the given configuration.
     pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
         let platform = if let Some(platform) = platform {
             platform
@@ -693,6 +724,8 @@ impl Context {
     }
 
     #[cfg(not(feature = "opencl"))]
+    /// Construct a host [`Context`].
+    /// The given configuration will be ignored since the "opencl" feature flag is disabled.
     pub fn new(gpu_min: usize, acc_min: usize, platform: Option<Platform>) -> Result<Self, Error> {
         let platform = if let Some(platform) = platform {
             platform
@@ -729,6 +762,7 @@ impl Context {
     }
 }
 
+/// A queue of array operations
 #[derive(Clone)]
 pub struct Queue {
     context: Context,
@@ -746,6 +780,8 @@ impl Queue {
     }
 
     #[cfg(feature = "opencl")]
+    /// Construct a new [`Queue`] with the given [`Context`].
+    /// If `size_hint` is large, a new OpenCL context may be initialized.
     pub fn new(context: Context, size_hint: usize) -> Result<Self, Error> {
         if let Some(device) = context.select_device(size_hint) {
             let cl_queue = ocl::Queue::new(context.cl_context(), device, None)?;
@@ -760,6 +796,8 @@ impl Queue {
     }
 
     #[cfg(not(feature = "opencl"))]
+    /// Construct a new host [`Queue`] with the given [`Context`].
+    /// `size_hint` will be ignored since the "opencl" feature flag is disabled.
     pub fn new(context: Context, _size_hint: usize) -> Result<Self, Error> {
         Ok(Self::default(context))
     }
@@ -799,19 +837,25 @@ impl Queue {
     }
 }
 
+/// An n-dimensional array
 pub trait NDArray: Send + Sync {
+    /// The data type of the elements in this array
     type DType: CDatatype;
 
+    /// Borrow the execution [`Context`] of this array.
     fn context(&self) -> &Context;
 
+    /// Return the number of dimensions in this array.
     fn ndim(&self) -> usize {
         self.shape().len()
     }
 
+    /// Return the number of elements in this array.
     fn size(&self) -> usize {
         self.shape().iter().product()
     }
 
+    /// Borrow the shape of this array.
     fn shape(&self) -> &[usize];
 }
 
@@ -827,53 +871,69 @@ impl<A: NDArray + ?Sized> NDArray for Box<A> {
     }
 }
 
+/// Array buffer access methods
 pub trait AsBuffer: NDArray {
+    /// Dereference this [`NDArray`] as a [`BufferConverter`].
     fn as_buffer(&self) -> BufferConverter<Self::DType>;
 
+    /// Dereference this [`NDArray`] as a [`BufferConverterMut`].
     fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType>;
 }
 
+/// Access methods for an [`NDArray`]
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
+    /// Read the value of this [`NDArray`].
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error>;
 
+    /// Read the value at one `coord` in this [`NDArray`].
     fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error>;
 
+    /// Read the value of this [`NDArray`] as a [`SliceConverter`] in main memory
     fn to_host(&self, queue: &Queue) -> Result<SliceConverter<Self::DType>, Error> {
         let converter = self.read(queue)?;
         converter.to_slice()
     }
 
     #[cfg(feature = "opencl")]
+    /// Read the value of this [`NDArray`] as a [`CLConverter`] in OpenCL memory
     fn to_cl_buffer(&self, queue: &Queue) -> Result<CLConverter<Self::DType>, Error> {
         let converter = self.read(queue)?;
         converter.to_cl(queue)
     }
 }
 
+/// Access methods for a mutable [`NDArray`]
 pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
+    /// Overwrite this [`NDArray`] with the value of the `other` array.
     fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error>;
 
+    /// Overwrite this [`NDArray`] with a constant scalar `value`.
     fn write_value(&mut self, value: Self::DType) -> Result<(), Error>;
 
+    /// Write the given `value` at the given `coord` of this [`NDArray`].
     fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
 }
 
+/// Boolean array operations
 pub trait NDArrayBoolean<O>: NDArray + Sized
 where
     O: NDArray<DType = Self::DType>,
 {
+    /// Construct a boolean and comparison with the `other` array.
     fn and(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::and(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a boolean or comparison with the `other` array.
     fn or(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::or(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a boolean xor comparison with the `other` array.
     fn xor(self, other: O) -> Result<ArrayOp<ArrayBoolean<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayBoolean::xor(self, other)?;
@@ -883,7 +943,9 @@ where
 
 impl<T: CDatatype, A: NDArray<DType = T>, O: NDArray<DType = T>> NDArrayBoolean<O> for A {}
 
+/// Boolean array operations with a scalar argument
 pub trait NDArrayBooleanScalar: NDArray + Sized {
+    /// Construct a boolean and operation with the `other` value.
     fn and_scalar(
         self,
         other: Self::DType,
@@ -893,6 +955,7 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a boolean or operation with the `other` value.
     fn or_scalar(
         self,
         other: Self::DType,
@@ -902,6 +965,7 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a boolean xor operation with the `other` value.
     fn xor_scalar(
         self,
         other: Self::DType,
@@ -914,31 +978,37 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
 
 impl<T: CDatatype, A: NDArray<DType = T>> NDArrayBooleanScalar for A {}
 
+/// Unary array operations
 pub trait NDArrayUnary: NDArray + Sized {
+    /// Construct an absolute value operation.
     fn abs(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::abs(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an exponentiation operation.
     fn exp(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::exp(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a natural logarithm operation.
     fn ln(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::ln(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a boolean not operation.
     fn not(self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::not(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an integer rounding operation.
     fn round(self) -> Result<ArrayOp<ArrayUnary<Self::DType, Self::DType, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::round(self)?;
@@ -948,7 +1018,9 @@ pub trait NDArrayUnary: NDArray + Sized {
 
 impl<A: NDArray> NDArrayUnary for A {}
 
+/// Array arithmetic operations
 pub trait NDArrayMath: NDArray + Sized {
+    /// Construct an addition operation with the given `rhs`.
     fn add<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -958,6 +1030,8 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a division operation with the given `rhs`
+    /// which will return an error if `rhs` contains zeros.
     fn checked_div<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -967,6 +1041,8 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a division operation with the given `rhs`
+    /// which will enter undefined behavior if `rhs` contains zeros.
     fn div<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -976,6 +1052,7 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an array multiplication operation with the given `rhs`.
     fn mul<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -985,6 +1062,7 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an array modulo operation with the given `rhs`.
     fn rem<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -994,6 +1072,7 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an array subtraction operation with the given `rhs`.
     fn sub<O>(self, rhs: O) -> Result<ArrayOp<ArrayDual<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + Sized,
@@ -1003,6 +1082,7 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an array logarithm operation with the given `base`.
     fn log<O>(self, base: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = <Self::DType as CDatatype>::Float> + Sized,
@@ -1012,6 +1092,7 @@ pub trait NDArrayMath: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an array exponentiation operation with the given power.
     fn pow<O>(self, exp: O) -> Result<ArrayOp<ArrayDualFloat<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = <Self::DType as CDatatype>::Float> + Sized,
@@ -1024,7 +1105,9 @@ pub trait NDArrayMath: NDArray + Sized {
 
 impl<A: NDArray> NDArrayMath for A {}
 
+/// Array arithmetic operations with a scalar argument
 pub trait NDArrayMathScalar: NDArray + Sized {
+    /// Construct a scalar addition operation.
     fn add_scalar(
         self,
         rhs: Self::DType,
@@ -1034,15 +1117,21 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a scalar division operation.
     fn div_scalar(
         self,
         rhs: Self::DType,
     ) -> Result<ArrayOp<ArrayScalar<Self::DType, Self>>, Error> {
-        let shape = self.shape().to_vec();
-        let op = ArrayScalar::div(self, rhs)?;
-        Ok(ArrayOp::new(shape, op))
+        if rhs == Self::DType::zero() {
+            Err(Error::Bounds("divide by zero".to_string()))
+        } else {
+            let shape = self.shape().to_vec();
+            let op = ArrayScalar::div(self, rhs)?;
+            Ok(ArrayOp::new(shape, op))
+        }
     }
 
+    /// Construct a scalar multiplication operation.
     fn mul_scalar(
         self,
         rhs: Self::DType,
@@ -1052,6 +1141,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a scalar modulo operation.
     fn rem_scalar(
         self,
         rhs: Self::DType,
@@ -1061,6 +1151,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a scalar subtraction operation.
     fn sub_scalar(
         self,
         rhs: Self::DType,
@@ -1070,6 +1161,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a scalar logarithm operation.
     fn log_scalar(
         self,
         base: <Self::DType as CDatatype>::Float,
@@ -1079,6 +1171,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a scalar exponentiation operation.
     fn pow_scalar(
         self,
         exp: <Self::DType as CDatatype>::Float,
@@ -1091,16 +1184,19 @@ pub trait NDArrayMathScalar: NDArray + Sized {
 
 impl<A: NDArray> NDArrayMathScalar for A {}
 
+/// Float-specific array methods
 pub trait NDArrayNumeric: NDArray + Sized
 where
     Self::DType: Float,
 {
+    /// Test which elements of this array are infinite.
     fn is_inf(self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::inf(self)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Test which elements of this array are not-a-number.
     fn is_nan(self) -> Result<ArrayOp<ArrayUnary<Self::DType, u8, Self>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayUnary::nan(self).expect("op");
@@ -1110,7 +1206,9 @@ where
 
 impl<A: NDArray> NDArrayNumeric for A where A::DType: Float {}
 
+/// Array trigonometry methods
 pub trait NDArrayTrig: NDArray + Sized {
+    /// Construct a new arcsine operation.
     fn asin(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1120,6 +1218,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new sine operation.
     fn sin(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1129,6 +1228,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new hyperbolic sine operation.
     fn sinh(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1138,6 +1238,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new arccosine operation.
     fn acos(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1147,6 +1248,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new cosine operation.
     fn cos(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1156,6 +1258,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new hyperbolic cosine operation.
     fn cosh(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1165,6 +1268,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new arctangent operation.
     fn atan(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1174,6 +1278,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new tangent operation.
     fn tan(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1183,6 +1288,7 @@ pub trait NDArrayTrig: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a new hyperbolic tangent operation.
     fn tanh(
         self,
     ) -> Result<ArrayOp<ArrayUnary<Self::DType, <Self::DType as CDatatype>::Float, Self>>, Error>
@@ -1195,7 +1301,9 @@ pub trait NDArrayTrig: NDArray + Sized {
 
 impl<A: NDArray> NDArrayTrig for A {}
 
+/// Array cast operations
 pub trait NDArrayCast: NDArray + Sized {
+    /// Construct a new array cast operation.
     fn cast<O: CDatatype>(self) -> Result<ArrayOp<ArrayCast<Self, O>>, Error> {
         let shape = self.shape().to_vec();
         let op = ArrayCast::new(self)?;
@@ -1205,37 +1313,44 @@ pub trait NDArrayCast: NDArray + Sized {
 
 impl<A: NDArray> NDArrayCast for A {}
 
+/// Array comparison operations
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
+    /// Construct an equality comparison with the `other` array.
     fn eq(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::eq(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a greater-than comparison with the `other` array.
     fn gt(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::gt(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an equal-or-greater-than comparison with the `other` array.
     fn ge(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::ge(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an equal-or-less-than comparison with the `other` array.
     fn lt(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::lt(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an equal-or-less-than comparison with the `other` array.
     fn le(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::le(self, other)?;
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an not-equal comparison with the `other` array.
     fn ne(self, other: O) -> Result<ArrayOp<ArrayCompare<Self::DType, Self, O>>, Error> {
         let shape = check_shape(self.shape(), other.shape())?;
         let op = ArrayCompare::ne(self, other)?;
@@ -1245,7 +1360,9 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
 
 impl<A: NDArray, O: NDArray> NDArrayCompare<O> for A where O: NDArray<DType = A::DType> {}
 
+/// Array comparison operations with a scalar argument
 pub trait NDArrayCompareScalar: NDArray + Sized {
+    /// Construct an equality comparison with the `other` value.
     fn eq_scalar(
         self,
         other: Self::DType,
@@ -1255,6 +1372,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a greater-than comparison with the `other` value.
     fn gt_scalar(
         self,
         other: Self::DType,
@@ -1264,6 +1382,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an equal-or-greater-than comparison with the `other` value.
     fn ge_scalar(
         self,
         other: Self::DType,
@@ -1273,6 +1392,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a less-than comparison with the `other` value.
     fn lt_scalar(
         self,
         other: Self::DType,
@@ -1282,6 +1402,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an equal-or-less-than comparison with the `other` value.
     fn le_scalar(
         self,
         other: Self::DType,
@@ -1291,6 +1412,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct an not-equal comparison with the `other` value.
     fn ne_scalar(
         self,
         other: Self::DType,
@@ -1306,7 +1428,9 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
 
 impl<A: NDArray> NDArrayCompareScalar for A {}
 
+/// Matrix operations
 pub trait MatrixMath: NDArray + fmt::Debug {
+    /// Construct an operation to read the diagonal of this matrix or batch of matrices.
     fn diagonal(self) -> Result<ArrayOp<MatDiag<Self>>, Error>
     where
         Self: Sized,
@@ -1323,6 +1447,7 @@ pub trait MatrixMath: NDArray + fmt::Debug {
         }
     }
 
+    /// Construct an operation to multiply this matrix or batch of matrices with the `other`.
     fn matmul<O>(self, other: O) -> Result<ArrayOp<MatMul<Self::DType, Self, O>>, Error>
     where
         O: NDArray<DType = Self::DType> + fmt::Debug,
@@ -1376,13 +1501,16 @@ pub trait MatrixMath: NDArray + fmt::Debug {
 
 impl<A: NDArray + fmt::Debug> MatrixMath for A {}
 
+/// Boolean array reduce operations
 pub trait NDArrayReduceBoolean: NDArrayRead {
+    /// Return `true` if this array contains only non-zero elements.
     fn all(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.all(&queue)
     }
 
+    /// Return `true` if this array contains any non-zero elements.
     fn any(&self) -> Result<bool, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
@@ -1392,25 +1520,30 @@ pub trait NDArrayReduceBoolean: NDArrayRead {
 
 impl<A: NDArrayRead> NDArrayReduceBoolean for A {}
 
+/// Array reduce operations
 pub trait NDArrayReduceAll: NDArrayRead {
+    /// Return the maximum element in this array.
     fn max_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.max(&queue)
     }
 
+    /// Return the minimum element in this array.
     fn min_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.min(&queue)
     }
 
+    /// Return the product of all elements in this array.
     fn product_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
         buffer.product(&queue)
     }
 
+    /// Return the sum of all elements in this array.
     fn sum_all(&self) -> Result<Self::DType, Error> {
         let queue = Queue::new(self.context().clone(), self.size())?;
         let buffer = self.read(&queue)?;
@@ -1420,10 +1553,12 @@ pub trait NDArrayReduceAll: NDArrayRead {
 
 impl<A: NDArrayRead> NDArrayReduceAll for A {}
 
+/// Axis-wise array reduce operations
 pub trait NDArrayReduce: NDArrayRead + NDArrayTransform + fmt::Debug
 where
     Array<Self::DType>: From<Self> + From<Self::Transpose>,
 {
+    /// Construct a max-reduce operation over the given `axes`.
     fn max(
         self,
         mut axes: Vec<usize>,
@@ -1439,6 +1574,7 @@ where
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a min-reduce operation over the given `axes`.
     fn min(
         self,
         mut axes: Vec<usize>,
@@ -1454,6 +1590,7 @@ where
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a product-reduce operation over the given `axes`.
     fn product(
         self,
         mut axes: Vec<usize>,
@@ -1469,6 +1606,7 @@ where
         Ok(ArrayOp::new(shape, op))
     }
 
+    /// Construct a sum-reduce operation over the given `axes`.
     fn sum(
         self,
         mut axes: Vec<usize>,
@@ -1492,7 +1630,11 @@ where
 {
 }
 
+/// Conditional selection (boolean logic) methods
 pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
+    /// Construct a boolean selection operation.
+    /// The resulting array will return values from `then` where `self` is `true`
+    /// and from `or_else` where `self` is `false`.
     fn cond<T, L, R>(self, then: L, or_else: R) -> Result<ArrayOp<GatherCond<Self, T, L, R>>, Error>
     where
         T: CDatatype,
@@ -1515,24 +1657,41 @@ pub trait NDArrayWhere: NDArray<DType = u8> + fmt::Debug {
 
 impl<A: NDArray<DType = u8> + fmt::Debug> NDArrayWhere for A {}
 
+/// Array transform operations
 pub trait NDArrayTransform: NDArray + fmt::Debug {
+    /// The type returned by `broadcast`
     type Broadcast: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+
+    /// The type returned by `expand_dims`
     type Expand: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+
+    /// The type returned by `reshape`
     type Reshape: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+
+    /// The type returned by `slice`
     type Slice: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
+
+    /// The type returned by `transpose`
     type Transpose: NDArray<DType = Self::DType> + NDArrayRead + NDArrayTransform;
 
+    /// Broadcast this array into the given `shape`.
     fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error>;
 
+    /// Expand the given `axes` of this array.
     fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error>;
 
+    /// Reshape this array into the given `shape`.
     fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error>;
 
+    /// Construct a slice of this array.
     fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error>;
 
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error>;
+    /// Transpose this array according to the given `permutation`.
+    /// If no permutation is given, the array axes will be reversed.
+    fn transpose(self, permutatin: Option<Vec<usize>>) -> Result<Self::Transpose, Error>;
 }
 
+/// Bounds on an individual array axis
 #[derive(Clone)]
 pub enum AxisBound {
     At(usize),
@@ -1541,6 +1700,7 @@ pub enum AxisBound {
 }
 
 impl AxisBound {
+    /// Return `true` if this is an index bound (i.e. not a slice)
     pub fn is_index(&self) -> bool {
         match self {
             Self::At(_) => true,
@@ -1548,6 +1708,8 @@ impl AxisBound {
         }
     }
 
+    /// Return the number of elements contained within this bound.
+    /// Returns `0` for an index bound.
     pub fn size(&self) -> usize {
         match self {
             Self::At(_) => 0,
@@ -1587,6 +1749,7 @@ impl fmt::Debug for AxisBound {
 }
 
 #[inline]
+/// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     if left.is_empty() || right.is_empty() {
         return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
@@ -1705,6 +1868,7 @@ fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape,
 }
 
 #[inline]
+/// Compute the strides of the given shape, with a result of length `ndim`.
 pub fn strides_for(shape: &[usize], ndim: usize) -> Vec<usize> {
     debug_assert!(ndim >= shape.len());
 
