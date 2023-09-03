@@ -96,7 +96,9 @@ pub struct ArrayBase<Buf> {
 impl<Buf> ArrayBase<Buf> {
     fn new_inner(context: Context, shape: Shape, size: usize, data: Buf) -> Result<Self, Error> {
         if shape.iter().copied().any(|dim| dim == 0) {
-            Err(Error::Bounds(format!("cannot construct an array of shape {shape:?}")))
+            Err(Error::Bounds(format!(
+                "cannot construct an array of shape {shape:?}"
+            )))
         } else if shape.iter().product::<usize>() == size {
             Ok(Self {
                 context,
@@ -1991,9 +1993,7 @@ impl<A: NDArray> NDArray for ArrayView<A> {
 
 impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
     fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        let source_queue = Queue::new(queue.context().clone(), self.source.size())?;
-
-        match self.source.read(&source_queue)? {
+        match self.source.read(queue)? {
             BufferConverter::Host(source) => {
                 self.read_vec(source.as_ref()).map(BufferConverter::from)
             }

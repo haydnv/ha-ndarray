@@ -9,7 +9,7 @@ where
 {
     let src = format!(
         r#"
-        __kernel void cast(
+        __kernel void cast_dtype(
             __global const {itype}* restrict input,
             __global {otype}* restrict output)
         {{
@@ -231,6 +231,7 @@ pub fn scalar_cmp<T: CDatatype>(cmp: &'static str, context: &Context) -> Result<
     Program::builder().source(src).build(context.cl_context())
 }
 
+// TODO: use the built-in log function without casting every input to a 64-bit float
 pub fn unary<IT, OT>(op: &'static str, context: &Context) -> Result<Program, Error>
 where
     IT: CDatatype,
@@ -238,6 +239,10 @@ where
 {
     let src = format!(
         r#"
+        inline {otype} _log(const double input) {{
+            return log(input);
+        }}
+
         __kernel void unary(__global const {itype}* input, __global {otype}* output) {{
             const ulong offset = get_global_id(0);
             output[offset] = {op}(input[offset]);

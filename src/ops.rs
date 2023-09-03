@@ -1739,7 +1739,7 @@ impl<A: NDArrayRead, O: CDatatype> Op for ArrayCast<A, O> {
             .build()?;
 
         let kernel = ocl::Kernel::builder()
-            .name("cast")
+            .name("cast_dtype")
             .program(&self.cl_op)
             .queue(cl_queue.clone())
             .global_work_size(input.len())
@@ -1788,8 +1788,7 @@ impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
     }
 
     pub fn ln(array: A) -> Result<Self, Error> {
-        // TODO: replace "logf" with "log" for integer types
-        Self::new(array, |n| T::from_float(n.to_float().ln()), "logf")
+        Self::new(array, |n| T::from_float(n.to_float().ln()), "_log")
     }
 
     pub fn exp(array: A) -> Result<Self, Error> {
@@ -1802,49 +1801,40 @@ impl<T: CDatatype, A: NDArray> ArrayUnary<T, T, A> {
 }
 
 impl<T: CDatatype, A: NDArray> ArrayUnary<T, T::Float, A> {
-    // TODO: replace "asinf" with "asin" for integer types
     pub fn asin(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().asin(), "asinf")
+        Self::new(array, |n| n.to_float().asin(), "asin")
     }
 
-    // TODO: replace "sinf" with "sin" for integer types
     pub fn sin(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().sin(), "sinf")
+        Self::new(array, |n| n.to_float().sin(), "sin")
     }
 
-    // TODO: replace "sinhf" with "sinh" for integer types
     pub fn sinh(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().sinh(), "sinhf")
+        Self::new(array, |n| n.to_float().sinh(), "sinh")
     }
 
-    // TODO: replace "acosf" with "acos" for integer types
     pub fn acos(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().acos(), "acosf")
+        Self::new(array, |n| n.to_float().acos(), "acos")
     }
 
-    // TODO: replace "cosf" with "cos" for integer types
     pub fn cos(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().cos(), "cosf")
+        Self::new(array, |n| n.to_float().cos(), "cos")
     }
 
-    // TODO: replace "coshf" with "cosh" for integer types
     pub fn cosh(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().cosh(), "coshf")
+        Self::new(array, |n| n.to_float().cosh(), "cosh")
     }
 
-    // TODO: replace "atanf" with "atan" for integer types
     pub fn atan(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().atan(), "atanf")
+        Self::new(array, |n| n.to_float().atan(), "atan")
     }
 
-    // TODO: replace "tanf" with "tan" for integer types
     pub fn tan(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().tan(), "tanf")
+        Self::new(array, |n| n.to_float().tan(), "tan")
     }
 
-    // TODO: replace "tanhf" with "tanh" for integer types
     pub fn tanh(array: A) -> Result<Self, Error> {
-        Self::new(array, |n| n.to_float().tanh(), "tanhf")
+        Self::new(array, |n| n.to_float().tanh(), "tanh")
     }
 }
 
