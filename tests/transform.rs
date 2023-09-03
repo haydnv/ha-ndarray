@@ -1,6 +1,14 @@
 use ha_ndarray::*;
 
 #[test]
+fn test_broadcast() -> Result<(), Error> {
+    let input = ArrayBase::<Vec<i32>>::new(vec![300, 1, 2], vec![1; 600])?;
+    let output = input.broadcast(vec![300, 250, 2])?;
+    assert_eq!(output.sum_all()?, 150000);
+    Ok(())
+}
+
+#[test]
 fn test_slice_1d() -> Result<(), Error> {
     let context = Context::new(0, 0, None)?;
 

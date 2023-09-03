@@ -8,9 +8,17 @@ fn test_reduce_sum_all() -> Result<(), Error> {
 
     for x in 1..9 {
         let data = vec![1; 10_usize.pow(x)];
-        let array = ArrayBase::<Vec<i32>>::with_context(context.clone(), vec![data.len()], data)?;
+        let host_array =
+            ArrayBase::<Vec<i32>>::with_context(context.clone(), vec![data.len()], data)?;
 
-        assert_eq!(array.size() as i32, array.sum_all()?);
+        #[cfg(feature = "opencl")]
+        {
+            let cl_array = ArrayBase::<ocl::Buffer<i32>>::copy(&host_array)?;
+            let op_array = cl_array + host_array.clone();
+            assert_eq!((op_array.size() * 2) as i32, op_array.sum_all()?);
+        }
+
+        assert_eq!(host_array.size() as i32, host_array.sum_all()?);
     }
 
     Ok(())
