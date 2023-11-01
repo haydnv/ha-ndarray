@@ -1,98 +1,126 @@
+use std::fmt;
+use std::marker::PhantomData;
+
 use smallvec::SmallVec;
 
-/// global device configuration
+mod host;
+#[cfg(feature = "opencl")]
+mod opencl;
 
 #[cfg(feature = "opencl")]
-struct CLContext {}
-
-enum HostContext {
-    Heap,
-    Stack,
+pub trait CType: ocl::OclPrm {
+    const C_TYPE: &'static str;
 }
-
-trait PlatformInstance {}
-
-#[cfg(feature = "opencl")]
-pub struct OpenCL {}
-
-#[cfg(feature = "opencl")]
-impl PlatformInstance for OpenCL {}
-
-pub struct Host;
-
-impl PlatformInstance for Host {}
-
-enum Platform {
-    Host(Host),
-    #[cfg(feature = "opencl")]
-    CL(OpenCL),
-}
-
-impl PlatformInstance for Platform {}
-
-/// buffers
-
-#[cfg(feature = "opencl")]
-pub trait CType: ocl::OclPrm {}
 
 #[cfg(not(feature = "opencl"))]
-pub trait CType {}
+pub trait CType {
+    const C_TYPE: &'static str;
+}
 
-pub trait BufferInstance {}
+impl CType for u32 {
+    const C_TYPE: &'static str = "uint";
+}
 
-impl<T: CType> BufferInstance for Vec<T> {}
-
-impl<'a, T: CType> BufferInstance for &'a [T] {}
+/// An array math error
+pub enum Error {
+    Bounds(String),
+    Interface(String),
+    #[cfg(feature = "opencl")]
+    OCL(ocl::Error),
+}
 
 #[cfg(feature = "opencl")]
-impl<T: CType> BufferInstance for ocl::Buffer<T> {}
+impl From<ocl::Error> for Error {
+    fn from(cause: ocl::Error) -> Self {
+        Self::OCL(cause)
+    }
+}
 
-/// arrays
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Interface(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::OCL(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bounds(cause) => f.write_str(cause),
+            Self::Interface(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::OCL(cause) => cause.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+pub trait PlatformInstance {}
+
+enum Platform {
+    #[cfg(feature = "opencl")]
+    CL(opencl::OpenCL),
+    Host(host::Host),
+}
+
+pub trait BufferInstance {
+    fn size(&self) -> usize;
+}
 
 pub type Shape = SmallVec<[usize; 8]>;
 
 pub trait NDArray {}
 
-pub struct ArrayBuffer<B> {
+pub trait NDArrayRead: NDArray {
+    type Buffer: BufferInstance;
+
+    fn read(&self) -> Result<Self::Buffer, Error>;
+}
+
+pub struct ArrayBase<B, P> {
     buffer: B,
+    platform: PhantomData<P>,
 }
 
-pub struct ArrayOp<Op> {
-    op: Op,
+pub struct ArrayOp<O, P> {
+    op: O,
+    platform: PhantomData<P>,
 }
 
-pub struct ArraySlice<A> {
+impl<O, P> NDArray for ArrayOp<O, P> {}
+
+impl<O: Op, P: PlatformInstance> NDArrayRead for ArrayOp<O, P>
+where
+    P: Enqueue<O>,
+{
+    type Buffer = <P as Enqueue<O>>::Buffer;
+
+    fn read(&self) -> Result<Self::Buffer, Error> {
+        todo!()
+    }
+}
+
+pub struct ArraySlice<A, P> {
     source: A,
+    platform: PhantomData<P>,
 }
 
-pub struct ArrayView<A> {
+pub struct ArrayView<A, P> {
     source: A,
+    platform: PhantomData<P>,
 }
 
-/// ops
-
-pub trait Op {}
-
-pub struct RandomUniform {}
-
-impl Op for RandomUniform {}
-
-pub struct Reduce<A> {
-    array: A,
+pub trait Op: Sized {
+    type DType: CType;
 }
 
-impl<A> Op for Reduce<A> {}
+pub trait Enqueue<O: Op>: PlatformInstance {
+    type Buffer: BufferInstance;
 
-pub struct Add<L, R> {
-    left: L,
-    right: R,
+    fn enqueue(&self, op: O) -> Result<Self::Buffer, Error>;
 }
-
-impl<L, R> Op for Add<L, R> {}
-
-pub struct MatMul<L, R> {
-    left: L,
-    right: R,
-}
-
-impl<L, R> Op for MatMul<L, R> {}
