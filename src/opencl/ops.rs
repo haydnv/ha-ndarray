@@ -1,17 +1,10 @@
-use ocl::Buffer;
 use std::marker::PhantomData;
 
-use crate::{BufferInstance, CType, Enqueue, Error, NDArrayRead, Op, PlatformInstance};
+use ocl::Buffer;
 
-impl<T: CType> BufferInstance for Buffer<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
+use crate::{CType, Enqueue, Error, NDArrayRead, Op};
 
-pub struct OpenCL;
-
-impl PlatformInstance for OpenCL {}
+use super::platform::OpenCL;
 
 struct Dual<L, R, T> {
     left: L,
@@ -25,13 +18,18 @@ impl<L, R, T: CType> Op for Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<Dual<L, R, T>> for OpenCL
 where
-    L: NDArrayRead,
-    R: NDArrayRead,
+    L: NDArrayRead<Buffer = Buffer<T>>,
+    R: NDArrayRead<Buffer = Buffer<T>>,
     T: CType,
 {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self, op: Dual<L, R, T>) -> Result<Self::Buffer, Error> {
+        let left = op.left.read()?;
+        let right = op.right.read()?;
+
+        let context = self.context();
+
         todo!()
     }
 }
