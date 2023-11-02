@@ -27,7 +27,7 @@ impl<L, R, T> Dual<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<Dual<L, R, T>> for OpenCL
+impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
     L: NDArrayRead<Buffer = Buffer<T>>,
     R: NDArrayRead<Buffer = Buffer<T>>,
@@ -35,20 +35,19 @@ where
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(&self, op: Dual<L, R, T>) -> Result<Self::Buffer, Error> {
-        let left = op.left.read()?;
-        let right = op.right.read()?;
-
+    fn enqueue(&self, platform: &OpenCL) -> Result<Self::Buffer, Error> {
+        let left = self.left.read()?;
+        let right = self.right.read()?;
         debug_assert_eq!(left.len(), right.len());
 
-        let queue = self.queue(left.default_queue(), left.len())?;
+        let queue = platform.queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(left.len())
             .build()?;
 
-        let program = kernels::elementwise::dual::<T, T>("add", self.context())?;
+        let program = kernels::elementwise::dual::<T, T>("add", platform.context())?;
 
         let kernel = Kernel::builder()
             .name("dual")

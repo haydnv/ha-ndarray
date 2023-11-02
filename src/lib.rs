@@ -96,9 +96,9 @@ impl<O, P> NDArray for ArrayOp<O, P> {}
 
 impl<O: Op, P: PlatformInstance> NDArrayRead for ArrayOp<O, P>
 where
-    P: Enqueue<O>,
+    O: Enqueue<P>,
 {
-    type Buffer = <P as Enqueue<O>>::Buffer;
+    type Buffer = <O as Enqueue<P>>::Buffer;
 
     fn read(&self) -> Result<Self::Buffer, Error> {
         todo!()
@@ -119,8 +119,8 @@ pub trait Op: Sized {
     type DType: CType;
 }
 
-pub trait Enqueue<O: Op>: PlatformInstance {
+pub trait Enqueue<P: PlatformInstance>: Op {
     type Buffer: BufferInstance;
 
-    fn enqueue(&self, op: O) -> Result<Self::Buffer, Error>;
+    fn enqueue(&self, platform: &P) -> Result<Self::Buffer, Error>;
 }

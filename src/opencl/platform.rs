@@ -73,11 +73,15 @@ impl OpenCL {
         &self.cl_context
     }
 
-    /// Construct a new [`Queue`] with an appropriate device, only if needed.
-    pub fn queue(&self, default: Option<&Queue>, size_hint: usize) -> Result<Queue, ocl::Error> {
+    pub(crate) fn queue(
+        &self,
+        size_hint: usize,
+        left: Option<&Queue>,
+        right: Option<&Queue>,
+    ) -> Result<Queue, ocl::Error> {
         let device_type = self.select_device_type(size_hint);
 
-        if let Some(queue) = default {
+        if let Some(queue) = left {
             if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
                 if dt == device_type {
                     return Ok(queue.clone());
@@ -85,7 +89,15 @@ impl OpenCL {
             }
         }
 
-        let device = self.select_device(device_type).expect("device");
+        if let Some(queue) = right {
+            if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
+                if dt == device_type {
+                    return Ok(queue.clone());
+                }
+            }
+        }
+
+        let device = self.select_device(device_type).expect("OpenCL device");
         Queue::new(self.context(), device, None)
     }
 

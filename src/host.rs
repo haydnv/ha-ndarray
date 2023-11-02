@@ -39,26 +39,26 @@ impl<L, R, T: CType> Op for Dual<L, R, T> {
     type DType = T;
 }
 
-impl<L, R, T> Enqueue<Dual<L, R, T>> for Stack
+impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
     L: NDArrayRead,
     T: CType,
 {
     type Buffer = StackBuf<T>;
 
-    fn enqueue(&self, op: Dual<L, R, T>) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self, platform: &Stack) -> Result<Self::Buffer, Error> {
         todo!()
     }
 }
 
-impl<L, R, T> Enqueue<Dual<L, R, T>> for Heap
+impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
     L: NDArrayRead,
     T: CType,
 {
     type Buffer = StackBuf<T>;
 
-    fn enqueue(&self, op: Dual<L, R, T>) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self, platform: &Heap) -> Result<Self::Buffer, Error> {
         todo!()
     }
 }
