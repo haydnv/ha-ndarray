@@ -5,4 +5,3 @@ fn main() {
         .probe("OpenCL")
         .unwrap();
 }
-

@@ -29,8 +29,8 @@ impl<L, R, T> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
-    L: NDArrayRead<Buffer = Buffer<T>>,
-    R: NDArrayRead<Buffer = Buffer<T>>,
+    L: NDArrayRead<Buffer<T>>,
+    R: NDArrayRead<Buffer<T>>,
     T: CType,
 {
     type Buffer = Buffer<T>;

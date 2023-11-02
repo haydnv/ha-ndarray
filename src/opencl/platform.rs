@@ -63,7 +63,7 @@ pub struct OpenCL {
 }
 
 impl OpenCL {
-    fn default() -> Result<Self, Error> {
+    pub(crate) fn default() -> Result<Self, Error> {
         let cl_platform = Platform::first()?;
         Self::try_from(cl_platform).map_err(Error::from)
     }

@@ -3,6 +3,10 @@ use std::marker::PhantomData;
 
 use smallvec::SmallVec;
 
+use host::{Heap, Stack};
+#[cfg(feature = "opencl")]
+use opencl::{OpenCL, CL_PLATFORM};
+
 mod host;
 #[cfg(feature = "opencl")]
 mod opencl;
@@ -64,7 +68,7 @@ pub trait PlatformInstance {}
 
 enum Platform {
     #[cfg(feature = "opencl")]
-    CL(opencl::OpenCL),
+    CL(OpenCL),
     Host(host::Host),
 }
 
@@ -74,12 +78,14 @@ pub trait BufferInstance {
 
 pub type Shape = SmallVec<[usize; 8]>;
 
-pub trait NDArray {}
+pub trait NDArray {
+    type Platform: PlatformInstance;
 
-pub trait NDArrayRead: NDArray {
-    type Buffer: BufferInstance;
+    fn platform(&self) -> &Self::Platform;
+}
 
-    fn read(&self) -> Result<Self::Buffer, Error>;
+pub trait NDArrayRead<Buf: BufferInstance>: NDArray {
+    fn read(&self) -> Result<Buf, Error>;
 }
 
 pub struct ArrayBase<B, P> {
@@ -89,18 +95,49 @@ pub struct ArrayBase<B, P> {
 
 pub struct ArrayOp<O, P> {
     op: O,
-    platform: PhantomData<P>,
+    platform: P,
 }
 
-impl<O, P> NDArray for ArrayOp<O, P> {}
+impl<O> NDArray for ArrayOp<O, Stack>
+where
+    O: Enqueue<Stack>,
+{
+    type Platform = Stack;
 
-impl<O: Op, P: PlatformInstance> NDArrayRead for ArrayOp<O, P>
+    fn platform(&self) -> &Self::Platform {
+        &self.platform
+    }
+}
+
+impl<O> NDArray for ArrayOp<O, Heap>
+where
+    O: Enqueue<Heap>,
+{
+    type Platform = Heap;
+
+    fn platform(&self) -> &Self::Platform {
+        &self.platform
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<O> NDArray for ArrayOp<O, OpenCL>
+where
+    O: Enqueue<OpenCL>,
+{
+    type Platform = OpenCL;
+
+    fn platform(&self) -> &OpenCL {
+        &self.platform
+    }
+}
+
+impl<O: Op, P: PlatformInstance> NDArrayRead<O::Buffer> for ArrayOp<O, P>
 where
     O: Enqueue<P>,
+    Self: NDArray<Platform = P>,
 {
-    type Buffer = <O as Enqueue<P>>::Buffer;
-
-    fn read(&self) -> Result<Self::Buffer, Error> {
+    fn read(&self) -> Result<O::Buffer, Error> {
         todo!()
     }
 }

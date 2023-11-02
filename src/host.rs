@@ -41,7 +41,7 @@ impl<L, R, T: CType> Op for Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: NDArrayRead,
+    L: NDArrayRead<StackBuf<T>>,
     T: CType,
 {
     type Buffer = StackBuf<T>;
@@ -53,7 +53,7 @@ where
 
 impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: NDArrayRead,
+    L: NDArrayRead<StackBuf<T>>,
     T: CType,
 {
     type Buffer = StackBuf<T>;
