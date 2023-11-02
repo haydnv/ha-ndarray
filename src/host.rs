@@ -2,7 +2,9 @@ use smallvec::SmallVec;
 
 use crate::{BufferInstance, CType, Enqueue, Error, NDArrayRead, Op, PlatformInstance};
 
-type StackBuf<T> = SmallVec<[T; 64]>;
+const VEC_MIN_SIZE: usize = 64;
+
+type StackBuf<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 impl<T> BufferInstance for StackBuf<T> {
     fn size(&self) -> usize {
@@ -12,7 +14,11 @@ impl<T> BufferInstance for StackBuf<T> {
 
 pub struct Stack;
 
-impl PlatformInstance for Stack {}
+impl PlatformInstance for Stack {
+    fn select(_size_hint: usize) -> Self {
+        Self
+    }
+}
 
 impl<T> BufferInstance for Vec<T> {
     fn size(&self) -> usize {
@@ -22,11 +28,25 @@ impl<T> BufferInstance for Vec<T> {
 
 pub struct Heap;
 
-impl PlatformInstance for Heap {}
+impl PlatformInstance for Heap {
+    fn select(_size_hint: usize) -> Self {
+        Self
+    }
+}
 
 pub enum Host {
     Stack(Stack),
-    Heal(Heap),
+    Heap(Heap),
+}
+
+impl PlatformInstance for Host {
+    fn select(size_hint: usize) -> Self {
+        if size_hint < VEC_MIN_SIZE {
+            Self::Stack(Stack)
+        } else {
+            Self::Heap(Heap)
+        }
+    }
 }
 
 struct Dual<L, R, T> {
