@@ -1,4 +1,5 @@
-use ocl::{Context, Platform};
+use ocl::core::{DeviceInfo, DeviceInfoResult};
+use ocl::{Context, Device, DeviceType, Platform, Queue};
 
 use crate::{Error, PlatformInstance};
 
@@ -8,7 +9,7 @@ const ACC_MIN_DEFAULT: usize = 2_147_483_648; // 1 GiB
 
 #[derive(Clone)]
 struct DeviceList {
-    devices: Vec<ocl::Device>,
+    devices: Vec<Device>,
     next: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -26,7 +27,7 @@ impl DeviceList {
         self.devices.is_empty()
     }
 
-    fn next(&self) -> Option<ocl::Device> {
+    fn next(&self) -> Option<Device> {
         if self.devices.is_empty() {
             None
         } else {
@@ -36,8 +37,8 @@ impl DeviceList {
     }
 }
 
-impl From<Vec<ocl::Device>> for DeviceList {
-    fn from(devices: Vec<ocl::Device>) -> Self {
+impl From<Vec<Device>> for DeviceList {
+    fn from(devices: Vec<Device>) -> Self {
         Self {
             devices,
             next: std::sync::Arc::new(Default::default()),
@@ -45,9 +46,9 @@ impl From<Vec<ocl::Device>> for DeviceList {
     }
 }
 
-impl FromIterator<ocl::Device> for DeviceList {
-    fn from_iter<T: IntoIterator<Item = ocl::Device>>(iter: T) -> Self {
-        Self::from(iter.into_iter().collect::<Vec<ocl::Device>>())
+impl FromIterator<Device> for DeviceList {
+    fn from_iter<T: IntoIterator<Item = Device>>(iter: T) -> Self {
+        Self::from(iter.into_iter().collect::<Vec<Device>>())
     }
 }
 
@@ -72,31 +73,62 @@ impl OpenCL {
         &self.cl_context
     }
 
-    fn has_gpu(&self) -> bool {
-        !self.cl_gpus.is_empty()
+    /// Construct a new [`Queue`] with an appropriate device, only if needed.
+    pub fn queue(&self, default: Option<&Queue>, size_hint: usize) -> Result<Queue, ocl::Error> {
+        let device_type = self.select_device_type(size_hint);
+
+        if let Some(queue) = default {
+            if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
+                if dt == device_type {
+                    return Ok(queue.clone());
+                }
+            }
+        }
+
+        let device = self.select_device(device_type).expect("device");
+        Queue::new(self.context(), device, None)
     }
 
-    fn next_cpu(&self) -> Option<ocl::Device> {
+    fn next_cpu(&self) -> Option<Device> {
         self.cl_cpus.next()
     }
 
-    fn next_gpu(&self) -> Option<ocl::Device> {
+    fn next_gpu(&self) -> Option<Device> {
         self.cl_gpus.next()
     }
 
-    fn next_acc(&self) -> Option<ocl::Device> {
+    fn next_acc(&self) -> Option<Device> {
         self.cl_accs.next()
     }
 
-    fn select_device(&self, size_hint: usize) -> Option<ocl::Device> {
+    fn select_device_type(&self, size_hint: usize) -> DeviceType {
         if size_hint < GPU_MIN_DEFAULT {
-            self.next_cpu()
+            DeviceType::CPU
         } else if size_hint < ACC_MIN_DEFAULT {
-            self.next_gpu().or_else(|| self.next_cpu())
+            DeviceType::GPU
         } else {
-            self.next_acc()
+            DeviceType::ACCELERATOR
+        }
+    }
+
+    fn select_device(&self, device_type: DeviceType) -> Option<Device> {
+        match device_type {
+            DeviceType::CPU => self
+                .next_cpu()
                 .or_else(|| self.next_gpu())
-                .or_else(|| self.next_cpu())
+                .or_else(|| self.next_acc()),
+
+            DeviceType::GPU => self
+                .next_gpu()
+                .or_else(|| self.next_acc())
+                .or_else(|| self.next_cpu()),
+
+            DeviceType::ACCELERATOR => self
+                .next_acc()
+                .or_else(|| self.next_gpu())
+                .or_else(|| self.next_cpu()),
+
+            other => panic!("unsupported OpenCL device type: {other:?}"),
         }
     }
 }
@@ -105,9 +137,9 @@ impl TryFrom<Platform> for OpenCL {
     type Error = ocl::Error;
 
     fn try_from(cl_platform: Platform) -> Result<Self, Self::Error> {
-        let cl_cpus = ocl::Device::list(cl_platform, Some(ocl::DeviceType::CPU))?;
-        let cl_gpus = ocl::Device::list(cl_platform, Some(ocl::DeviceType::GPU))?;
-        let cl_accs = ocl::Device::list(cl_platform, Some(ocl::DeviceType::ACCELERATOR))?;
+        let cl_cpus = Device::list(cl_platform, Some(ocl::DeviceType::CPU))?;
+        let cl_gpus = Device::list(cl_platform, Some(ocl::DeviceType::GPU))?;
+        let cl_accs = Device::list(cl_platform, Some(ocl::DeviceType::ACCELERATOR))?;
 
         let cl_context = ocl::builders::ContextBuilder::new()
             .platform(cl_platform)

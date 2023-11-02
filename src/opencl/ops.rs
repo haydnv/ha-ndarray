@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
-use ocl::Buffer;
+use ocl::{Buffer, Kernel};
 
+use crate::opencl::kernels;
 use crate::{CType, Enqueue, Error, NDArrayRead, Op};
 
 use super::platform::OpenCL;
@@ -16,6 +17,16 @@ impl<L, R, T: CType> Op for Dual<L, R, T> {
     type DType = T;
 }
 
+impl<L, R, T> Dual<L, R, T> {
+    pub fn add(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            dtype: PhantomData,
+        }
+    }
+}
+
 impl<L, R, T> Enqueue<Dual<L, R, T>> for OpenCL
 where
     L: NDArrayRead<Buffer = Buffer<T>>,
@@ -28,8 +39,29 @@ where
         let left = op.left.read()?;
         let right = op.right.read()?;
 
-        let context = self.context();
+        debug_assert_eq!(left.len(), right.len());
 
-        todo!()
+        let queue = self.queue(left.default_queue(), left.len())?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(left.len())
+            .build()?;
+
+        let program = kernels::elementwise::dual::<T, T>("add", self.context())?;
+
+        let kernel = Kernel::builder()
+            .name("dual")
+            .program(&program)
+            .queue(queue)
+            .global_work_size(left.len())
+            .arg(&left)
+            .arg(&right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }

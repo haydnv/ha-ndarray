@@ -1,10 +1,10 @@
-use lazy_static::lazy_static;
 use ocl::Buffer;
 
-use crate::{BufferInstance, CType, Enqueue, NDArrayRead, Op, PlatformInstance};
+use crate::{BufferInstance, CType};
 
 pub use platform::OpenCL;
 
+mod kernels;
 mod ops;
 mod platform;
 

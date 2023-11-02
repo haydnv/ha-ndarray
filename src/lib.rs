@@ -9,16 +9,16 @@ mod opencl;
 
 #[cfg(feature = "opencl")]
 pub trait CType: ocl::OclPrm {
-    const C_TYPE: &'static str;
+    const TYPE: &'static str;
 }
 
 #[cfg(not(feature = "opencl"))]
 pub trait CType {
-    const C_TYPE: &'static str;
+    const TYPE: &'static str;
 }
 
 impl CType for u32 {
-    const C_TYPE: &'static str = "uint";
+    const TYPE: &'static str = "uint";
 }
 
 /// An array math error
