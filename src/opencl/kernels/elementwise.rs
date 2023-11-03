@@ -2,28 +2,23 @@ use ocl::{Context, Error, Program};
 
 use crate::CType;
 
-pub fn dual<LT, RT>(op: &'static str, context: &Context) -> Result<Program, Error>
-where
-    LT: CType,
-    RT: CType,
-{
+pub fn dual<T: CType>(op: &'static str, context: &Context) -> Result<Program, Error> {
     let src = format!(
         r#"
-        inline {ltype} add(const {ltype} left, const {rtype} right) {{
+        inline {c_type} add(const {c_type} left, const {c_type} right) {{
             return left + right;
         }}
 
         __kernel void dual(
-            __global const {ltype}* restrict left,
-            __global const {rtype}* restrict right,
-            __global {ltype}* restrict output)
+            __global const {c_type}* restrict left,
+            __global const {c_type}* restrict right,
+            __global {c_type}* restrict output)
         {{
             const ulong offset = get_global_id(0);
             output[offset] = {op}(left[offset], right[offset]);
         }}
         "#,
-        ltype = LT::TYPE,
-        rtype = RT::TYPE,
+        c_type = T::TYPE,
     );
 
     Program::builder().source(src).build(context)

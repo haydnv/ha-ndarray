@@ -41,7 +41,7 @@ where
 {
     type Buffer = Vec<T>;
 
-    fn enqueue(self, _platform: Stack) -> Result<Self::Buffer, Error> {
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
@@ -66,7 +66,7 @@ where
 {
     type Buffer = Vec<T>;
 
-    fn enqueue(self, _platform: Heap) -> Result<Self::Buffer, Error> {
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?

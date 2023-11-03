@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::marker::PhantomData;
 
-use ocl::{Buffer, Kernel};
+use ocl::{Buffer, Kernel, Program};
 
 use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
 
@@ -11,6 +11,8 @@ use super::platform::OpenCL;
 pub struct Dual<L, R, T> {
     left: L,
     right: R,
+    platform: OpenCL,
+    program: Program,
     dtype: PhantomData<T>,
 }
 
@@ -23,13 +25,17 @@ where
     type DType = T;
 }
 
-impl<L, R, T> Dual<L, R, T> {
-    pub fn add(left: L, right: R) -> Self {
-        Self {
+impl<L, R, T: CType> Dual<L, R, T> {
+    pub fn add(platform: OpenCL, left: L, right: R) -> Result<Self, Error> {
+        let program = kernels::elementwise::dual::<T>("add", platform.context())?;
+
+        Ok(Self {
             left,
             right,
+            platform,
+            program,
             dtype: PhantomData,
-        }
+        })
     }
 }
 
@@ -45,7 +51,7 @@ where
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(self, platform: OpenCL) -> Result<Self::Buffer, Error> {
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?;
         let right = self.right.read()?;
         debug_assert_eq!(left.size(), right.size());
@@ -53,18 +59,18 @@ where
         let left = left.borrow();
         let right = right.borrow();
 
-        let queue = platform.queue(left.len(), left.default_queue(), right.default_queue())?;
+        let queue = self
+            .platform
+            .queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(left.len())
             .build()?;
 
-        let program = kernels::elementwise::dual::<T, T>("add", platform.context())?;
-
         let kernel = Kernel::builder()
             .name("dual")
-            .program(&program)
+            .program(&self.program)
             .queue(queue)
             .global_work_size(left.len())
             .arg(left)

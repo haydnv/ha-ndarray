@@ -169,7 +169,7 @@ pub trait Op: Sized {
 pub trait Enqueue<P: PlatformInstance>: Op {
     type Buffer: BufferInstance<Self::DType>;
 
-    fn enqueue(self, platform: P) -> Result<Self::Buffer, Error>;
+    fn enqueue(self) -> Result<Self::Buffer, Error>;
 }
 
 pub struct Array<T, A, P> {
@@ -236,7 +236,7 @@ impl<T, L, P> Array<T, L, P> {
         if self.shape == other.shape {
             Ok(Array {
                 shape: self.shape,
-                access: self.platform.add(self.access, other.access),
+                access: self.platform.add(self.access, other.access)?,
                 platform: self.platform,
                 dtype: PhantomData,
             })

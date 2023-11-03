@@ -1,8 +1,8 @@
 use crate::access::AccessOp;
-use crate::PlatformInstance;
+use crate::{Error, PlatformInstance};
 
 pub trait ElementwiseDual<L, R, T>: PlatformInstance {
     type Output;
 
-    fn add(self, left: L, right: R) -> AccessOp<Self::Output, Self>;
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
 }

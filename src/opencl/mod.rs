@@ -4,7 +4,7 @@ use crate::host::VEC_MIN_SIZE;
 
 use crate::access::AccessOp;
 use crate::ops::ElementwiseDual;
-use crate::{CType, ReadBuf};
+use crate::{CType, Error, ReadBuf};
 
 use platform::CLPlatform;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
@@ -31,8 +31,8 @@ where
 {
     type Output = ops::Dual<L, R, T>;
 
-    fn add(self, left: L, right: R) -> AccessOp<Self::Output, Self> {
-        AccessOp::new(ops::Dual::add(left, right), self)
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        ops::Dual::add(self, left, right).map(AccessOp::from)
     }
 }
 

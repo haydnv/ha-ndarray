@@ -1,4 +1,5 @@
 use crate::{BufferInstance, CType, Enqueue, Error, PlatformInstance, ReadBuf};
+use std::marker::PhantomData;
 
 pub struct AccessBuffer<B> {
     buffer: B,
@@ -31,12 +32,15 @@ impl<T: CType, B: BufferInstance<T>> ReadBuf<T> for AccessBuffer<B> {
 
 pub struct AccessOp<O, P> {
     op: O,
-    platform: P,
+    platform: PhantomData<P>,
 }
 
-impl<O, P> AccessOp<O, P> {
-    pub fn new(op: O, platform: P) -> Self {
-        Self { op, platform }
+impl<O, P> From<O> for AccessOp<O, P> {
+    fn from(op: O) -> Self {
+        Self {
+            op,
+            platform: PhantomData,
+        }
     }
 }
 
@@ -49,7 +53,7 @@ where
     type Buffer = O::Buffer;
 
     fn read(self) -> Result<O::Buffer, Error> {
-        self.op.enqueue(self.platform)
+        self.op.enqueue()
     }
 }
 
@@ -62,6 +66,6 @@ where
     type Buffer = <&'a O as Enqueue<P>>::Buffer;
 
     fn read(self) -> Result<<&'a O as Enqueue<P>>::Buffer, Error> {
-        self.op.enqueue(self.platform)
+        self.op.enqueue()
     }
 }
