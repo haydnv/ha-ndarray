@@ -1,7 +1,4 @@
 use lazy_static::lazy_static;
-use ocl::Buffer;
-
-use crate::{BufferInstance, CType};
 
 pub use platform::OpenCL;
 
@@ -18,12 +15,6 @@ const GPU_MIN_SIZE: usize = 1024; // 1 KiB
 
 const ACC_MIN_SIZE: usize = 2_147_483_648; // 1 GiB
 
-impl<T: CType> BufferInstance for Buffer<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use smallvec::smallvec;
@@ -39,7 +30,9 @@ mod tests {
         let left: ArrayBase<_, OpenCL> = ArrayBase::new(buffer, smallvec![1, 2, 3])?;
 
         let buffer = CL_PLATFORM.create_buffer::<u64>(6)?;
-        let right: ArrayBase<_, OpenCL> = ArrayBase::new(buffer, smallvec![1, 2, 3])?;
+        let right: ArrayBase<_, OpenCL> = ArrayBase::new(buffer, smallvec![3, 2, 1])?;
+
+        let expected = CL_PLATFORM.copy_into_buffer(&[4, 4, 4]);
 
         Ok(())
     }

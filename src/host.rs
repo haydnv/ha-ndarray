@@ -1,28 +1,19 @@
+use std::ops::Add;
+
+use rayon::join;
 use smallvec::SmallVec;
 
-use crate::{BufferInstance, CType, Enqueue, Error, NDArrayRead, Op, PlatformInstance};
+use crate::{CType, Enqueue, Error, Op, PlatformInstance, ReadBuf};
 
 const VEC_MIN_SIZE: usize = 64;
 
-type StackBuf<T> = SmallVec<[T; VEC_MIN_SIZE]>;
-
-impl<T> BufferInstance for StackBuf<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
+pub type StackBuf<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 pub struct Stack;
 
 impl PlatformInstance for Stack {
     fn select(_size_hint: usize) -> Self {
         Self
-    }
-}
-
-impl<T> BufferInstance for Vec<T> {
-    fn size(&self) -> usize {
-        self.len()
     }
 }
 
@@ -49,36 +40,61 @@ impl PlatformInstance for Host {
     }
 }
 
-struct Dual<L, R, T> {
+pub struct Dual<L, R, T> {
     left: L,
     right: R,
     zip: fn(T, T) -> T,
 }
 
-impl<L, R, T: CType> Op for Dual<L, R, T> {
+impl<L, R, T> Op for Dual<L, R, T>
+where
+    L: Send + Sync,
+    R: Send + Sync,
+    T: CType,
+{
     type DType = T;
+}
+
+impl<L, R, T: CType> Dual<L, R, T> {
+    pub fn add(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: Add::add,
+        }
+    }
 }
 
 impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: NDArrayRead<StackBuf<T>>,
+    L: ReadBuf<StackBuf<T>>,
+    R: ReadBuf<StackBuf<T>>,
     T: CType,
 {
     type Buffer = StackBuf<T>;
 
-    fn enqueue(&self, platform: &Stack) -> Result<Self::Buffer, Error> {
-        todo!()
+    fn enqueue(self, _platform: &Stack) -> Result<Self::Buffer, Error> {
+        let (left, right) = join(|| self.left.read(), || self.right.read());
+
+        let buf = left?
+            .into_iter()
+            .zip(right?.into_iter())
+            .map(|(l, r)| (self.zip)(l, r))
+            .collect();
+
+        Ok(buf)
     }
 }
 
 impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: NDArrayRead<StackBuf<T>>,
+    L: ReadBuf<Vec<T>>,
+    R: ReadBuf<Vec<T>>,
     T: CType,
 {
     type Buffer = StackBuf<T>;
 
-    fn enqueue(&self, platform: &Heap) -> Result<Self::Buffer, Error> {
+    fn enqueue(self, platform: &Heap) -> Result<Self::Buffer, Error> {
         todo!()
     }
 }

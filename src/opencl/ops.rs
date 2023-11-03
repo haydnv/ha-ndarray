@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Kernel};
 
 use crate::opencl::kernels;
-use crate::{CType, Enqueue, Error, NDArrayRead, Op};
+use crate::{CType, Enqueue, Error, Op, ReadBuf};
 
 use super::platform::OpenCL;
 
@@ -13,7 +13,12 @@ struct Dual<L, R, T> {
     dtype: PhantomData<T>,
 }
 
-impl<L, R, T: CType> Op for Dual<L, R, T> {
+impl<L, R, T> Op for Dual<L, R, T>
+where
+    L: Send + Sync,
+    R: Send + Sync,
+    T: CType,
+{
     type DType = T;
 }
 
@@ -29,13 +34,13 @@ impl<L, R, T> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
-    L: NDArrayRead<Buffer<T>>,
-    R: NDArrayRead<Buffer<T>>,
+    L: ReadBuf<Buffer<T>>,
+    R: ReadBuf<Buffer<T>>,
     T: CType,
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(&self, platform: &OpenCL) -> Result<Self::Buffer, Error> {
+    fn enqueue(self, platform: &OpenCL) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?;
         let right = self.right.read()?;
         debug_assert_eq!(left.len(), right.len());

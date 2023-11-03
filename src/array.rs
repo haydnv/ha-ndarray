@@ -1,9 +1,13 @@
+use std::fmt;
 use std::marker::PhantomData;
 
-use crate::host::{Heap, Stack};
+use crate::host;
 #[cfg(feature = "opencl")]
-use crate::opencl::OpenCL;
-use crate::{BufferInstance, Enqueue, Error, NDArray, NDArrayRead, Op, PlatformInstance, Shape};
+use crate::opencl;
+use crate::{
+    BufferInstance, CType, Enqueue, Error, NDArray, NDArrayMath, Op, PlatformInstance, ReadBuf,
+    Shape,
+};
 
 pub struct ArrayBase<B, P> {
     shape: Shape,
@@ -32,6 +36,7 @@ impl<B: BufferInstance, P: PlatformInstance> ArrayBase<B, P> {
 
 impl<B, P> NDArray for ArrayBase<B, P>
 where
+    B: BufferInstance,
     P: PlatformInstance,
 {
     type Platform = P;
@@ -45,17 +50,57 @@ where
     }
 }
 
+impl<'a, B, P> ReadBuf<B> for ArrayBase<B, P>
+where
+    B: BufferInstance,
+    P: PlatformInstance,
+{
+    fn read(self) -> Result<B, Error> {
+        Ok(self.buffer)
+    }
+}
+
+impl<T: CType> NDArrayMath<Self> for ArrayBase<Vec<T>, host::Heap> {
+    type Op = host::Dual<Self, Self, T>;
+
+    fn add(self, other: Self) -> Result<ArrayOp<Self::Op, Self::Platform>, Error> {
+        if self.shape == other.shape {
+            let shape = self.shape.clone();
+            let op = host::Dual::add(self, other);
+            Ok(ArrayOp::new(op, shape, host::Heap))
+        } else {
+            Err(Error::Bounds(format!("cannot add {self:?} and {other:?}")))
+        }
+    }
+}
+
+impl<B, P> fmt::Debug for ArrayBase<B, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "array buffer of shape {:?}", self.shape)
+    }
+}
+
 pub struct ArrayOp<O, P> {
     shape: Shape,
     op: O,
     platform: P,
 }
 
-impl<O> NDArray for ArrayOp<O, Stack>
+impl<O, P> ArrayOp<O, P> {
+    fn new(op: O, shape: Shape, platform: P) -> Self {
+        Self {
+            shape,
+            op,
+            platform,
+        }
+    }
+}
+
+impl<O> NDArray for ArrayOp<O, host::Stack>
 where
-    O: Enqueue<Stack>,
+    O: Enqueue<host::Stack>,
 {
-    type Platform = Stack;
+    type Platform = host::Stack;
 
     fn platform(&self) -> &Self::Platform {
         &self.platform
@@ -66,11 +111,11 @@ where
     }
 }
 
-impl<O> NDArray for ArrayOp<O, Heap>
+impl<O> NDArray for ArrayOp<O, host::Heap>
 where
-    O: Enqueue<Heap>,
+    O: Enqueue<host::Heap>,
 {
-    type Platform = Heap;
+    type Platform = host::Heap;
 
     fn platform(&self) -> &Self::Platform {
         &self.platform
@@ -82,13 +127,13 @@ where
 }
 
 #[cfg(feature = "opencl")]
-impl<O> NDArray for ArrayOp<O, OpenCL>
+impl<O> NDArray for ArrayOp<O, opencl::OpenCL>
 where
-    O: Enqueue<OpenCL>,
+    O: Enqueue<opencl::OpenCL>,
 {
-    type Platform = OpenCL;
+    type Platform = opencl::OpenCL;
 
-    fn platform(&self) -> &OpenCL {
+    fn platform(&self) -> &opencl::OpenCL {
         &self.platform
     }
 
@@ -97,12 +142,12 @@ where
     }
 }
 
-impl<O: Op, P: PlatformInstance> NDArrayRead<O::Buffer> for ArrayOp<O, P>
+impl<O: Op, P: PlatformInstance> ReadBuf<O::Buffer> for ArrayOp<O, P>
 where
     O: Enqueue<P>,
     Self: NDArray<Platform = P>,
 {
-    fn read(&self) -> Result<O::Buffer, Error> {
+    fn read(self) -> Result<O::Buffer, Error> {
         todo!()
     }
 }

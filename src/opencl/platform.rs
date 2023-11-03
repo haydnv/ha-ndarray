@@ -161,16 +161,17 @@ impl OpenCL {
     /// Copy the given `data` into a new [`Buffer`].
     pub fn copy_into_buffer<T: CType>(&self, data: &[T]) -> Result<Buffer<T>, ocl::Error> {
         ocl::builders::BufferBuilder::new()
-            .copy_host_slice(data)
+            .len(data.len())
             .context(self.context())
+            .copy_host_slice(data)
             .build()
     }
 
     /// Create a new [`Buffer`].
     pub fn create_buffer<T: CType>(&self, size: usize) -> Result<Buffer<T>, ocl::Error> {
         ocl::builders::BufferBuilder::new()
-            .context(self.context())
             .len(size)
+            .context(self.context())
             .build()
     }
 
