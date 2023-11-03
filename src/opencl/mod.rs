@@ -2,8 +2,12 @@ use lazy_static::lazy_static;
 
 use crate::host::VEC_MIN_SIZE;
 
+use crate::access::AccessOp;
+use crate::ops::ElementwiseDual;
+use crate::{CType, ReadBuf};
+
 use platform::CLPlatform;
-pub use platform::OpenCL;
+pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
 mod kernels;
 mod ops;
@@ -19,9 +23,18 @@ lazy_static! {
     };
 }
 
-pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
+impl<T, L, R> ElementwiseDual<L, R, T> for OpenCL
+where
+    T: CType,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
+{
+    type Output = ops::Dual<L, R, T>;
 
-pub const ACC_MIN_SIZE: usize = 2_147_483_648; // 1 GiB
+    fn add(self, left: L, right: R) -> AccessOp<Self::Output, Self> {
+        AccessOp::new(ops::Dual::add(left, right), self)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -29,17 +42,19 @@ mod tests {
 
     use super::*;
 
-    use crate::{Array, Error};
+    use crate::{Array, Error, Op, StackVec};
 
     #[test]
     fn test_add() -> Result<(), Error> {
         let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let left = Array::new(buffer, smallvec![1, 2, 3])?;
+        let left: Array<_, _, OpenCL> = Array::new(buffer, smallvec![1, 2, 3])?;
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let right = Array::new(buffer, smallvec![3, 2, 1])?;
+        let right: Array<_, _, OpenCL> = Array::new(buffer, smallvec![1, 2, 3])?;
 
-        let expected = OpenCL::copy_into_buffer(&[4, 4, 4]);
+        let expected = OpenCL::create_buffer::<u64>(6)?;
+
+        let actual = left.add(right)?;
 
         Ok(())
     }

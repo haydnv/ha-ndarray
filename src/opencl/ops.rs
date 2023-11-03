@@ -6,9 +6,9 @@ use ocl::{Buffer, Kernel};
 use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
 
 use super::kernels;
-use super::platform::{CLBuffer, OpenCL};
+use super::platform::{CLBuf, OpenCL};
 
-struct Dual<L, R, T> {
+pub struct Dual<L, R, T> {
     left: L,
     right: R,
     dtype: PhantomData<T>,
@@ -35,11 +35,11 @@ impl<L, R, T> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
-    L: ReadBuf + Send + Sync,
-    R: ReadBuf + Send + Sync,
+    L: ReadBuf<T> + Send + Sync,
+    R: ReadBuf<T> + Send + Sync,
     T: CType,
-    L::Buffer: CLBuffer<T>,
-    R::Buffer: CLBuffer<T>,
+    L::Buffer: CLBuf<T>,
+    R::Buffer: CLBuf<T>,
 {
     type Buffer = Buffer<T>;
 

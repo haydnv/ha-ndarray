@@ -1,4 +1,4 @@
-use crate::{BufferInstance, Enqueue, Error, PlatformInstance, ReadBuf};
+use crate::{BufferInstance, CType, Enqueue, Error, PlatformInstance, ReadBuf};
 
 pub struct AccessBuffer<B> {
     buffer: B,
@@ -21,7 +21,7 @@ impl<B> From<B> for AccessBuffer<B> {
     }
 }
 
-impl<B: BufferInstance> ReadBuf for AccessBuffer<B> {
+impl<T: CType, B: BufferInstance<T>> ReadBuf<T> for AccessBuffer<B> {
     type Buffer = B;
 
     fn read(self) -> Result<B, Error> {
@@ -34,9 +34,16 @@ pub struct AccessOp<O, P> {
     platform: P,
 }
 
-impl<O, P> ReadBuf for AccessOp<O, P>
+impl<O, P> AccessOp<O, P> {
+    pub fn new(op: O, platform: P) -> Self {
+        Self { op, platform }
+    }
+}
+
+impl<T, O, P> ReadBuf<T> for AccessOp<O, P>
 where
-    O: Enqueue<P>,
+    T: CType,
+    O: Enqueue<P, DType = T>,
     P: PlatformInstance,
 {
     type Buffer = O::Buffer;

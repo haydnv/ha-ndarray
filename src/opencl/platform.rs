@@ -6,7 +6,11 @@ use ocl::{Buffer, Context, Device, DeviceType, Platform, Queue};
 
 use crate::{CType, Error, PlatformInstance};
 
-use super::{ACC_MIN_SIZE, CL_PLATFORM, GPU_MIN_SIZE};
+use super::CL_PLATFORM;
+
+pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
+
+pub const ACC_MIN_SIZE: usize = 2_147_483_648; // 1 GiB
 
 #[derive(Clone)]
 struct DeviceList {
@@ -145,7 +149,7 @@ impl PlatformInstance for OpenCL {
     }
 }
 
-pub trait CLBuffer<T: CType>: Borrow<Buffer<T>> {}
+pub trait CLBuf<T: CType>: Borrow<Buffer<T>> {}
 
 impl OpenCL {
     /// Borrow the OpenCL [`Context`] of this platform.
