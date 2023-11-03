@@ -52,3 +52,16 @@ where
         self.op.enqueue(self.platform)
     }
 }
+
+impl<'a, T, O, P> ReadBuf<T> for &'a AccessOp<O, P>
+where
+    T: CType,
+    &'a O: Enqueue<P, DType = T>,
+    P: PlatformInstance,
+{
+    type Buffer = <&'a O as Enqueue<P>>::Buffer;
+
+    fn read(self) -> Result<<&'a O as Enqueue<P>>::Buffer, Error> {
+        self.op.enqueue(self.platform)
+    }
+}

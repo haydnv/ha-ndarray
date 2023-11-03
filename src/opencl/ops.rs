@@ -14,7 +14,7 @@ pub struct Dual<L, R, T> {
     dtype: PhantomData<T>,
 }
 
-impl<L, R, T> Op for Dual<L, R, T>
+impl<'a, L, R, T> Op for &'a Dual<L, R, T>
 where
     L: Send + Sync,
     R: Send + Sync,
@@ -33,13 +33,15 @@ impl<L, R, T> Dual<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
+impl<'a, L, R, T> Enqueue<OpenCL> for &'a Dual<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: Send + Sync,
+    R: Send + Sync,
+    &'a L: ReadBuf<T> + Send + Sync,
+    &'a R: ReadBuf<T> + Send + Sync,
     T: CType,
-    L::Buffer: Borrow<Buffer<T>>,
-    R::Buffer: Borrow<Buffer<T>>,
+    <&'a L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
+    <&'a R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
 {
     type Buffer = Buffer<T>;
 
