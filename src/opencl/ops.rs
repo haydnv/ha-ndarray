@@ -1,11 +1,12 @@
+use std::borrow::Borrow;
 use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel};
 
-use crate::opencl::kernels;
-use crate::{CType, Enqueue, Error, Op, ReadBuf};
+use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
 
-use super::platform::OpenCL;
+use super::kernels;
+use super::platform::{CLBuffer, OpenCL};
 
 struct Dual<L, R, T> {
     left: L,
@@ -34,16 +35,21 @@ impl<L, R, T> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
-    L: ReadBuf<Buffer<T>>,
-    R: ReadBuf<Buffer<T>>,
+    L: ReadBuf + Send + Sync,
+    R: ReadBuf + Send + Sync,
     T: CType,
+    L::Buffer: CLBuffer<T>,
+    R::Buffer: CLBuffer<T>,
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(self, platform: &OpenCL) -> Result<Self::Buffer, Error> {
+    fn enqueue(self, platform: OpenCL) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?;
         let right = self.right.read()?;
-        debug_assert_eq!(left.len(), right.len());
+        debug_assert_eq!(left.size(), right.size());
+
+        let left = left.borrow();
+        let right = right.borrow();
 
         let queue = platform.queue(left.len(), left.default_queue(), right.default_queue())?;
 
@@ -59,8 +65,8 @@ where
             .program(&program)
             .queue(queue)
             .global_work_size(left.len())
-            .arg(&left)
-            .arg(&right)
+            .arg(left)
+            .arg(right)
             .arg(&output)
             .build()?;
 

@@ -3,9 +3,10 @@ use std::ops::Add;
 
 use smallvec::SmallVec;
 
-pub use host::StackBuf;
+use access::*;
+pub use host::{Host, StackVec};
 
-mod array;
+mod access;
 mod host;
 #[cfg(feature = "opencl")]
 mod opencl;
@@ -71,17 +72,36 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub trait PlatformInstance: Send + Sync {
+pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum Platform {
     #[cfg(feature = "opencl")]
     CL(opencl::OpenCL),
     Host(host::Host),
 }
 
-pub trait BufferInstance: Send + Sync {
+#[cfg(feature = "opencl")]
+impl PlatformInstance for Platform {
+    fn select(size_hint: usize) -> Self {
+        if size_hint < opencl::GPU_MIN_SIZE {
+            Self::Host(Host::select(size_hint))
+        } else {
+            Self::CL(opencl::OpenCL)
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl PlatformInstance for Platform {
+    fn select(size_hint: usize) -> Self {
+        Self::Host(Host::select(size_hint))
+    }
+}
+
+pub trait BufferInstance: Sized {
     fn size(&self) -> usize;
 }
 
@@ -97,7 +117,7 @@ impl<T: CType> BufferInstance for Vec<T> {
     }
 }
 
-impl<T: CType> BufferInstance for StackBuf<T> {
+impl<T: CType> BufferInstance for StackVec<T> {
     fn size(&self) -> usize {
         self.len()
     }
@@ -119,34 +139,49 @@ impl<'a, T: CType> BufferInstance for &'a ocl::Buffer<T> {
 
 pub type Shape = SmallVec<[usize; 8]>;
 
-pub trait NDArray: Send + Sync {
-    type Platform: PlatformInstance;
+pub trait ReadBuf {
+    type Buffer: BufferInstance;
 
-    fn platform(&self) -> &Self::Platform;
-
-    fn shape(&self) -> &[usize];
-
-    fn size(&self) -> usize {
-        self.shape().iter().product()
-    }
+    fn read(self) -> Result<Self::Buffer, Error>;
 }
 
-pub trait NDArrayMath<O: NDArray<Platform = Self::Platform>>: NDArray {
-    type Op: Op + Enqueue<Self::Platform>;
-
-    fn add(self, other: O) -> Result<array::ArrayOp<Self::Op, Self::Platform>, Error>;
-}
-
-pub trait ReadBuf<Buf: BufferInstance>: Send + Sync {
-    fn read(self) -> Result<Buf, Error>;
-}
-
-pub trait Op: Send + Sync + Sized {
+pub trait Op: Sized {
     type DType: CType;
 }
 
 pub trait Enqueue<P: PlatformInstance>: Op {
     type Buffer: BufferInstance;
 
-    fn enqueue(self, platform: &P) -> Result<Self::Buffer, Error>;
+    fn enqueue(self, platform: P) -> Result<Self::Buffer, Error>;
+}
+
+pub struct Array<A> {
+    shape: Shape,
+    access: A,
+}
+
+impl<B: BufferInstance> Array<AccessBuffer<B>> {
+    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == buffer.size() {
+            Ok(Self {
+                shape,
+                access: AccessBuffer::from(buffer),
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot construct an array with shape {shape:?} from a buffer of size {}",
+                buffer.size()
+            )))
+        }
+    }
+
+    pub fn as_ref<RB>(&self) -> Array<AccessBuffer<&RB>>
+    where
+        B: AsRef<RB>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: self.access.as_ref(),
+        }
+    }
 }

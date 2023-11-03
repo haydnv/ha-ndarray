@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
@@ -5,19 +6,19 @@ use ocl::{Buffer, Context, Device, DeviceType, Platform, Queue};
 
 use crate::{CType, Error, PlatformInstance};
 
-use super::{ACC_MIN_SIZE, GPU_MIN_SIZE};
+use super::{ACC_MIN_SIZE, CL_PLATFORM, GPU_MIN_SIZE};
 
 #[derive(Clone)]
 struct DeviceList {
     devices: Vec<Device>,
-    next: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    next: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Default for DeviceList {
     fn default() -> Self {
         Self {
             devices: Vec::default(),
-            next: std::sync::Arc::new(Default::default()),
+            next: Arc::new(Default::default()),
         }
     }
 }
@@ -52,7 +53,7 @@ impl FromIterator<Device> for DeviceList {
     }
 }
 
-struct CLPlatform {
+pub struct CLPlatform {
     cl_platform: Platform,
     cl_context: Context,
     cl_cpus: DeviceList,
@@ -61,7 +62,7 @@ struct CLPlatform {
 }
 
 impl CLPlatform {
-    pub(crate) fn default() -> Result<Self, Error> {
+    pub(super) fn default() -> Result<Self, Error> {
         let cl_platform = Platform::first()?;
         Self::try_from(cl_platform).map_err(Error::from)
     }
@@ -134,44 +135,38 @@ impl TryFrom<Platform> for CLPlatform {
     }
 }
 
-#[derive(Clone)]
-/// An OpenCL platform
-pub struct OpenCL {
-    platform: Arc<CLPlatform>,
-}
+/// The OpenCL platform
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct OpenCL;
 
 impl PlatformInstance for OpenCL {
     fn select(_size_hint: usize) -> Self {
-        super::CL_PLATFORM.clone()
+        Self
     }
 }
 
-impl OpenCL {
-    pub(crate) fn default() -> Result<Self, Error> {
-        CLPlatform::default()
-            .map(Arc::new)
-            .map(|platform| Self { platform })
-    }
+pub trait CLBuffer<T: CType>: Borrow<Buffer<T>> {}
 
+impl OpenCL {
     /// Borrow the OpenCL [`Context`] of this platform.
     pub fn context(&self) -> &Context {
-        &self.platform.cl_context
+        &CL_PLATFORM.cl_context
     }
 
     /// Copy the given `data` into a new [`Buffer`].
-    pub fn copy_into_buffer<T: CType>(&self, data: &[T]) -> Result<Buffer<T>, ocl::Error> {
+    pub fn copy_into_buffer<T: CType>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
         ocl::builders::BufferBuilder::new()
             .len(data.len())
-            .context(self.context())
+            .context(&CL_PLATFORM.cl_context)
             .copy_host_slice(data)
             .build()
     }
 
     /// Create a new [`Buffer`].
-    pub fn create_buffer<T: CType>(&self, size: usize) -> Result<Buffer<T>, ocl::Error> {
+    pub fn create_buffer<T: CType>(size: usize) -> Result<Buffer<T>, ocl::Error> {
         ocl::builders::BufferBuilder::new()
             .len(size)
-            .context(self.context())
+            .context(&CL_PLATFORM.cl_context)
             .build()
     }
 
@@ -181,8 +176,9 @@ impl OpenCL {
         left: Option<&Queue>,
         right: Option<&Queue>,
     ) -> Result<Queue, ocl::Error> {
-        let device_type = self.platform.select_device_type(size_hint);
+        let device_type = CL_PLATFORM.select_device_type(size_hint);
 
+        // TODO: is this slow?
         if let Some(queue) = left {
             if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
                 if dt == device_type {
@@ -191,6 +187,7 @@ impl OpenCL {
             }
         }
 
+        // TODO: is this slow?
         if let Some(queue) = right {
             if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
                 if dt == device_type {
@@ -199,8 +196,7 @@ impl OpenCL {
             }
         }
 
-        let device = self
-            .platform
+        let device = CL_PLATFORM
             .select_device(device_type)
             .expect("OpenCL device");
 

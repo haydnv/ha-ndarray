@@ -1,14 +1,16 @@
 use std::ops::Add;
 
 use rayon::join;
+use rayon::prelude::*;
 use smallvec::SmallVec;
 
 use crate::{CType, Enqueue, Error, Op, PlatformInstance, ReadBuf};
 
-const VEC_MIN_SIZE: usize = 64;
+pub const VEC_MIN_SIZE: usize = 64;
 
-pub type StackBuf<T> = SmallVec<[T; VEC_MIN_SIZE]>;
+pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Stack;
 
 impl PlatformInstance for Stack {
@@ -17,6 +19,29 @@ impl PlatformInstance for Stack {
     }
 }
 
+trait StackBuf<T: CType> {
+    type Iter: Iterator<Item = T>;
+
+    fn read(self) -> Self::Iter;
+}
+
+impl<T: CType> StackBuf<T> for StackVec<T> {
+    type Iter = <StackVec<T> as IntoIterator>::IntoIter;
+
+    fn read(self) -> Self::Iter {
+        self.into_iter()
+    }
+}
+
+impl<'a, T: CType> StackBuf<T> for &'a [T] {
+    type Iter = std::iter::Copied<<&'a [T] as IntoIterator>::IntoIter>;
+
+    fn read(self) -> Self::Iter {
+        self.into_iter().copied()
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Heap;
 
 impl PlatformInstance for Heap {
@@ -25,6 +50,29 @@ impl PlatformInstance for Heap {
     }
 }
 
+trait HeapBuf<T: CType> {
+    type Iter: IndexedParallelIterator<Item = T>;
+
+    fn read(self) -> Self::Iter;
+}
+
+impl<T: CType> HeapBuf<T> for Vec<T> {
+    type Iter = <Vec<T> as IntoParallelIterator>::Iter;
+
+    fn read(self) -> Self::Iter {
+        self.into_par_iter()
+    }
+}
+
+impl<'a, T: CType> HeapBuf<T> for &'a [T] {
+    type Iter = rayon::iter::Copied<<&'a [T] as IntoParallelIterator>::Iter>;
+
+    fn read(self) -> Self::Iter {
+        self.into_par_iter().copied()
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Host {
     Stack(Stack),
     Heap(Heap),
@@ -48,8 +96,6 @@ pub struct Dual<L, R, T> {
 
 impl<L, R, T> Op for Dual<L, R, T>
 where
-    L: Send + Sync,
-    R: Send + Sync,
     T: CType,
 {
     type DType = T;
@@ -67,18 +113,20 @@ impl<L, R, T: CType> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: ReadBuf<StackBuf<T>>,
-    R: ReadBuf<StackBuf<T>>,
+    L: ReadBuf + Send + Sync,
+    R: ReadBuf + Send + Sync,
     T: CType,
+    L::Buffer: StackBuf<T> + Send + Sync,
+    R::Buffer: StackBuf<T> + Send + Sync,
 {
-    type Buffer = StackBuf<T>;
+    type Buffer = Vec<T>;
 
-    fn enqueue(self, _platform: &Stack) -> Result<Self::Buffer, Error> {
+    fn enqueue(self, _platform: Stack) -> Result<Self::Buffer, Error> {
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .into_iter()
-            .zip(right?.into_iter())
+            .read()
+            .zip(right?.read())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -88,13 +136,23 @@ where
 
 impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: ReadBuf<Vec<T>>,
-    R: ReadBuf<Vec<T>>,
+    L: ReadBuf + Send + Sync,
+    R: ReadBuf + Send + Sync,
     T: CType,
+    L::Buffer: HeapBuf<T> + Send + Sync,
+    R::Buffer: HeapBuf<T> + Send + Sync,
 {
-    type Buffer = StackBuf<T>;
+    type Buffer = Vec<T>;
 
-    fn enqueue(self, platform: &Heap) -> Result<Self::Buffer, Error> {
-        todo!()
+    fn enqueue(self, _platform: Heap) -> Result<Self::Buffer, Error> {
+        let (left, right) = join(|| self.left.read(), || self.right.read());
+
+        let buf = left?
+            .read()
+            .zip(right?.read())
+            .map(|(l, r)| (self.zip)(l, r))
+            .collect();
+
+        Ok(buf)
     }
 }
