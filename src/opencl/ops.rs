@@ -6,7 +6,7 @@ use ocl::{Buffer, Kernel};
 use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
 
 use super::kernels;
-use super::platform::{CLBuf, OpenCL};
+use super::platform::OpenCL;
 
 pub struct Dual<L, R, T> {
     left: L,
@@ -38,8 +38,8 @@ where
     L: ReadBuf<T> + Send + Sync,
     R: ReadBuf<T> + Send + Sync,
     T: CType,
-    L::Buffer: CLBuf<T>,
-    R::Buffer: CLBuf<T>,
+    L::Buffer: Borrow<Buffer<T>>,
+    R::Buffer: Borrow<Buffer<T>>,
 {
     type Buffer = Buffer<T>;
 

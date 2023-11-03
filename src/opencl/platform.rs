@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
@@ -148,8 +147,6 @@ impl PlatformInstance for OpenCL {
         Self
     }
 }
-
-pub trait CLBuf<T: CType>: Borrow<Buffer<T>> {}
 
 impl OpenCL {
     /// Borrow the OpenCL [`Context`] of this platform.

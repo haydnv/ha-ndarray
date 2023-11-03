@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::ops::Add;
 
 use rayon::join;
@@ -5,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::{CType, Enqueue, Error, Op, ReadBuf};
 
-use super::platform::{Heap, HeapBuf, Stack, StackBuf};
+use super::platform::{Heap, Stack};
 
 pub struct Dual<L, R, T> {
     left: L,
@@ -35,8 +36,8 @@ where
     L: ReadBuf<T> + Send + Sync,
     R: ReadBuf<T> + Send + Sync,
     T: CType,
-    L::Buffer: StackBuf<T> + Send + Sync,
-    R::Buffer: StackBuf<T> + Send + Sync,
+    L::Buffer: Borrow<[T]> + Send + Sync,
+    R::Buffer: Borrow<[T]> + Send + Sync,
 {
     type Buffer = Vec<T>;
 
@@ -44,8 +45,10 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .read()
-            .zip(right?.read())
+            .borrow()
+            .iter()
+            .copied()
+            .zip(right?.borrow().iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -58,8 +61,8 @@ where
     L: ReadBuf<T> + Send + Sync,
     R: ReadBuf<T> + Send + Sync,
     T: CType,
-    L::Buffer: HeapBuf<T> + Send + Sync,
-    R::Buffer: HeapBuf<T> + Send + Sync,
+    L::Buffer: Borrow<[T]> + Send + Sync,
+    R::Buffer: Borrow<[T]> + Send + Sync,
 {
     type Buffer = Vec<T>;
 
@@ -67,8 +70,10 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .read()
-            .zip(right?.read())
+            .borrow()
+            .into_par_iter()
+            .copied()
+            .zip(right?.borrow().into_par_iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
