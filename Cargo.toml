@@ -1,6 +1,6 @@
 [package]
 name = "ha-ndarray"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["code@tinychain.net"]
 description = "A hardware-accelerated n-dimensional array"
@@ -23,10 +23,10 @@ pkg-config = "0.3"
 async-trait = { version = "0.1", optional = true }
 destream = { version = "0.7", optional = true }
 futures = { version = "0.3", optional = true }
-freqfs = { version = "~0.8.2", optional = true }
+freqfs = { version = "0.9", optional = true }
 get-size = "0.1"
 num_cpus = "1.15"
 ocl = { version = "0.19", optional = true }
 rand = "0.8"
-rayon = "1.7"
+rayon = "1.8"
 transpose = "0.2"
