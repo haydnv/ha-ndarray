@@ -15,7 +15,9 @@ mod opencl;
 mod ops;
 
 #[cfg(feature = "opencl")]
-pub trait CType: ocl::OclPrm + Add<Output = Self> + Eq + Copy + Send + Sync {
+pub trait CType:
+    ocl::OclPrm + Add<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug
+{
     const TYPE: &'static str;
 
     const ZERO: Self;
@@ -24,7 +26,7 @@ pub trait CType: ocl::OclPrm + Add<Output = Self> + Eq + Copy + Send + Sync {
 }
 
 #[cfg(not(feature = "opencl"))]
-pub trait CType: Add<Output = Self> + Eq + Copy + Send + Sync {
+pub trait CType: Add<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug {
     const TYPE: &'static str;
 
     const ZERO: Self;
@@ -195,6 +197,10 @@ impl<T, A, P> Array<T, A, P> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
     }
+
+    pub fn into_inner(self) -> A {
+        self.access
+    }
 }
 
 impl<T, B, P> Array<T, AccessBuffer<B>, P>
@@ -237,7 +243,7 @@ where
 }
 
 impl<T, L, P> Array<T, L, P> {
-    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
+    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Output, P>, P>, Error>
     where
         P: ElementwiseCompare<L, R, T>,
     {
@@ -267,5 +273,16 @@ impl<T, L, P> Array<T, L, P> {
         } else {
             todo!("broadcast")
         }
+    }
+}
+
+impl<T, A, P> Array<T, A, P>
+where
+    T: CType,
+    A: ReadBuf<T>,
+    P: Reduce<A, T>,
+{
+    pub fn all(self) -> Result<bool, Error> {
+        self.platform.all(self.access)
     }
 }

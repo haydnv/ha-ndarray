@@ -28,7 +28,7 @@ where
     L: ReadBuf<T>,
     R: ReadBuf<T>,
 {
-    type Output = ops::Compare<L, R, u8>;
+    type Output = ops::Compare<L, R, T>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
         ops::Compare::eq(self, left, right).map(AccessOp::from)
@@ -50,10 +50,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use ocl::Buffer;
     use smallvec::smallvec;
 
     use super::*;
 
+    use crate::access::AccessBuffer;
     use crate::{Array, Error};
 
     #[test]
@@ -71,6 +73,8 @@ mod tests {
 
         let actual = left.add(right)?;
         let eq = Array::eq(actual, expected)?;
+
+        assert!(eq.all()?);
 
         Ok(())
     }

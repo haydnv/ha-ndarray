@@ -9,7 +9,7 @@ pub fn compare<T: CType>(op: &'static str, context: &Context) -> Result<Program,
             return left == right;
         }}
 
-        __kernel void dual(
+        __kernel void compare(
             __global const {c_type}* restrict left,
             __global const {c_type}* restrict right,
             __global uchar* restrict output)

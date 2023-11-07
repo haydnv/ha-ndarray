@@ -44,7 +44,7 @@ impl<O, P> From<O> for AccessOp<O, P> {
     }
 }
 
-impl<T, O, P> ReadBuf<T> for AccessOp<O, P>
+impl<O, P, T> ReadBuf<T> for AccessOp<O, P>
 where
     T: CType,
     O: Enqueue<P, DType = T>,

@@ -12,3 +12,7 @@ pub trait ElementwiseDual<L, R, T>: PlatformInstance {
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
 }
+
+pub trait Reduce<A, T>: PlatformInstance {
+    fn all(self, access: A) -> Result<bool, Error>;
+}

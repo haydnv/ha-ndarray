@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel, Program};
 
+use crate::ops::Reduce;
 use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
 
 use super::kernels;
@@ -14,6 +15,15 @@ pub struct Compare<L, R, T> {
     platform: OpenCL,
     program: Program,
     dtype: PhantomData<T>,
+}
+
+impl<L, R, T> Op for Compare<L, R, T>
+where
+    L: Send + Sync,
+    R: Send + Sync,
+    T: CType,
+{
+    type DType = u8;
 }
 
 impl<'a, L, R, T> Op for &'a Compare<L, R, T>
@@ -36,6 +46,49 @@ impl<L, R, T: CType> Compare<L, R, T> {
             program,
             dtype: PhantomData,
         })
+    }
+}
+
+impl<L, R, T> Enqueue<OpenCL> for Compare<L, R, T>
+where
+    L: ReadBuf<T> + Send + Sync,
+    R: ReadBuf<T> + Send + Sync,
+    T: CType,
+    <L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
+    <R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
+{
+    type Buffer = Buffer<u8>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        let left = self.left.read()?;
+        let right = self.right.read()?;
+        debug_assert_eq!(left.size(), right.size());
+
+        let left = left.borrow();
+        let right = right.borrow();
+
+        let queue = self
+            .platform
+            .queue(left.len(), left.default_queue(), right.default_queue())?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(left.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("compare")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(left.len())
+            .arg(left)
+            .arg(right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
     }
 }
 
@@ -209,5 +262,46 @@ where
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+impl<A, T> Reduce<A, T> for OpenCL
+where
+    A: ReadBuf<T>,
+    T: CType,
+    <A as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        let buffer = access.read()?;
+        let buffer = buffer.borrow();
+
+        let result = [1];
+
+        let program = kernels::reduce::all::<T>(self.context())?;
+
+        let flag = unsafe {
+            Buffer::builder()
+                .context(self.context())
+                .use_host_slice(&result)
+                .len(1)
+                .build()?
+        };
+
+        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+
+        let kernel = Kernel::builder()
+            .name("all")
+            .program(&program)
+            .queue(queue.clone())
+            .global_work_size(buffer.len())
+            .arg(&flag)
+            .arg(buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        queue.finish()?;
+
+        Ok(result == [1])
     }
 }
