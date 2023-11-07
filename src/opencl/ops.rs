@@ -19,20 +19,30 @@ pub struct Compare<L, R, T> {
 
 impl<L, R, T> Op for Compare<L, R, T>
 where
-    L: Send + Sync,
-    R: Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
 {
     type DType = u8;
+
+    fn size(&self) -> usize {
+        self.left.size()
+    }
 }
 
 impl<'a, L, R, T> Op for &'a Compare<L, R, T>
 where
     L: Send + Sync,
     R: Send + Sync,
+    &'a L: ReadBuf<T>,
+    &'a R: ReadBuf<T>,
     T: CType,
 {
     type DType = u8;
+
+    fn size(&self) -> usize {
+        ReadBuf::size(&&self.left)
+    }
 }
 
 impl<L, R, T: CType> Compare<L, R, T> {
@@ -51,8 +61,8 @@ impl<L, R, T: CType> Compare<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Compare<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     <L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
     <R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
@@ -96,8 +106,8 @@ impl<'a, L, R, T> Enqueue<OpenCL> for &'a Compare<L, R, T>
 where
     L: Send + Sync,
     R: Send + Sync,
-    &'a L: ReadBuf<T> + Send + Sync,
-    &'a R: ReadBuf<T> + Send + Sync,
+    &'a L: ReadBuf<T>,
+    &'a R: ReadBuf<T>,
     T: CType,
     <&'a L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
     <&'a R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
@@ -147,20 +157,30 @@ pub struct Dual<L, R, T> {
 
 impl<L, R, T> Op for Dual<L, R, T>
 where
-    L: Send + Sync,
-    R: Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
 {
     type DType = T;
+
+    fn size(&self) -> usize {
+        self.left.size()
+    }
 }
 
 impl<'a, L, R, T> Op for &'a Dual<L, R, T>
 where
     L: Send + Sync,
     R: Send + Sync,
+    &'a L: ReadBuf<T>,
+    &'a R: ReadBuf<T>,
     T: CType,
 {
     type DType = T;
+
+    fn size(&self) -> usize {
+        ReadBuf::size(&&self.left)
+    }
 }
 
 impl<L, R, T: CType> Dual<L, R, T> {
@@ -191,8 +211,8 @@ impl<L, R, T: CType> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     <L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
     <R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
@@ -236,8 +256,8 @@ impl<'a, L, R, T> Enqueue<OpenCL> for &'a Dual<L, R, T>
 where
     L: Send + Sync,
     R: Send + Sync,
-    &'a L: ReadBuf<T> + Send + Sync,
-    &'a R: ReadBuf<T> + Send + Sync,
+    &'a L: ReadBuf<T>,
+    &'a R: ReadBuf<T>,
     T: CType,
     <&'a L as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,
     <&'a R as ReadBuf<T>>::Buffer: Borrow<Buffer<T>>,

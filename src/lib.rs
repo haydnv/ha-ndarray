@@ -118,7 +118,7 @@ pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
 enum Platform {
     #[cfg(feature = "opencl")]
     CL(opencl::OpenCL),
-    Host(host::Host),
+    Host(Host),
 }
 
 #[cfg(feature = "opencl")]
@@ -139,7 +139,7 @@ impl PlatformInstance for Platform {
     }
 }
 
-pub trait BufferInstance<T: CType>: Sized {
+pub trait BufferInstance<T: CType>: Send + Sync + Sized {
     fn size(&self) -> usize;
 }
 
@@ -177,14 +177,18 @@ impl<'a, T: CType> BufferInstance<T> for &'a ocl::Buffer<T> {
 
 pub type Shape = SmallVec<[usize; 8]>;
 
-pub trait ReadBuf<T: CType> {
+pub trait ReadBuf<T: CType>: Send + Sync {
     type Buffer: BufferInstance<T>;
 
     fn read(self) -> Result<Self::Buffer, Error>;
+
+    fn size(&self) -> usize;
 }
 
-pub trait Op: Sized {
+pub trait Op: Send + Sync + Sized {
     type DType: CType;
+
+    fn size(&self) -> usize;
 }
 
 pub trait Enqueue<P: PlatformInstance>: Op {

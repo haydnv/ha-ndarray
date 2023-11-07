@@ -4,7 +4,8 @@ use std::ops::{Add, Sub};
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::{CType, Enqueue, Error, Op, ReadBuf};
+use crate::host::Buffer;
+use crate::{CType, Enqueue, Error, Host, Op, ReadBuf};
 
 use super::platform::{Heap, Stack};
 
@@ -16,9 +17,15 @@ pub struct Compare<L, R, T> {
 
 impl<L, R, T> Op for Compare<L, R, T>
 where
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
 {
     type DType = u8;
+
+    fn size(&self) -> usize {
+        self.left.size()
+    }
 }
 
 impl<L, R, T: CType> Compare<L, R, T> {
@@ -33,8 +40,8 @@ impl<L, R, T: CType> Compare<L, R, T> {
 
 impl<L, R, T> Enqueue<Stack> for Compare<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -58,8 +65,8 @@ where
 
 impl<L, R, T> Enqueue<Heap> for Compare<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -89,9 +96,15 @@ pub struct Dual<L, R, T> {
 
 impl<L, R, T> Op for Dual<L, R, T>
 where
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
 {
     type DType = T;
+
+    fn size(&self) -> usize {
+        self.left.size()
+    }
 }
 
 impl<L, R, T: CType> Dual<L, R, T> {
@@ -114,8 +127,8 @@ impl<L, R, T: CType> Dual<L, R, T> {
 
 impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -139,8 +152,8 @@ where
 
 impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: ReadBuf<T> + Send + Sync,
-    R: ReadBuf<T> + Send + Sync,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -159,5 +172,19 @@ where
             .collect();
 
         Ok(buf)
+    }
+}
+
+impl<L, R, T> Enqueue<Host> for Dual<L, R, T>
+where
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
+    T: CType,
+    L::Buffer: Borrow<Buffer<T>>,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        todo!()
     }
 }

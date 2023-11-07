@@ -1,4 +1,4 @@
-use crate::PlatformInstance;
+use crate::{BufferInstance, CType, PlatformInstance, StackVec};
 
 pub const VEC_MIN_SIZE: usize = 64;
 
@@ -17,6 +17,20 @@ pub struct Heap;
 impl PlatformInstance for Heap {
     fn select(_size_hint: usize) -> Self {
         Self
+    }
+}
+
+pub enum Buffer<T> {
+    Heap(Vec<T>),
+    Stack(StackVec<T>),
+}
+
+impl<T: CType> BufferInstance<T> for Buffer<T> {
+    fn size(&self) -> usize {
+        match self {
+            Self::Heap(buf) => buf.size(),
+            Self::Stack(buf) => buf.size(),
+        }
     }
 }
 
