@@ -3,10 +3,9 @@ use lazy_static::lazy_static;
 use crate::host::VEC_MIN_SIZE;
 
 use crate::access::AccessOp;
-use crate::ops::ElementwiseDual;
+use crate::ops::{ElementwiseCompare, ElementwiseDual};
 use crate::{CType, Error, ReadBuf};
 
-use platform::CLPlatform;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
 mod kernels;
@@ -15,12 +14,25 @@ mod platform;
 
 #[cfg(feature = "opencl")]
 lazy_static! {
-    pub static ref CL_PLATFORM: CLPlatform = {
+    pub static ref CL_PLATFORM: platform::CLPlatform = {
         assert!(VEC_MIN_SIZE < GPU_MIN_SIZE);
         assert!(GPU_MIN_SIZE < ACC_MIN_SIZE);
 
-        CLPlatform::default().expect("OpenCL platform")
+        platform::CLPlatform::default().expect("OpenCL platform")
     };
+}
+
+impl<T, L, R> ElementwiseCompare<L, R, T> for OpenCL
+where
+    T: CType,
+    L: ReadBuf<T>,
+    R: ReadBuf<T>,
+{
+    type Output = ops::Compare<L, R, u8>;
+
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        ops::Compare::eq(self, left, right).map(AccessOp::from)
+    }
 }
 
 impl<T, L, R> ElementwiseDual<L, R, T> for OpenCL
@@ -42,19 +54,23 @@ mod tests {
 
     use super::*;
 
-    use crate::{Array, Error, Op, StackVec};
+    use crate::{Array, Error};
 
     #[test]
     fn test_add() -> Result<(), Error> {
-        let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let left: Array<_, _, OpenCL> = Array::new(buffer, smallvec![1, 2, 3])?;
+        let shape = smallvec![1, 2, 3];
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let right: Array<_, _, OpenCL> = Array::new(buffer, smallvec![1, 2, 3])?;
+        let left: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
 
-        let expected = OpenCL::create_buffer::<u64>(6)?;
+        let buffer = OpenCL::create_buffer::<u64>(6)?;
+        let right: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
+
+        let buffer = OpenCL::create_buffer::<u64>(6)?;
+        let expected = Array::new(buffer, shape.clone())?;
 
         let actual = left.add(right)?;
+        let eq = Array::eq(actual, expected)?;
 
         Ok(())
     }

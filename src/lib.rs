@@ -4,9 +4,9 @@ use std::ops::Add;
 
 use smallvec::SmallVec;
 
-use crate::ops::ElementwiseDual;
 use access::*;
 pub use host::{Host, StackVec};
+use ops::*;
 
 mod access;
 mod host;
@@ -15,7 +15,7 @@ mod opencl;
 mod ops;
 
 #[cfg(feature = "opencl")]
-pub trait CType: ocl::OclPrm + Add<Output = Self> + Copy + Send + Sync {
+pub trait CType: ocl::OclPrm + Add<Output = Self> + Eq + Copy + Send + Sync {
     const TYPE: &'static str;
 
     const ZERO: Self;
@@ -24,12 +24,20 @@ pub trait CType: ocl::OclPrm + Add<Output = Self> + Copy + Send + Sync {
 }
 
 #[cfg(not(feature = "opencl"))]
-pub trait CType: Add<Output = Self> + Copy + Send + Sync {
+pub trait CType: Add<Output = Self> + Eq + Copy + Send + Sync {
     const TYPE: &'static str;
 
     const ZERO: Self;
 
     const ONE: Self;
+}
+
+impl CType for u8 {
+    const TYPE: &'static str = "uchar";
+
+    const ZERO: Self = 0;
+
+    const ONE: Self = 1;
 }
 
 impl CType for i32 {
@@ -229,6 +237,22 @@ where
 }
 
 impl<T, L, P> Array<T, L, P> {
+    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
+    where
+        P: ElementwiseCompare<L, R, T>,
+    {
+        if self.shape == other.shape {
+            Ok(Array {
+                shape: self.shape,
+                access: self.platform.eq(self.access, other.access)?,
+                platform: self.platform,
+                dtype: PhantomData,
+            })
+        } else {
+            todo!("broadcast")
+        }
+    }
+
     pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
     where
         P: ElementwiseDual<L, R, T>,
