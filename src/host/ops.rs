@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 use rayon::join;
 use rayon::prelude::*;
@@ -100,6 +100,14 @@ impl<L, R, T: CType> Dual<L, R, T> {
             left,
             right,
             zip: Add::add,
+        }
+    }
+
+    pub fn sub(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: Sub::sub,
         }
     }
 }

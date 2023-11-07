@@ -31,6 +31,10 @@ pub fn dual<T: CType>(op: &'static str, context: &Context) -> Result<Program, Er
             return left + right;
         }}
 
+        inline {c_type} sub(const {c_type} left, const {c_type} right) {{
+            return left - right;
+        }}
+
         __kernel void dual(
             __global const {c_type}* restrict left,
             __global const {c_type}* restrict right,

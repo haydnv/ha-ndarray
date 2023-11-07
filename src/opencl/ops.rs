@@ -175,6 +175,18 @@ impl<L, R, T: CType> Dual<L, R, T> {
             dtype: PhantomData,
         })
     }
+
+    pub fn sub(platform: OpenCL, left: L, right: R) -> Result<Self, Error> {
+        let program = kernels::elementwise::dual::<T>("sub", platform.context())?;
+
+        Ok(Self {
+            left,
+            right,
+            platform,
+            program,
+            dtype: PhantomData,
+        })
+    }
 }
 
 impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
@@ -291,6 +303,40 @@ where
 
         let kernel = Kernel::builder()
             .name("all")
+            .program(&program)
+            .queue(queue.clone())
+            .global_work_size(buffer.len())
+            .arg(&flag)
+            .arg(buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        queue.finish()?;
+
+        Ok(result == [1])
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        let buffer = access.read()?;
+        let buffer = buffer.borrow();
+
+        let result = [0];
+
+        let program = kernels::reduce::any::<T>(self.context())?;
+
+        let flag = unsafe {
+            Buffer::builder()
+                .context(self.context())
+                .use_host_slice(&result)
+                .len(1)
+                .build()?
+        };
+
+        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+
+        let kernel = Kernel::builder()
+            .name("any")
             .program(&program)
             .queue(queue.clone())
             .global_work_size(buffer.len())

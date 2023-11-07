@@ -46,16 +46,18 @@ where
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
         ops::Dual::add(self, left, right).map(AccessOp::from)
     }
+
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        ops::Dual::sub(self, left, right).map(AccessOp::from)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use ocl::Buffer;
     use smallvec::smallvec;
 
     use super::*;
 
-    use crate::access::AccessBuffer;
     use crate::{Array, Error};
 
     #[test]
@@ -75,6 +77,20 @@ mod tests {
         let eq = Array::eq(actual, expected)?;
 
         assert!(eq.all()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sub() -> Result<(), Error> {
+        let shape = smallvec![1, 2, 3];
+
+        let buffer = OpenCL::copy_into_buffer(&[0, 1, 2, 3, 4, 5])?;
+        let array: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
+
+        let actual = array.as_ref().sub(array.as_ref())?;
+
+        assert!(!actual.any()?);
 
         Ok(())
     }

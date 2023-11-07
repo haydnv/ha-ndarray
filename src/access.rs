@@ -1,17 +1,19 @@
-use crate::{BufferInstance, CType, Enqueue, Error, PlatformInstance, ReadBuf};
+use std::borrow::Borrow;
 use std::marker::PhantomData;
+
+use crate::{BufferInstance, CType, Enqueue, Error, PlatformInstance, ReadBuf};
 
 pub struct AccessBuffer<B> {
     buffer: B,
 }
 
 impl<B> AccessBuffer<B> {
-    pub fn as_ref<RB>(&self) -> AccessBuffer<&RB>
+    pub fn as_ref<RB: ?Sized>(&self) -> AccessBuffer<&RB>
     where
-        B: AsRef<RB>,
+        B: Borrow<RB>,
     {
         AccessBuffer {
-            buffer: self.buffer.as_ref(),
+            buffer: self.buffer.borrow(),
         }
     }
 }

@@ -1,6 +1,7 @@
+use std::borrow::Borrow;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 use smallvec::SmallVec;
 
@@ -16,7 +17,15 @@ mod ops;
 
 #[cfg(feature = "opencl")]
 pub trait CType:
-    ocl::OclPrm + Add<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug
+    ocl::OclPrm
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Eq
+    + Copy
+    + Send
+    + Sync
+    + fmt::Display
+    + fmt::Debug
 {
     const TYPE: &'static str;
 
@@ -26,7 +35,9 @@ pub trait CType:
 }
 
 #[cfg(not(feature = "opencl"))]
-pub trait CType: Add<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug {
+pub trait CType:
+    Add<Output = Self> + Sub<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug
+{
     const TYPE: &'static str;
 
     const ZERO: Self;
@@ -229,9 +240,9 @@ where
         }
     }
 
-    pub fn as_ref<RB>(&self) -> Array<T, AccessBuffer<&RB>, P>
+    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuffer<&RB>, P>
     where
-        B: AsRef<RB>,
+        B: Borrow<RB>,
     {
         Array {
             shape: Shape::from_slice(&self.shape),
@@ -274,6 +285,22 @@ impl<T, L, P> Array<T, L, P> {
             todo!("broadcast")
         }
     }
+
+    pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
+    where
+        P: ElementwiseDual<L, R, T>,
+    {
+        if self.shape == other.shape {
+            Ok(Array {
+                shape: self.shape,
+                access: self.platform.sub(self.access, other.access)?,
+                platform: self.platform,
+                dtype: PhantomData,
+            })
+        } else {
+            todo!("broadcast")
+        }
+    }
 }
 
 impl<T, A, P> Array<T, A, P>
@@ -284,5 +311,9 @@ where
 {
     pub fn all(self) -> Result<bool, Error> {
         self.platform.all(self.access)
+    }
+
+    pub fn any(self) -> Result<bool, Error> {
+        self.platform.any(self.access)
     }
 }
