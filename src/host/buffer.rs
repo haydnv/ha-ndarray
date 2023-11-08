@@ -61,3 +61,98 @@ impl<T> From<Vec<T>> for Buffer<T> {
         Self::Heap(buf)
     }
 }
+
+#[derive(Clone)]
+/// A buffer in host memory, either borrowed or owned
+pub enum SliceConverter<'a, T> {
+    Heap(Vec<T>),
+    Stack(StackVec<T>),
+    Slice(&'a [T]),
+}
+
+impl<'a, T> SliceConverter<'a, T> {
+    /// Return the number of elements in this buffer.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Heap(vec) => vec.len(),
+            Self::Stack(vec) => vec.len(),
+            Self::Slice(slice) => slice.len(),
+        }
+    }
+}
+
+impl<'a, T: Copy> SliceConverter<'a, T> {
+    /// Return this buffer as an owned [`Vec`].
+    /// This will allocate a new [`Vec`] if this buffer is a [`StackVec`] or borrowed slice.
+    pub fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::Heap(vec) => vec,
+            Self::Stack(vec) => vec.into_vec(),
+            Self::Slice(slice) => slice.to_vec(),
+        }
+    }
+
+    /// Return this buffer as an owned [`StackVec`].
+    pub fn into_stackvec(self) -> StackVec<T> {
+        match self {
+            Self::Heap(vec) => vec.into(),
+            Self::Stack(vec) => vec,
+            Self::Slice(slice) => StackVec::from_slice(slice),
+        }
+    }
+
+    /// Return this buffer as an owned host [`Buffer`].
+    pub fn into_buffer(self) -> Buffer<T> {
+        match self {
+            Self::Heap(vec) => Buffer::Heap(vec),
+            Self::Stack(vec) => Buffer::Stack(vec),
+            Self::Slice(slice) => {
+                if slice.len() < VEC_MIN_SIZE {
+                    Buffer::Stack(StackVec::from_slice(slice))
+                } else {
+                    Buffer::Heap(slice.to_vec())
+                }
+            }
+        }
+    }
+}
+
+impl<T> From<StackVec<T>> for SliceConverter<'static, T> {
+    fn from(vec: StackVec<T>) -> Self {
+        Self::Stack(vec)
+    }
+}
+
+impl<T> From<Vec<T>> for SliceConverter<'static, T> {
+    fn from(vec: Vec<T>) -> Self {
+        Self::Heap(vec)
+    }
+}
+
+impl<'a, T> From<&'a [T]> for SliceConverter<'a, T> {
+    fn from(slice: &'a [T]) -> Self {
+        Self::Slice(slice)
+    }
+}
+
+impl<'a, T> From<&'a StackVec<T>> for SliceConverter<'a, T> {
+    fn from(slice: &'a StackVec<T>) -> Self {
+        Self::Slice(slice)
+    }
+}
+
+impl<'a, T> From<&'a Vec<T>> for SliceConverter<'a, T> {
+    fn from(slice: &'a Vec<T>) -> Self {
+        Self::Slice(slice)
+    }
+}
+
+impl<'a, T> AsRef<[T]> for SliceConverter<'a, T> {
+    fn as_ref(&self) -> &[T] {
+        match self {
+            Self::Heap(data) => data.as_slice(),
+            Self::Stack(data) => data.as_slice(),
+            Self::Slice(slice) => slice,
+        }
+    }
+}
