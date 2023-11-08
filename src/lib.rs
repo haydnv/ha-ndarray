@@ -6,7 +6,7 @@ use std::ops::{Add, Sub};
 use smallvec::SmallVec;
 
 use access::*;
-pub use buffer::{Buffer, BufferInstance};
+pub use buffer::{Buffer, BufferConverter, BufferInstance};
 pub use host::{Host, StackVec};
 use ops::*;
 
@@ -153,23 +153,9 @@ impl PlatformInstance for Platform {
 pub type Shape = SmallVec<[usize; 8]>;
 
 pub trait ReadBuf<'a, T: CType>: Send + Sync {
-    type Buffer: BufferInstance<T> + 'a;
-
-    fn read(self) -> Result<Self::Buffer, Error>;
+    fn read(self) -> Result<BufferConverter<'a, T>, Error>;
 
     fn size(&self) -> usize;
-}
-
-pub trait Op: Send + Sync + Sized {
-    type DType: CType;
-
-    fn size(&self) -> usize;
-}
-
-pub trait Enqueue<P: PlatformInstance>: Op {
-    type Buffer: BufferInstance<Self::DType>;
-
-    fn enqueue(self) -> Result<Self::Buffer, Error>;
 }
 
 pub struct Array<T, A, P> {

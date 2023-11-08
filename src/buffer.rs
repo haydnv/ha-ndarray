@@ -1,6 +1,6 @@
 #[cfg(feature = "opencl")]
 use crate::opencl;
-use crate::{host, CType, Error};
+use crate::{host, CType, Error, StackVec};
 
 pub trait BufferInstance<T: CType>: Send + Sync + Sized {
     fn size(&self) -> usize;
@@ -72,5 +72,37 @@ impl<'a, T: CType> BufferConverter<'a, T> {
             }
             Self::Host(buffer) => Ok(buffer),
         }
+    }
+}
+
+impl<T: CType> From<Vec<T>> for BufferConverter<'static, T> {
+    fn from(buf: Vec<T>) -> Self {
+        Self::Host(buf.into())
+    }
+}
+
+impl<T: CType> From<StackVec<T>> for BufferConverter<'static, T> {
+    fn from(buf: StackVec<T>) -> Self {
+        Self::Host(buf.into())
+    }
+}
+
+impl<'a, T: CType> From<&'a [T]> for BufferConverter<'a, T> {
+    fn from(buf: &'a [T]) -> Self {
+        Self::Host(buf.into())
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CType> From<ocl::Buffer<T>> for BufferConverter<'static, T> {
+    fn from(buf: ocl::Buffer<T>) -> Self {
+        Self::CL(buf.into())
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, T: CType> From<&'a ocl::Buffer<T>> for BufferConverter<'a, T> {
+    fn from(buf: &'a ocl::Buffer<T>) -> Self {
+        Self::CL(buf.into())
     }
 }

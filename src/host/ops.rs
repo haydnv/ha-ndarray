@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use crate::{CType, Enqueue, Error, Host, Op, ReadBuf};
 
 use super::platform::{Heap, Stack};
-use super::{Buffer, SliceConverter, VEC_MIN_SIZE};
+use super::{Buffer, VEC_MIN_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -42,20 +42,20 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Into<SliceConverter<'a, T>>,
-    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(|| self.left.read(), || self.right.read());
+        let (left, right) = join(
+            || self.left.read()?.to_slice(),
+            || self.right.read()?.to_slice(),
+        );
 
         let buf = left?
-            .into()
             .as_ref()
             .iter()
             .copied()
-            .zip(right?.into().as_ref().iter().copied())
+            .zip(right?.as_ref().iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -68,20 +68,20 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Into<SliceConverter<'a, T>>,
-    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(|| self.left.read(), || self.right.read());
+        let (left, right) = join(
+            || self.left.read()?.to_slice(),
+            || self.right.read()?.to_slice(),
+        );
 
         let buf = left?
-            .into()
             .as_ref()
             .into_par_iter()
             .copied()
-            .zip(right?.into().as_ref().into_par_iter().copied())
+            .zip(right?.as_ref().into_par_iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -131,20 +131,20 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Into<SliceConverter<'a, T>>,
-    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(|| self.left.read(), || self.right.read());
+        let (left, right) = join(
+            || self.left.read()?.to_slice(),
+            || self.right.read()?.to_slice(),
+        );
 
         let buf = left?
-            .into()
             .as_ref()
             .iter()
             .copied()
-            .zip(right?.into().as_ref().iter().copied())
+            .zip(right?.as_ref().iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -157,20 +157,20 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Into<SliceConverter<'a, T>>,
-    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(|| self.left.read(), || self.right.read());
+        let (left, right) = join(
+            || self.left.read()?.to_slice(),
+            || self.right.read()?.to_slice(),
+        );
 
         let buf = left?
-            .into()
             .as_ref()
             .into_par_iter()
             .copied()
-            .zip(right?.into().as_ref().into_par_iter().copied())
+            .zip(right?.as_ref().into_par_iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -183,8 +183,6 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Into<SliceConverter<'a, T>>,
-    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Buffer<T>;
 

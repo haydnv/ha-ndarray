@@ -3,10 +3,10 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Kernel, Program};
 
 use crate::ops::Reduce;
-use crate::{BufferInstance, CType, Enqueue, Error, Op, ReadBuf};
+use crate::{CType, Enqueue, Error, Op, ReadBuf};
 
+use super::kernels;
 use super::platform::OpenCL;
-use super::{kernels, CLConverter};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -63,14 +63,12 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    <L as ReadBuf<'a, T>>::Buffer: Into<CLConverter<'a, T>>,
-    <R as ReadBuf<'a, T>>::Buffer: Into<CLConverter<'a, T>>,
 {
     type Buffer = Buffer<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.into();
-        let right = self.right.read()?.into();
+        let left = self.left.read()?.to_cl()?;
+        let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
         let left = left.as_ref();
@@ -108,14 +106,12 @@ where
     &'a L: ReadBuf<'b, T>,
     &'a R: ReadBuf<'b, T>,
     T: CType,
-    <&'a L as ReadBuf<'b, T>>::Buffer: Into<CLConverter<'b, T>>,
-    <&'a R as ReadBuf<'b, T>>::Buffer: Into<CLConverter<'b, T>>,
 {
     type Buffer = Buffer<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.into();
-        let right = self.right.read()?.into();
+        let left = self.left.read()?.to_cl()?;
+        let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
         let left = left.as_ref();
@@ -213,14 +209,12 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    <L as ReadBuf<'a, T>>::Buffer: Into<CLConverter<'a, T>>,
-    <R as ReadBuf<'a, T>>::Buffer: Into<CLConverter<'a, T>>,
 {
     type Buffer = Buffer<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.into();
-        let right = self.right.read()?.into();
+        let left = self.left.read()?.to_cl()?;
+        let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
         let left = left.as_ref();
@@ -258,14 +252,12 @@ where
     &'a L: ReadBuf<'b, T>,
     &'a R: ReadBuf<'b, T>,
     T: CType,
-    <&'a L as ReadBuf<'b, T>>::Buffer: Into<CLConverter<'b, T>>,
-    <&'a R as ReadBuf<'b, T>>::Buffer: Into<CLConverter<'b, T>>,
 {
     type Buffer = Buffer<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.into();
-        let right = self.right.read()?.into();
+        let left = self.left.read()?.to_cl()?;
+        let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
         let left = left.as_ref();
@@ -300,10 +292,9 @@ impl<'a, A, T> Reduce<A, T> for OpenCL
 where
     A: ReadBuf<'a, T>,
     T: CType,
-    <A as ReadBuf<'a, T>>::Buffer: Into<CLConverter<'a, T>>,
 {
     fn all(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.into();
+        let buffer = access.read()?.to_cl()?;
         let buffer = buffer.as_ref();
 
         let result = [1];
@@ -337,7 +328,7 @@ where
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.into();
+        let buffer = access.read()?.to_cl()?;
         let buffer = buffer.as_ref();
 
         let result = [0];

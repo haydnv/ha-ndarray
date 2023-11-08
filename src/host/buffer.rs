@@ -135,18 +135,6 @@ impl<'a, T> From<&'a [T]> for SliceConverter<'a, T> {
     }
 }
 
-impl<'a, T> From<&'a StackVec<T>> for SliceConverter<'a, T> {
-    fn from(slice: &'a StackVec<T>) -> Self {
-        Self::Slice(slice)
-    }
-}
-
-impl<'a, T> From<&'a Vec<T>> for SliceConverter<'a, T> {
-    fn from(slice: &'a Vec<T>) -> Self {
-        Self::Slice(slice)
-    }
-}
-
 impl<'a, T> AsRef<[T]> for SliceConverter<'a, T> {
     fn as_ref(&self) -> &[T] {
         match self {

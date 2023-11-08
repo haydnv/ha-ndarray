@@ -1,7 +1,9 @@
 use std::borrow::Borrow;
 use std::marker::PhantomData;
 
-use crate::{BufferInstance, CType, Enqueue, Error, Op, PlatformInstance, ReadBuf};
+use crate::buffer::{BufferConverter, BufferInstance};
+use crate::ops::{Enqueue, Op};
+use crate::{CType, Error, PlatformInstance, ReadBuf};
 
 pub struct AccessBuffer<B> {
     buffer: B,
@@ -24,11 +26,13 @@ impl<B> From<B> for AccessBuffer<B> {
     }
 }
 
-impl<'a, T: CType, B: BufferInstance<T> + 'a> ReadBuf<'a, T> for AccessBuffer<B> {
-    type Buffer = B;
-
-    fn read(self) -> Result<B, Error> {
-        Ok(self.buffer)
+impl<'a, T, B> ReadBuf<'a, T> for AccessBuffer<B>
+where
+    T: CType,
+    B: BufferInstance<T> + Into<BufferConverter<'a, T>> + 'a,
+{
+    fn read(self) -> Result<BufferConverter<'a, T>, Error> {
+        Ok(self.buffer.into())
     }
 
     fn size(&self) -> usize {
@@ -56,11 +60,10 @@ where
     O: Enqueue<P, DType = T>,
     P: PlatformInstance,
     O::Buffer: 'a,
+    BufferConverter<'a, T>: From<O::Buffer>,
 {
-    type Buffer = O::Buffer;
-
-    fn read(self) -> Result<O::Buffer, Error> {
-        self.op.enqueue()
+    fn read(self) -> Result<BufferConverter<'a, T>, Error> {
+        self.op.enqueue().map(BufferConverter::from)
     }
 
     fn size(&self) -> usize {
@@ -75,11 +78,10 @@ where
     &'a O: Enqueue<P, DType = T>,
     P: PlatformInstance,
     <&'a O as Enqueue<P>>::Buffer: 'b,
+    BufferConverter<'b, T>: From<<&'a O as Enqueue<P>>::Buffer>,
 {
-    type Buffer = <&'a O as Enqueue<P>>::Buffer;
-
-    fn read(self) -> Result<<&'a O as Enqueue<P>>::Buffer, Error> {
-        self.op.enqueue()
+    fn read(self) -> Result<BufferConverter<'b, T>, Error> {
+        self.op.enqueue().map(BufferConverter::from)
     }
 
     fn size(&self) -> usize {
