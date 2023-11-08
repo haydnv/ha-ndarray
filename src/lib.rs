@@ -28,6 +28,7 @@ pub trait CType:
     + Sync
     + fmt::Display
     + fmt::Debug
+    + 'static
 {
     const TYPE: &'static str;
 
@@ -38,7 +39,15 @@ pub trait CType:
 
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
-    Add<Output = Self> + Sub<Output = Self> + Eq + Copy + Send + Sync + fmt::Display + fmt::Debug
+    Add<Output = Self>
+    + Sub<Output = Self>
+    + Eq
+    + Copy
+    + Send
+    + Sync
+    + fmt::Display
+    + fmt::Debug
+    + 'static
 {
     const TYPE: &'static str;
 

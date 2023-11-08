@@ -1,5 +1,5 @@
-use crate::opencl::OpenCL;
 use crate::{BufferInstance, CType, Error};
+use ocl::Buffer;
 
 impl<T: CType> BufferInstance<T> for ocl::Buffer<T> {
     fn size(&self) -> usize {
@@ -57,5 +57,17 @@ impl<'a, T: CType> AsRef<ocl::Buffer<T>> for CLConverter<'a, T> {
             Self::Owned(buffer) => &buffer,
             Self::Borrowed(buffer) => buffer,
         }
+    }
+}
+
+impl<T: CType> From<ocl::Buffer<T>> for CLConverter<'static, T> {
+    fn from(buf: Buffer<T>) -> Self {
+        Self::Owned(buf)
+    }
+}
+
+impl<'a, T: CType> From<&'a ocl::Buffer<T>> for CLConverter<'a, T> {
+    fn from(buf: &'a Buffer<T>) -> Self {
+        Self::Borrowed(buf)
     }
 }

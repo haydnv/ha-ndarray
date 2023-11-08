@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::ops::{Add, Sub};
 
 use rayon::join;
@@ -7,7 +6,7 @@ use rayon::prelude::*;
 use crate::{CType, Enqueue, Error, Host, Op, ReadBuf};
 
 use super::platform::{Heap, Stack};
-use super::{Buffer, VEC_MIN_SIZE};
+use super::{Buffer, SliceConverter, VEC_MIN_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -43,8 +42,8 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Borrow<[T]> + Send + Sync,
-    R::Buffer: Borrow<[T]> + Send + Sync,
+    L::Buffer: Into<SliceConverter<'a, T>>,
+    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<u8>;
 
@@ -52,10 +51,11 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .borrow()
+            .into()
+            .as_ref()
             .iter()
             .copied()
-            .zip(right?.borrow().iter().copied())
+            .zip(right?.into().as_ref().iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -68,8 +68,8 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Borrow<[T]> + Send + Sync,
-    R::Buffer: Borrow<[T]> + Send + Sync,
+    L::Buffer: Into<SliceConverter<'a, T>>,
+    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<u8>;
 
@@ -77,10 +77,11 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .borrow()
+            .into()
+            .as_ref()
             .into_par_iter()
             .copied()
-            .zip(right?.borrow().into_par_iter().copied())
+            .zip(right?.into().as_ref().into_par_iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -130,8 +131,8 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Borrow<[T]> + Send + Sync,
-    R::Buffer: Borrow<[T]> + Send + Sync,
+    L::Buffer: Into<SliceConverter<'a, T>>,
+    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<T>;
 
@@ -139,10 +140,11 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .borrow()
+            .into()
+            .as_ref()
             .iter()
             .copied()
-            .zip(right?.borrow().iter().copied())
+            .zip(right?.into().as_ref().iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -155,8 +157,8 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Borrow<[T]> + Send + Sync,
-    R::Buffer: Borrow<[T]> + Send + Sync,
+    L::Buffer: Into<SliceConverter<'a, T>>,
+    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Vec<T>;
 
@@ -164,10 +166,11 @@ where
         let (left, right) = join(|| self.left.read(), || self.right.read());
 
         let buf = left?
-            .borrow()
+            .into()
+            .as_ref()
             .into_par_iter()
             .copied()
-            .zip(right?.borrow().into_par_iter().copied())
+            .zip(right?.into().as_ref().into_par_iter().copied())
             .map(|(l, r)| (self.zip)(l, r))
             .collect();
 
@@ -180,8 +183,8 @@ where
     L: ReadBuf<'a, T>,
     R: ReadBuf<'a, T>,
     T: CType,
-    L::Buffer: Borrow<[T]> + Send + Sync,
-    R::Buffer: Borrow<[T]> + Send + Sync,
+    L::Buffer: Into<SliceConverter<'a, T>>,
+    R::Buffer: Into<SliceConverter<'a, T>>,
 {
     type Buffer = Buffer<T>;
 
