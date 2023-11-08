@@ -24,7 +24,7 @@ impl<B> From<B> for AccessBuffer<B> {
     }
 }
 
-impl<T: CType, B: BufferInstance<T>> ReadBuf<T> for AccessBuffer<B> {
+impl<'a, T: CType, B: BufferInstance<T> + 'a> ReadBuf<'a, T> for AccessBuffer<B> {
     type Buffer = B;
 
     fn read(self) -> Result<B, Error> {
@@ -50,11 +50,12 @@ impl<O, P> From<O> for AccessOp<O, P> {
     }
 }
 
-impl<O, P, T> ReadBuf<T> for AccessOp<O, P>
+impl<'a, O, P, T> ReadBuf<'a, T> for AccessOp<O, P>
 where
     T: CType,
     O: Enqueue<P, DType = T>,
     P: PlatformInstance,
+    O::Buffer: 'a,
 {
     type Buffer = O::Buffer;
 
@@ -67,12 +68,13 @@ where
     }
 }
 
-impl<'a, T, O, P> ReadBuf<T> for &'a AccessOp<O, P>
+impl<'a, 'b, T, O, P> ReadBuf<'b, T> for &'a AccessOp<O, P>
 where
     T: CType,
     O: Send + Sync,
     &'a O: Enqueue<P, DType = T>,
     P: PlatformInstance,
+    <&'a O as Enqueue<P>>::Buffer: 'b,
 {
     type Buffer = <&'a O as Enqueue<P>>::Buffer;
 

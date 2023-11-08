@@ -25,9 +25,9 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 #[derive(Clone)]
 /// A sequence of elements in a single contiguous block of memory
 pub enum BufferConverter<'a, T: CType> {
-    Host(host::SliceConverter<'a, T>),
     #[cfg(feature = "opencl")]
     CL(opencl::CLConverter<'a, T>),
+    Host(host::SliceConverter<'a, T>),
 }
 
 impl<'a, T: CType> BufferConverter<'a, T> {

@@ -23,11 +23,11 @@ lazy_static! {
     };
 }
 
-impl<T, L, R> ElementwiseCompare<L, R, T> for OpenCL
+impl<'a, T, L, R> ElementwiseCompare<L, R, T> for OpenCL
 where
     T: CType,
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
 {
     type Output = ops::Compare<L, R, T>;
 
@@ -36,11 +36,11 @@ where
     }
 }
 
-impl<T, L, R> ElementwiseDual<L, R, T> for OpenCL
+impl<'a, T, L, R> ElementwiseDual<L, R, T> for OpenCL
 where
     T: CType,
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
 {
     type Output = ops::Dual<L, R, T>;
 

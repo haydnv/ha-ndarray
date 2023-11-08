@@ -15,10 +15,10 @@ pub struct Compare<L, R, T> {
     zip: fn(T, T) -> u8,
 }
 
-impl<L, R, T> Op for Compare<L, R, T>
+impl<'a, L, R, T> Op for Compare<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
 {
     type DType = u8;
@@ -38,10 +38,10 @@ impl<L, R, T: CType> Compare<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<Stack> for Compare<L, R, T>
+impl<'a, L, R, T> Enqueue<Stack> for Compare<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -63,10 +63,10 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<Heap> for Compare<L, R, T>
+impl<'a, L, R, T> Enqueue<Heap> for Compare<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -94,10 +94,10 @@ pub struct Dual<L, R, T> {
     zip: fn(T, T) -> T,
 }
 
-impl<L, R, T> Op for Dual<L, R, T>
+impl<'a, L, R, T> Op for Dual<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
 {
     type DType = T;
@@ -125,10 +125,10 @@ impl<L, R, T: CType> Dual<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
+impl<'a, L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -150,10 +150,10 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
+impl<'a, L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,
@@ -175,10 +175,10 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<Host> for Dual<L, R, T>
+impl<'a, L, R, T> Enqueue<Host> for Dual<L, R, T>
 where
-    L: ReadBuf<T>,
-    R: ReadBuf<T>,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
     T: CType,
     L::Buffer: Borrow<[T]> + Send + Sync,
     R::Buffer: Borrow<[T]> + Send + Sync,

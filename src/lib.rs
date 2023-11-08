@@ -143,8 +143,8 @@ impl PlatformInstance for Platform {
 
 pub type Shape = SmallVec<[usize; 8]>;
 
-pub trait ReadBuf<T: CType>: Send + Sync {
-    type Buffer: BufferInstance<T>;
+pub trait ReadBuf<'a, T: CType>: Send + Sync {
+    type Buffer: BufferInstance<T> + 'a;
 
     fn read(self) -> Result<Self::Buffer, Error>;
 
@@ -273,10 +273,10 @@ impl<T, L, P> Array<T, L, P> {
     }
 }
 
-impl<T, A, P> Array<T, A, P>
+impl<'a, T, A, P> Array<T, A, P>
 where
     T: CType,
-    A: ReadBuf<T>,
+    A: ReadBuf<'a, T>,
     P: Reduce<A, T>,
 {
     pub fn all(self) -> Result<bool, Error> {
