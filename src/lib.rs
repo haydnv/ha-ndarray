@@ -1,16 +1,15 @@
-use std::borrow::Borrow;
 use std::fmt;
-use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use smallvec::SmallVec;
 
-use access::*;
+use crate::access::AccessBuffer;
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 pub use host::{Host, StackVec};
 use ops::*;
 
 mod access;
+mod array;
 mod buffer;
 mod host;
 #[cfg(feature = "opencl")]
@@ -125,8 +124,14 @@ pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
 }
 
+pub trait Convert<T: CType>: PlatformInstance {
+    type Buffer: BufferInstance<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum Platform {
+pub enum Platform {
     #[cfg(feature = "opencl")]
     CL(opencl::OpenCL),
     Host(Host),
@@ -195,133 +200,10 @@ where
 
 pub type Shape = SmallVec<[usize; 8]>;
 
+pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
+
 pub trait ReadBuf<'a, T: CType>: Send + Sync {
     fn read(self) -> Result<BufferConverter<'a, T>, Error>;
 
     fn size(&self) -> usize;
-}
-
-pub struct Array<T, A, P> {
-    shape: Shape,
-    access: A,
-    platform: P,
-    dtype: PhantomData<T>,
-}
-
-impl<T, A, P> Array<T, A, P> {
-    pub fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    pub fn size(&self) -> usize {
-        self.shape.iter().product()
-    }
-
-    pub fn into_inner(self) -> A {
-        self.access
-    }
-}
-
-impl<T, B, P> Array<T, AccessBuffer<B>, P>
-where
-    T: CType,
-    B: BufferInstance<T>,
-    P: PlatformInstance,
-{
-    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
-        if shape.iter().product::<usize>() == buffer.size() {
-            let platform = P::select(buffer.size());
-            // TODO: this should call a Platform::convert method
-            let access = buffer.into();
-
-            Ok(Self {
-                shape,
-                access,
-                platform,
-                dtype: PhantomData,
-            })
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot construct an array with shape {shape:?} from a buffer of size {}",
-                buffer.size()
-            )))
-        }
-    }
-
-    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuffer<&RB>, P>
-    where
-        B: Borrow<RB>,
-    {
-        Array {
-            shape: Shape::from_slice(&self.shape),
-            access: self.access.as_ref(),
-            platform: self.platform,
-            dtype: PhantomData,
-        }
-    }
-}
-
-impl<T, L, P> Array<T, L, P> {
-    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Output, P>, P>, Error>
-    where
-        P: ElementwiseCompare<L, R, T>,
-    {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.eq(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
-    }
-
-    pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
-    where
-        P: ElementwiseDual<L, R, T>,
-    {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.add(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
-    }
-
-    pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
-    where
-        P: ElementwiseDual<L, R, T>,
-    {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.sub(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
-    }
-}
-
-impl<'a, T, A, P> Array<T, A, P>
-where
-    T: CType,
-    A: ReadBuf<'a, T>,
-    P: Reduce<A, T>,
-{
-    pub fn all(self) -> Result<bool, Error> {
-        self.platform.all(self.access)
-    }
-
-    pub fn any(self) -> Result<bool, Error> {
-        self.platform.any(self.access)
-    }
 }

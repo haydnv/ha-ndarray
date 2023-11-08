@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Platform, Queue};
 
-use crate::{CType, Error, PlatformInstance};
+use crate::{BufferConverter, CType, Convert, Error, PlatformInstance};
 
 use super::CL_PLATFORM;
 
@@ -202,5 +202,14 @@ impl OpenCL {
             .expect("OpenCL device");
 
         Queue::new(self.context(), device, None)
+    }
+}
+
+impl<T: CType> Convert<T> for OpenCL {
+    type Buffer = Buffer<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        let buffer = buffer.to_cl()?;
+        buffer.into_buffer()
     }
 }

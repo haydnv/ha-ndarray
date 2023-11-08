@@ -55,7 +55,7 @@ impl<'a, T: CType> BufferConverter<'a, T> {
     }
 
     /// Return the number of elements in this [`Buffer`].
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => buffer.size(),

@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
 
+use crate::access::{AccessBuffer, AccessOp};
 use crate::host::VEC_MIN_SIZE;
-
-use crate::access::AccessOp;
 use crate::ops::{ElementwiseCompare, ElementwiseDual};
 use crate::{CType, Error, ReadBuf};
 
@@ -22,6 +21,8 @@ lazy_static! {
         platform::CLPlatform::default().expect("OpenCL platform")
     };
 }
+
+pub type Array<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>;
 
 impl<'a, T, L, R> ElementwiseCompare<L, R, T> for OpenCL
 where
@@ -59,23 +60,23 @@ mod tests {
 
     use super::*;
 
-    use crate::{Array, Error};
+    use crate::Error;
 
     #[test]
     fn test_add() -> Result<(), Error> {
         let shape = smallvec![1, 2, 3];
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let left: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
+        let left = Array::new(buffer, shape.clone())?;
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
-        let right: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
+        let right = Array::new(buffer, shape.clone())?;
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
         let expected = Array::new(buffer, shape.clone())?;
 
         let actual = left.add(right)?;
-        let eq = Array::eq(actual, expected)?;
+        let eq = actual.eq(expected)?;
 
         assert!(eq.all()?);
 
@@ -87,7 +88,7 @@ mod tests {
         let shape = smallvec![1, 2, 3];
 
         let buffer = OpenCL::copy_into_buffer(&[0, 1, 2, 3, 4, 5])?;
-        let array: Array<_, _, OpenCL> = Array::new(buffer, shape.clone())?;
+        let array = Array::new(buffer, shape.clone())?;
 
         let actual = array.as_ref().sub(array.as_ref())?;
 
