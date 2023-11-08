@@ -3,15 +3,16 @@ use std::ops::{Add, Sub};
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::{CType, Enqueue, Error, Host, Op, ReadBuf};
+use crate::{BufferConverter, CType, Enqueue, Error, Host, Op, ReadBuf, StackVec};
 
+use super::buffer::Buffer;
 use super::platform::{Heap, Stack};
-use super::{Buffer, VEC_MIN_SIZE};
+use super::VEC_MIN_SIZE;
 
 pub struct Compare<L, R, T> {
     left: L,
     right: R,
-    zip: fn(T, T) -> u8,
+    cmp: fn(T, T) -> u8,
 }
 
 impl<'a, L, R, T> Op for Compare<L, R, T>
@@ -32,7 +33,7 @@ impl<L, R, T: CType> Compare<L, R, T> {
         Self {
             left,
             right,
-            zip: |l, r| if l == r { 1 } else { 0 },
+            cmp: |l, r| if l == r { 1 } else { 0 },
         }
     }
 }
@@ -43,23 +44,11 @@ where
     R: ReadBuf<'a, T>,
     T: CType,
 {
-    type Buffer = Vec<u8>;
+    type Buffer = StackVec<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(
-            || self.left.read()?.to_slice(),
-            || self.right.read()?.to_slice(),
-        );
-
-        let buf = left?
-            .as_ref()
-            .iter()
-            .copied()
-            .zip(right?.as_ref().iter().copied())
-            .map(|(l, r)| (self.zip)(l, r))
-            .collect();
-
-        Ok(buf)
+        let (left, right) = try_join(self.left, self.right)?;
+        exec_dual(self.cmp, left, right)
     }
 }
 
@@ -72,20 +61,25 @@ where
     type Buffer = Vec<u8>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(
-            || self.left.read()?.to_slice(),
-            || self.right.read()?.to_slice(),
-        );
+        let (left, right) = try_join(self.left, self.right)?;
+        exec_dual_parallel(self.cmp, left, right)
+    }
+}
 
-        let buf = left?
-            .as_ref()
-            .into_par_iter()
-            .copied()
-            .zip(right?.as_ref().into_par_iter().copied())
-            .map(|(l, r)| (self.zip)(l, r))
-            .collect();
+impl<'a, L, R, T> Enqueue<Host> for Compare<L, R, T>
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = Buffer<u8>;
 
-        Ok(buf)
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
+        }
     }
 }
 
@@ -132,23 +126,11 @@ where
     R: ReadBuf<'a, T>,
     T: CType,
 {
-    type Buffer = Vec<T>;
+    type Buffer = StackVec<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(
-            || self.left.read()?.to_slice(),
-            || self.right.read()?.to_slice(),
-        );
-
-        let buf = left?
-            .as_ref()
-            .iter()
-            .copied()
-            .zip(right?.as_ref().iter().copied())
-            .map(|(l, r)| (self.zip)(l, r))
-            .collect();
-
-        Ok(buf)
+        let (left, right) = try_join(self.left, self.right)?;
+        exec_dual(self.zip, left, right)
     }
 }
 
@@ -161,20 +143,8 @@ where
     type Buffer = Vec<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = join(
-            || self.left.read()?.to_slice(),
-            || self.right.read()?.to_slice(),
-        );
-
-        let buf = left?
-            .as_ref()
-            .into_par_iter()
-            .copied()
-            .zip(right?.as_ref().into_par_iter().copied())
-            .map(|(l, r)| (self.zip)(l, r))
-            .collect();
-
-        Ok(buf)
+        let (left, right) = try_join(self.left, self.right)?;
+        exec_dual_parallel(self.zip, left, right)
     }
 }
 
@@ -193,4 +163,65 @@ where
             Enqueue::<Heap>::enqueue(self).map(Buffer::from)
         }
     }
+}
+
+fn exec_dual<IT, OT>(
+    zip: fn(IT, IT) -> OT,
+    left: BufferConverter<IT>,
+    right: BufferConverter<IT>,
+) -> Result<StackVec<OT>, Error>
+where
+    IT: CType,
+    OT: CType,
+{
+    let left = left.to_slice()?;
+    let right = right.to_slice()?;
+
+    let output = left
+        .as_ref()
+        .into_iter()
+        .copied()
+        .zip(right.as_ref().into_iter().copied())
+        .map(|(l, r)| (zip)(l, r))
+        .collect();
+
+    Ok(output)
+}
+
+fn exec_dual_parallel<IT, OT>(
+    zip: fn(IT, IT) -> OT,
+    left: BufferConverter<IT>,
+    right: BufferConverter<IT>,
+) -> Result<Vec<OT>, Error>
+where
+    IT: CType,
+    OT: CType,
+{
+    let left = left.to_slice()?;
+    let right = right.to_slice()?;
+
+    let output = left
+        .as_ref()
+        .into_par_iter()
+        .copied()
+        .zip(right.as_ref().into_par_iter().copied())
+        .map(|(l, r)| (zip)(l, r))
+        .collect();
+
+    Ok(output)
+}
+
+#[inline]
+fn try_join<'a, L, R, T>(
+    left: L,
+    right: R,
+) -> Result<(BufferConverter<'a, T>, BufferConverter<'a, T>), Error>
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    let (l, r) = join(|| left.read(), || right.read());
+
+    Ok((l?, r?))
 }

@@ -22,6 +22,20 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         }
     }
 }
+
+#[cfg(feature = "opencl")]
+impl<T: CType> From<ocl::Buffer<T>> for Buffer<T> {
+    fn from(buf: ocl::Buffer<T>) -> Self {
+        Self::CL(buf)
+    }
+}
+
+impl<T: CType> From<host::Buffer<T>> for Buffer<T> {
+    fn from(buf: host::Buffer<T>) -> Self {
+        Self::Host(buf)
+    }
+}
+
 #[derive(Clone)]
 /// A sequence of elements in a single contiguous block of memory
 pub enum BufferConverter<'a, T: CType> {

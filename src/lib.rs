@@ -150,6 +150,49 @@ impl PlatformInstance for Platform {
     }
 }
 
+#[cfg(not(feature = "opencl"))]
+impl<'a, A, T> Reduce<A, T> for Platform
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+    Host: Reduce<A, T>,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        match Self::select(access.size()) {
+            Self::Host(host) => host.all(access),
+        }
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        match Self::select(access.size()) {
+            Self::Host(host) => host.all(access),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, A, T> Reduce<A, T> for Platform
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+    Host: Reduce<A, T>,
+    opencl::OpenCL: Reduce<A, T>,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        match Self::select(access.size()) {
+            Self::CL(cl) => cl.all(access),
+            Self::Host(host) => host.all(access),
+        }
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        match Self::select(access.size()) {
+            Self::CL(cl) => cl.all(access),
+            Self::Host(host) => host.all(access),
+        }
+    }
+}
+
 pub type Shape = SmallVec<[usize; 8]>;
 
 pub trait ReadBuf<'a, T: CType>: Send + Sync {

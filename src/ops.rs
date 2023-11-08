@@ -36,38 +36,55 @@ pub trait Reduce<A, T>: PlatformInstance {
     fn any(self, access: A) -> Result<bool, Error>;
 }
 
+pub enum Compare<L, R, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Compare<L, R, T>),
+    Host(host::ops::Compare<L, R, T>),
+}
+
 pub enum Dual<L, R, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::Dual<L, R, T>),
     Host(host::ops::Dual<L, R, T>),
 }
 
-impl<'a, L, R, T> Op for Dual<L, R, T>
-where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
-    T: CType,
-{
-    type DType = T;
+macro_rules! impl_dual {
+    ($op:ty, $t:ty) => {
+        impl<'a, L, R, T> Op for $op
+        where
+            L: ReadBuf<'a, T>,
+            R: ReadBuf<'a, T>,
+            T: CType,
+        {
+            type DType = $t;
 
-    fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
+            fn size(&self) -> usize {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.size(),
+                    Self::Host(op) => op.size(),
+                }
+            }
         }
-    }
+
+        impl<'a, L, R, T> Enqueue<Platform> for $op
+        where
+            L: ReadBuf<'a, T>,
+            R: ReadBuf<'a, T>,
+            T: CType,
+        {
+            type Buffer = Buffer<$t>;
+
+            fn enqueue(self) -> Result<Self::Buffer, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::from),
+                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::from),
+                }
+            }
+        }
+    };
 }
 
-impl<'a, L, R, T> Enqueue<Platform> for Dual<L, R, T>
-where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
-    T: CType,
-{
-    type Buffer = Buffer<T>;
-
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
-        todo!()
-    }
-}
+impl_dual!(Compare<L, R, T>, u8);
+impl_dual!(Dual<L, R, T>, T);
