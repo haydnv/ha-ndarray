@@ -6,13 +6,14 @@ use crate::access::AccessOp;
 use crate::ops::{ElementwiseCompare, ElementwiseDual};
 use crate::{CType, Error, ReadBuf};
 
+pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
+mod buffer;
 mod kernels;
-mod ops;
+pub mod ops;
 mod platform;
 
-#[cfg(feature = "opencl")]
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {
         assert!(VEC_MIN_SIZE < GPU_MIN_SIZE);

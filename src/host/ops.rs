@@ -4,10 +4,10 @@ use std::ops::{Add, Sub};
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::host::Buffer;
 use crate::{CType, Enqueue, Error, Host, Op, ReadBuf};
 
 use super::platform::{Heap, Stack};
+use super::{Buffer, VEC_MIN_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -180,11 +180,16 @@ where
     L: ReadBuf<T>,
     R: ReadBuf<T>,
     T: CType,
-    L::Buffer: Borrow<Buffer<T>>,
+    L::Buffer: Borrow<[T]> + Send + Sync,
+    R::Buffer: Borrow<[T]> + Send + Sync,
 {
     type Buffer = Buffer<T>;
 
     fn enqueue(self) -> Result<Self::Buffer, Error> {
-        todo!()
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::from)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::from)
+        }
     }
 }

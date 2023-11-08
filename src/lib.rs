@@ -6,10 +6,12 @@ use std::ops::{Add, Sub};
 use smallvec::SmallVec;
 
 use access::*;
+pub use buffer::{Buffer, BufferInstance};
 pub use host::{Host, StackVec};
 use ops::*;
 
 mod access;
+mod buffer;
 mod host;
 #[cfg(feature = "opencl")]
 mod opencl;
@@ -136,42 +138,6 @@ impl PlatformInstance for Platform {
 impl PlatformInstance for Platform {
     fn select(size_hint: usize) -> Self {
         Self::Host(Host::select(size_hint))
-    }
-}
-
-pub trait BufferInstance<T: CType>: Send + Sync + Sized {
-    fn size(&self) -> usize;
-}
-
-impl<'a, T: CType> BufferInstance<T> for &'a [T] {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
-
-impl<T: CType> BufferInstance<T> for Vec<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
-
-impl<T: CType> BufferInstance<T> for StackVec<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CType> BufferInstance<T> for ocl::Buffer<T> {
-    fn size(&self) -> usize {
-        self.len()
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CType> BufferInstance<T> for &'a ocl::Buffer<T> {
-    fn size(&self) -> usize {
-        self.len()
     }
 }
 

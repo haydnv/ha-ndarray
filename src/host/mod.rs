@@ -1,7 +1,6 @@
-use smallvec::SmallVec;
-
+pub use buffer::*;
 pub use platform::*;
-mod ops;
-mod platform;
 
-pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
+mod buffer;
+pub mod ops;
+mod platform;
