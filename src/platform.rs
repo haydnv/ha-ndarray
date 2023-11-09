@@ -1,8 +1,9 @@
+use crate::access::AccessOp;
 use crate::buffer::{BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, ReadBuf};
+use crate::{host, CType, Error, Host, ReadBuf};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -39,12 +40,103 @@ impl PlatformInstance for Platform {
     }
 }
 
+#[cfg(feature = "opencl")]
+impl From<opencl::OpenCL> for Platform {
+    fn from(opencl: opencl::OpenCL) -> Self {
+        Self::CL(opencl)
+    }
+}
+
+impl From<host::Host> for Platform {
+    fn from(host: Host) -> Self {
+        Self::Host(host)
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Platform
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Output = Compare<L, R, T>;
+
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Platform
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Output = Compare<L, R, T>;
+
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.eq(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<'a, L, R, T> ElementwiseDual<L, R, T> for Platform
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Output = Dual<L, R, T>;
+
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::Host(host) => host.add(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::Host(host) => host.sub(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<'a, L, R, T> ElementwiseDual<L, R, T> for Platform
+where
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Output = Dual<L, R, T>;
+
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.add(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.add(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.sub(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.sub(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
 #[cfg(not(feature = "opencl"))]
 impl<'a, A, T> Reduce<A, T> for Platform
 where
     A: ReadBuf<'a, T>,
     T: CType,
-    host::Host: Reduce<A, T>,
 {
     fn all(self, access: A) -> Result<bool, Error> {
         match Self::select(access.size()) {
@@ -64,8 +156,6 @@ impl<'a, A, T> Reduce<A, T> for Platform
 where
     A: ReadBuf<'a, T>,
     T: CType,
-    host::Host: Reduce<A, T>,
-    opencl::OpenCL: Reduce<A, T>,
 {
     fn all(self, access: A) -> Result<bool, Error> {
         match Self::select(access.size()) {

@@ -232,7 +232,7 @@ where
     A: ReadBuf<'a, T>,
     T: CType,
 {
-    fn new<P>(array: Array<T, A, P>, shape: Shape, strides: Strides) -> Self {
+    pub fn new<P>(array: Array<T, A, P>, shape: Shape, strides: Strides) -> Self {
         let source_strides = strides_for(array.shape(), array.ndim());
 
         Self {

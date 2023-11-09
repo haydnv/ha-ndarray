@@ -54,10 +54,36 @@ pub enum Compare<L, R, T> {
     Host(host::ops::Compare<L, R, T>),
 }
 
+#[cfg(feature = "opencl")]
+impl<L, R, T> From<opencl::ops::Compare<L, R, T>> for Compare<L, R, T> {
+    fn from(op: opencl::ops::Compare<L, R, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<L, R, T> From<host::ops::Compare<L, R, T>> for Compare<L, R, T> {
+    fn from(op: host::ops::Compare<L, R, T>) -> Self {
+        Self::Host(op)
+    }
+}
+
 pub enum Dual<L, R, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::Dual<L, R, T>),
     Host(host::ops::Dual<L, R, T>),
+}
+
+#[cfg(feature = "opencl")]
+impl<L, R, T> From<opencl::ops::Dual<L, R, T>> for Dual<L, R, T> {
+    fn from(op: opencl::ops::Dual<L, R, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<L, R, T> From<host::ops::Dual<L, R, T>> for Dual<L, R, T> {
+    fn from(op: host::ops::Dual<L, R, T>) -> Self {
+        Self::Host(op)
+    }
 }
 
 macro_rules! impl_dual {

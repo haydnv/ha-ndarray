@@ -46,6 +46,19 @@ pub struct AccessOp<O, P> {
     platform: PhantomData<P>,
 }
 
+impl<O, P> AccessOp<O, P> {
+    pub fn wrap<FO, FP>(access: AccessOp<FO, FP>) -> Self
+    where
+        O: From<FO>,
+        P: From<FP>,
+    {
+        Self {
+            op: access.op.into(),
+            platform: PhantomData,
+        }
+    }
+}
+
 impl<O, P> From<O> for AccessOp<O, P> {
     fn from(op: O) -> Self {
         Self {
