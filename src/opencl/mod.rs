@@ -1,9 +1,7 @@
 use lazy_static::lazy_static;
 
-use crate::access::{AccessBuffer, AccessOp};
+use crate::access::AccessBuffer;
 use crate::host::VEC_MIN_SIZE;
-use crate::ops::{ElementwiseCompare, ElementwiseDual};
-use crate::{CType, Error, ReadBuf};
 
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
@@ -23,36 +21,6 @@ lazy_static! {
 }
 
 pub type Array<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>;
-
-impl<'a, T, L, R> ElementwiseCompare<L, R, T> for OpenCL
-where
-    T: CType,
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
-{
-    type Output = ops::Compare<L, R, T>;
-
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        ops::Compare::eq(self, left, right).map(AccessOp::from)
-    }
-}
-
-impl<'a, T, L, R> ElementwiseDual<L, R, T> for OpenCL
-where
-    T: CType,
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
-{
-    type Output = ops::Dual<L, R, T>;
-
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        ops::Dual::add(self, left, right).map(AccessOp::from)
-    }
-
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        ops::Dual::sub(self, left, right).map(AccessOp::from)
-    }
-}
 
 #[cfg(test)]
 mod tests {

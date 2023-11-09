@@ -3,10 +3,11 @@ use std::ops::{Add, Sub};
 
 use smallvec::SmallVec;
 
-use crate::access::AccessBuffer;
+use access::AccessBuffer;
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 pub use host::{Host, StackVec};
 use ops::*;
+pub use platform::Platform;
 
 mod access;
 mod array;
@@ -15,6 +16,7 @@ mod host;
 #[cfg(feature = "opencl")]
 mod opencl;
 mod ops;
+mod platform;
 
 #[cfg(feature = "opencl")]
 pub trait CType:
@@ -120,85 +122,9 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
-    fn select(size_hint: usize) -> Self;
-}
-
-pub trait Convert<T: CType>: PlatformInstance {
-    type Buffer: BufferInstance<T>;
-
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
-}
-
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum Platform {
-    #[cfg(feature = "opencl")]
-    CL(opencl::OpenCL),
-    Host(Host),
-}
-
-#[cfg(feature = "opencl")]
-impl PlatformInstance for Platform {
-    fn select(size_hint: usize) -> Self {
-        if size_hint < opencl::GPU_MIN_SIZE {
-            Self::Host(Host::select(size_hint))
-        } else {
-            Self::CL(opencl::OpenCL)
-        }
-    }
-}
-
-#[cfg(not(feature = "opencl"))]
-impl PlatformInstance for Platform {
-    fn select(size_hint: usize) -> Self {
-        Self::Host(Host::select(size_hint))
-    }
-}
-
-#[cfg(not(feature = "opencl"))]
-impl<'a, A, T> Reduce<A, T> for Platform
-where
-    A: ReadBuf<'a, T>,
-    T: CType,
-    Host: Reduce<A, T>,
-{
-    fn all(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
-            Self::Host(host) => host.all(access),
-        }
-    }
-
-    fn any(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
-            Self::Host(host) => host.all(access),
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, A, T> Reduce<A, T> for Platform
-where
-    A: ReadBuf<'a, T>,
-    T: CType,
-    Host: Reduce<A, T>,
-    opencl::OpenCL: Reduce<A, T>,
-{
-    fn all(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
-            Self::CL(cl) => cl.all(access),
-            Self::Host(host) => host.all(access),
-        }
-    }
-
-    fn any(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
-            Self::CL(cl) => cl.all(access),
-            Self::Host(host) => host.all(access),
-        }
-    }
-}
-
 pub type Shape = SmallVec<[usize; 8]>;
+
+pub type Strides = SmallVec<[usize; 8]>;
 
 pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
 
@@ -206,4 +132,52 @@ pub trait ReadBuf<'a, T: CType>: Send + Sync {
     fn read(self) -> Result<BufferConverter<'a, T>, Error>;
 
     fn size(&self) -> usize;
+}
+
+#[inline]
+/// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
+pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
+    if left.is_empty() || right.is_empty() {
+        return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
+    } else if left.len() < right.len() {
+        return broadcast_shape(right, left);
+    }
+
+    let offset = left.len() - right.len();
+
+    let mut shape = Shape::with_capacity(left.len());
+    shape.extend_from_slice(&left[..offset]);
+
+    for (l, r) in left.into_iter().copied().zip(right.into_iter().copied()) {
+        if r == 1 || r == l {
+            shape.push(l);
+        } else if l == 1 {
+            shape.push(r);
+        } else {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast dimensions {l} and {r}"
+            )));
+        }
+    }
+
+    debug_assert!(!shape.iter().any(|dim| *dim == 0));
+
+    Ok(shape)
+}
+
+#[inline]
+fn strides_for(shape: &[usize], ndim: usize) -> Strides {
+    debug_assert!(ndim >= shape.len());
+
+    let zeros = std::iter::repeat(0).take(ndim - shape.len());
+
+    let strides = shape.iter().copied().enumerate().map(|(x, dim)| {
+        if dim == 1 {
+            0
+        } else {
+            shape.iter().rev().take(shape.len() - 1 - x).product()
+        }
+    });
+
+    zeros.chain(strides).collect()
 }

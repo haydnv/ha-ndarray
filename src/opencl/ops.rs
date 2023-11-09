@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel, Program};
 
-use crate::ops::Reduce;
-use crate::{CType, Enqueue, Error, Op, ReadBuf};
+use crate::array::Array;
+use crate::{strides_for, CType, Enqueue, Error, Op, ReadBuf};
 
 use super::kernels;
 use super::platform::OpenCL;
@@ -288,76 +288,77 @@ where
     }
 }
 
-impl<'a, A, T> Reduce<A, T> for OpenCL
+pub struct View<A, T> {
+    access: A,
+    program: Program,
+    size: usize,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T> View<A, T>
+where
+    T: CType,
+{
+    pub fn new<P>(
+        source: Array<T, A, P>,
+        shape: &[usize],
+        strides: &[usize],
+    ) -> Result<Self, Error> {
+        let size = shape.iter().product();
+        let source_strides = strides_for(source.shape(), source.ndim());
+
+        let program = kernels::view::view::<T>(OpenCL.context(), shape, strides, &source_strides)?;
+
+        Ok(Self {
+            access: source.into_inner(),
+            program,
+            size,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<'a, A, T> Op for View<A, T>
 where
     A: ReadBuf<'a, T>,
     T: CType,
 {
-    fn all(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.to_cl()?;
-        let buffer = buffer.as_ref();
+    type DType = T;
 
-        let result = [1];
-
-        let program = kernels::reduce::all::<T>(self.context())?;
-
-        let flag = unsafe {
-            Buffer::builder()
-                .context(self.context())
-                .use_host_slice(&result)
-                .len(1)
-                .build()?
-        };
-
-        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
-
-        let kernel = Kernel::builder()
-            .name("all")
-            .program(&program)
-            .queue(queue.clone())
-            .global_work_size(buffer.len())
-            .arg(&flag)
-            .arg(buffer)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        queue.finish()?;
-
-        Ok(result == [1])
+    fn size(&self) -> usize {
+        self.size
     }
+}
 
-    fn any(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.to_cl()?;
-        let buffer = buffer.as_ref();
+impl<'a, A, T> Enqueue<OpenCL> for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
 
-        let result = [0];
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        let source = self.access.read()?.to_cl()?;
+        let source = source.as_ref();
 
-        let program = kernels::reduce::any::<T>(self.context())?;
+        let queue = OpenCL.queue(self.size, source.default_queue(), None)?;
 
-        let flag = unsafe {
-            Buffer::builder()
-                .context(self.context())
-                .use_host_slice(&result)
-                .len(1)
-                .build()?
-        };
-
-        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.size)
+            .build()?;
 
         let kernel = Kernel::builder()
-            .name("any")
-            .program(&program)
-            .queue(queue.clone())
-            .global_work_size(buffer.len())
-            .arg(&flag)
-            .arg(buffer)
+            .name("reorder")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(self.size)
+            .arg(source)
+            .arg(&output)
             .build()?;
 
         unsafe { kernel.enq()? }
 
-        queue.finish()?;
-
-        Ok(result == [1])
+        Ok(output)
     }
 }

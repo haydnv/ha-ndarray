@@ -1,12 +1,15 @@
+use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::{BufferConverter, CType, Enqueue, Error, Host, Op, ReadBuf, StackVec};
+use crate::array::Array;
+use crate::buffer::BufferConverter;
+use crate::{strides_for, CType, Enqueue, Error, Op, ReadBuf, Shape, StackVec, Strides};
 
 use super::buffer::Buffer;
-use super::platform::{Heap, Stack};
+use super::platform::{Heap, Host, Stack};
 use super::VEC_MIN_SIZE;
 
 pub struct Compare<L, R, T> {
@@ -161,6 +164,139 @@ where
             Enqueue::<Stack>::enqueue(self).map(Buffer::from)
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::from)
+        }
+    }
+}
+
+struct ViewSpec<T> {
+    shape: Shape,
+    strides: Strides,
+    source_strides: Strides,
+    dtype: PhantomData<T>,
+}
+
+impl<T: CType> ViewSpec<T> {
+    fn invert_offset(&self, offset: usize) -> usize {
+        debug_assert!(offset < self.shape.iter().product::<usize>());
+
+        self.strides
+            .iter()
+            .copied()
+            .zip(self.shape.iter().copied())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            }) // coord
+            .zip(self.source_strides.iter().copied())
+            .map(|(i, source_stride)| i * source_stride) // source offset
+            .sum::<usize>()
+    }
+
+    fn read(&self, source: BufferConverter<T>) -> Result<StackVec<T>, Error> {
+        let source = source.to_slice()?;
+        let source = source.as_ref();
+
+        let buffer = (0..self.shape.iter().product())
+            .into_iter()
+            .map(|offset| self.invert_offset(offset))
+            .map(|source_offset| source[source_offset])
+            .collect();
+
+        Ok(buffer)
+    }
+
+    fn read_parallel(&self, source: BufferConverter<T>) -> Result<Vec<T>, Error> {
+        let source = source.to_slice()?;
+        let source = source.as_ref();
+
+        let buffer = (0..self.shape.iter().product())
+            .into_par_iter()
+            .map(|offset| self.invert_offset(offset))
+            .map(|source_offset| source[source_offset])
+            .collect();
+
+        Ok(buffer)
+    }
+}
+
+pub struct View<A, T> {
+    access: A,
+    spec: ViewSpec<T>,
+}
+
+impl<'a, A, T> View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    fn new<P>(array: Array<T, A, P>, shape: Shape, strides: Strides) -> Self {
+        let source_strides = strides_for(array.shape(), array.ndim());
+
+        Self {
+            access: array.into_inner(),
+            spec: ViewSpec {
+                shape,
+                strides,
+                source_strides,
+                dtype: PhantomData,
+            },
+        }
+    }
+}
+
+impl<'a, A, T> Op for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type DType = T;
+
+    fn size(&self) -> usize {
+        self.spec.shape.iter().product()
+    }
+}
+
+impl<'a, A, T> Enqueue<Stack> for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = StackVec<T>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        self.access.read().and_then(|source| self.spec.read(source))
+    }
+}
+
+impl<'a, A, T> Enqueue<Heap> for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = Vec<T>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|source| self.spec.read_parallel(source))
+    }
+}
+
+impl<'a, A, T> Enqueue<Host> for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
         }
     }
 }

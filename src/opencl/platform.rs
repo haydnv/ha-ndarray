@@ -1,10 +1,17 @@
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
-use ocl::{Buffer, Context, Device, DeviceType, Platform, Queue};
+use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
 
-use crate::{BufferConverter, CType, Convert, Error, PlatformInstance};
+use crate::access::AccessOp;
+use crate::array::Array;
+use crate::buffer::BufferConverter;
+use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
+use crate::platform::{Convert, PlatformInstance};
+use crate::{strides_for, CType, Error, ReadBuf};
 
+use super::kernels;
+use super::ops::*;
 use super::CL_PLATFORM;
 
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
@@ -211,5 +218,126 @@ impl<T: CType> Convert<T> for OpenCL {
     fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
         let buffer = buffer.to_cl()?;
         buffer.into_buffer()
+    }
+}
+
+impl<'a, T, L, R> ElementwiseCompare<L, R, T> for OpenCL
+where
+    T: CType,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+{
+    type Output = Compare<L, R, T>;
+
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        Compare::eq(self, left, right).map(AccessOp::from)
+    }
+}
+
+impl<'a, T, L, R> ElementwiseDual<L, R, T> for OpenCL
+where
+    T: CType,
+    L: ReadBuf<'a, T>,
+    R: ReadBuf<'a, T>,
+{
+    type Output = Dual<L, R, T>;
+
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        Dual::add(self, left, right).map(AccessOp::from)
+    }
+
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+        Dual::sub(self, left, right).map(AccessOp::from)
+    }
+}
+
+impl<'a, A, T> Reduce<A, T> for OpenCL
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        let buffer = access.read()?.to_cl()?;
+        let buffer = buffer.as_ref();
+
+        let result = [1];
+
+        let program = kernels::reduce::all::<T>(self.context())?;
+
+        let flag = unsafe {
+            Buffer::builder()
+                .context(self.context())
+                .use_host_slice(&result)
+                .len(1)
+                .build()?
+        };
+
+        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+
+        let kernel = Kernel::builder()
+            .name("all")
+            .program(&program)
+            .queue(queue.clone())
+            .global_work_size(buffer.len())
+            .arg(&flag)
+            .arg(buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        queue.finish()?;
+
+        Ok(result == [1])
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        let buffer = access.read()?.to_cl()?;
+        let buffer = buffer.as_ref();
+
+        let result = [0];
+
+        let program = kernels::reduce::any::<T>(self.context())?;
+
+        let flag = unsafe {
+            Buffer::builder()
+                .context(self.context())
+                .use_host_slice(&result)
+                .len(1)
+                .build()?
+        };
+
+        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+
+        let kernel = Kernel::builder()
+            .name("any")
+            .program(&program)
+            .queue(queue.clone())
+            .global_work_size(buffer.len())
+            .arg(&flag)
+            .arg(buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        queue.finish()?;
+
+        Ok(result == [1])
+    }
+}
+
+impl<'a, A, T> Transform<A, T> for OpenCL
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Broadcast = View<A, T>;
+
+    fn broadcast(
+        self,
+        array: Array<T, A, Self>,
+        shape: &[usize],
+    ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
+        let strides = strides_for(array.shape(), shape.len());
+        View::new(array, shape, &strides).map(AccessOp::from)
     }
 }

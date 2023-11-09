@@ -1,10 +1,12 @@
 use std::borrow::Borrow;
+use std::fmt;
 use std::marker::PhantomData;
 
 use crate::access::*;
 use crate::buffer::{BufferConverter, BufferInstance};
 use crate::ops::*;
-use crate::{CType, Convert, Error, PlatformInstance, ReadBuf, Shape};
+use crate::platform::{Convert, PlatformInstance};
+use crate::{CType, Error, ReadBuf, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -14,6 +16,10 @@ pub struct Array<T, A, P> {
 }
 
 impl<T, A, P> Array<T, A, P> {
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+
     pub fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -72,7 +78,45 @@ where
     }
 }
 
+// unary ops
+impl<T, A, P> Array<T, A, P> {
+    // transforms
+    pub fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error>
+    where
+        P: Transform<A, T>,
+    {
+        if shape.len() < self.ndim() {
+            return Err(Error::Bounds(format!(
+                "cannot broadcast {self:?} into {shape:?}"
+            )));
+        }
+
+        for (dim, bdim) in self.shape().iter().rev().zip(shape.iter().rev()) {
+            if dim == bdim || *dim == 1 {
+                // ok
+            } else {
+                return Err(Error::Bounds(format!(
+                    "cannot broadcast dimension {dim} into {bdim}"
+                )));
+            }
+        }
+
+        let platform = self.platform;
+
+        let access = self.platform.broadcast(self, &shape)?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+// array-array ops
 impl<T, L, P> Array<T, L, P> {
+    // array-array comparison
     pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Output, P>, P>, Error>
     where
         P: ElementwiseCompare<L, R, T>,
@@ -89,6 +133,7 @@ impl<T, L, P> Array<T, L, P> {
         }
     }
 
+    // array-array arithmetic
     pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
     where
         P: ElementwiseDual<L, R, T>,
@@ -134,5 +179,16 @@ where
 
     pub fn any(self) -> Result<bool, Error> {
         self.platform.any(self.access)
+    }
+}
+
+impl<T, A, P> fmt::Debug for Array<T, A, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "a {} array of shape {:?}",
+            std::any::type_name::<T>(),
+            self.shape
+        )
     }
 }

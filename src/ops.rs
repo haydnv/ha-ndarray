@@ -1,8 +1,10 @@
 use crate::access::AccessOp;
+use crate::array::Array;
 use crate::buffer::{Buffer, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
-use crate::{host, CType, Error, Platform, PlatformInstance, ReadBuf};
+use crate::platform::{Platform, PlatformInstance};
+use crate::{host, CType, Error, ReadBuf};
 
 pub trait Op: Send + Sync + Sized {
     type DType: CType;
@@ -17,13 +19,13 @@ pub trait Enqueue<P: PlatformInstance>: Op {
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
-    type Output;
+    type Output: Enqueue<Self>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
 }
 
 pub trait ElementwiseDual<L, R, T>: PlatformInstance {
-    type Output;
+    type Output: Enqueue<Self>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
 
@@ -34,6 +36,16 @@ pub trait Reduce<A, T>: PlatformInstance {
     fn all(self, access: A) -> Result<bool, Error>;
 
     fn any(self, access: A) -> Result<bool, Error>;
+}
+
+pub trait Transform<A, T>: PlatformInstance {
+    type Broadcast: Enqueue<Self>;
+
+    fn broadcast(
+        self,
+        array: Array<T, A, Self>,
+        shape: &[usize],
+    ) -> Result<AccessOp<Self::Broadcast, Self>, Error>;
 }
 
 pub enum Compare<L, R, T> {
@@ -78,8 +90,8 @@ macro_rules! impl_dual {
             fn enqueue(self) -> Result<Self::Buffer, Error> {
                 match self {
                     #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::from),
-                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::from),
+                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
                 }
             }
         }
@@ -88,3 +100,41 @@ macro_rules! impl_dual {
 
 impl_dual!(Compare<L, R, T>, u8);
 impl_dual!(Dual<L, R, T>, T);
+
+pub enum View<A, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::View<A, T>),
+    Host(host::ops::View<A, T>),
+}
+
+impl<'a, A, T> Op for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type DType = T;
+
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<'a, A, T> Enqueue<Platform> for View<A, T>
+where
+    A: ReadBuf<'a, T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}

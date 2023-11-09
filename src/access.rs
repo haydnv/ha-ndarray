@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 
 use crate::buffer::{BufferConverter, BufferInstance};
 use crate::ops::{Enqueue, Op};
-use crate::{CType, Error, PlatformInstance, ReadBuf};
+use crate::platform::PlatformInstance;
+use crate::{CType, Error, ReadBuf};
 
 pub struct AccessBuffer<B> {
     buffer: B,
