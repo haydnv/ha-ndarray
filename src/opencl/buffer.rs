@@ -1,13 +1,21 @@
-use crate::{BufferInstance, CType, Error};
+use crate::{BufferConverter, BufferInstance, CType, Error};
 use ocl::Buffer;
 
 impl<T: CType> BufferInstance<T> for ocl::Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::CL(self.into()))
+    }
+
     fn size(&self) -> usize {
         self.len()
     }
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a ocl::Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::CL((*self).into()))
+    }
+
     fn size(&self) -> usize {
         self.len()
     }

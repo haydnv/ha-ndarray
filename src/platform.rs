@@ -1,9 +1,9 @@
-use crate::access::AccessOp;
+use crate::access::{Access, AccessOp};
 use crate::buffer::{BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, Host, ReadBuf};
+use crate::{host, CType, Error, Host};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -56,8 +56,8 @@ impl From<host::Host> for Platform {
 #[cfg(not(feature = "opencl"))]
 impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Compare<L, R, T>;
@@ -70,10 +70,10 @@ where
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Platform
+impl<L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Compare<L, R, T>;
@@ -87,10 +87,10 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<'a, L, R, T> ElementwiseDual<L, R, T> for Platform
+impl<L, R, T> ElementwiseDual<L, R, T> for Platform
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Dual<L, R, T>;
@@ -109,10 +109,10 @@ where
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, L, R, T> ElementwiseDual<L, R, T> for Platform
+impl<L, R, T> ElementwiseDual<L, R, T> for Platform
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Dual<L, R, T>;
@@ -135,7 +135,7 @@ where
 #[cfg(not(feature = "opencl"))]
 impl<'a, A, T> Reduce<A, T> for Platform
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
@@ -152,9 +152,9 @@ where
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, A, T> Reduce<A, T> for Platform
+impl<A, T> Reduce<A, T> for Platform
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {

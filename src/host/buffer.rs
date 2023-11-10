@@ -2,25 +2,37 @@ use std::borrow::Borrow;
 
 use smallvec::SmallVec;
 
-use crate::{BufferInstance, CType};
+use crate::{BufferConverter, BufferInstance, CType, Error};
 
 use super::VEC_MIN_SIZE;
 
 pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 impl<T: CType> BufferInstance<T> for StackVec<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(self.as_slice().into())
+    }
+
     fn size(&self) -> usize {
         self.len()
     }
 }
 
 impl<T: CType> BufferInstance<T> for Vec<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(self.as_slice().into())
+    }
+
     fn size(&self) -> usize {
         self.len()
     }
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a [T] {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok((*self).into())
+    }
+
     fn size(&self) -> usize {
         self.len()
     }
@@ -42,6 +54,10 @@ impl<T> Borrow<[T]> for Buffer<T> {
 }
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::Host(self.into()))
+    }
+
     fn size(&self) -> usize {
         match self {
             Self::Heap(buf) => buf.size(),
@@ -113,6 +129,24 @@ impl<'a, T: Copy> SliceConverter<'a, T> {
                     Buffer::Heap(slice.to_vec())
                 }
             }
+        }
+    }
+}
+
+impl<T> From<Buffer<T>> for SliceConverter<'static, T> {
+    fn from(buf: Buffer<T>) -> Self {
+        match buf {
+            Buffer::Heap(buf) => SliceConverter::Heap(buf),
+            Buffer::Stack(buf) => SliceConverter::Stack(buf),
+        }
+    }
+}
+
+impl<'a, T> From<&'a Buffer<T>> for SliceConverter<'a, T> {
+    fn from(buf: &'a Buffer<T>) -> Self {
+        match buf {
+            Buffer::Heap(slice) => slice.as_slice().into(),
+            Buffer::Stack(slice) => slice.as_slice().into(),
         }
     }
 }

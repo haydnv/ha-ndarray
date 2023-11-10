@@ -4,9 +4,10 @@ use std::ops::{Add, Sub};
 use rayon::join;
 use rayon::prelude::*;
 
+use crate::access::Access;
 use crate::array::Array;
 use crate::buffer::BufferConverter;
-use crate::{strides_for, CType, Enqueue, Error, Op, ReadBuf, Shape, StackVec, Strides};
+use crate::{strides_for, CType, Enqueue, Error, Op, Shape, StackVec, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -18,10 +19,10 @@ pub struct Compare<L, R, T> {
     cmp: fn(T, T) -> u8,
 }
 
-impl<'a, L, R, T> Op for Compare<L, R, T>
+impl<L, R, T> Op for Compare<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type DType = u8;
@@ -41,43 +42,43 @@ impl<L, R, T: CType> Compare<L, R, T> {
     }
 }
 
-impl<'a, L, R, T> Enqueue<Stack> for Compare<L, R, T>
+impl<L, R, T> Enqueue<Stack> for Compare<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = StackVec<u8>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(self.left, self.right)?;
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (left, right) = try_join(&self.left, &self.right)?;
         exec_dual(self.cmp, left, right)
     }
 }
 
-impl<'a, L, R, T> Enqueue<Heap> for Compare<L, R, T>
+impl<L, R, T> Enqueue<Heap> for Compare<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = Vec<u8>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(self.left, self.right)?;
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (left, right) = try_join(&self.left, &self.right)?;
         exec_dual_parallel(self.cmp, left, right)
     }
 }
 
-impl<'a, L, R, T> Enqueue<Host> for Compare<L, R, T>
+impl<L, R, T> Enqueue<Host> for Compare<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = Buffer<u8>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         if self.size() < VEC_MIN_SIZE {
             Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
         } else {
@@ -92,10 +93,10 @@ pub struct Dual<L, R, T> {
     zip: fn(T, T) -> T,
 }
 
-impl<'a, L, R, T> Op for Dual<L, R, T>
+impl<L, R, T> Op for Dual<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type DType = T;
@@ -123,43 +124,43 @@ impl<L, R, T: CType> Dual<L, R, T> {
     }
 }
 
-impl<'a, L, R, T> Enqueue<Stack> for Dual<L, R, T>
+impl<L, R, T> Enqueue<Stack> for Dual<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = StackVec<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(self.left, self.right)?;
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (left, right) = try_join(&self.left, &self.right)?;
         exec_dual(self.zip, left, right)
     }
 }
 
-impl<'a, L, R, T> Enqueue<Heap> for Dual<L, R, T>
+impl<L, R, T> Enqueue<Heap> for Dual<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = Vec<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(self.left, self.right)?;
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (left, right) = try_join(&self.left, &self.right)?;
         exec_dual_parallel(self.zip, left, right)
     }
 }
 
-impl<'a, L, R, T> Enqueue<Host> for Dual<L, R, T>
+impl<L, R, T> Enqueue<Host> for Dual<L, R, T>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         if self.size() < VEC_MIN_SIZE {
             Enqueue::<Stack>::enqueue(self).map(Buffer::from)
         } else {
@@ -227,9 +228,9 @@ pub struct View<A, T> {
     spec: ViewSpec<T>,
 }
 
-impl<'a, A, T> View<A, T>
+impl<A, T> View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     pub fn new<P>(array: Array<T, A, P>, shape: Shape, strides: Strides) -> Self {
@@ -247,9 +248,9 @@ where
     }
 }
 
-impl<'a, A, T> Op for View<A, T>
+impl<A, T> Op for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type DType = T;
@@ -259,40 +260,40 @@ where
     }
 }
 
-impl<'a, A, T> Enqueue<Stack> for View<A, T>
+impl<A, T> Enqueue<Stack> for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Buffer = StackVec<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         self.access.read().and_then(|source| self.spec.read(source))
     }
 }
 
-impl<'a, A, T> Enqueue<Heap> for View<A, T>
+impl<A, T> Enqueue<Heap> for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Buffer = Vec<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         self.access
             .read()
             .and_then(|source| self.spec.read_parallel(source))
     }
 }
 
-impl<'a, A, T> Enqueue<Host> for View<A, T>
+impl<A, T> Enqueue<Host> for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         if self.size() < VEC_MIN_SIZE {
             Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
         } else {
@@ -349,12 +350,12 @@ where
 
 #[inline]
 fn try_join<'a, L, R, T>(
-    left: L,
-    right: R,
+    left: &'a L,
+    right: &'a R,
 ) -> Result<(BufferConverter<'a, T>, BufferConverter<'a, T>), Error>
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     let (l, r) = join(|| left.read(), || right.read());

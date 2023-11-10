@@ -3,12 +3,12 @@ use std::sync::Arc;
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
 
-use crate::access::AccessOp;
+use crate::access::{Access, AccessOp};
 use crate::array::Array;
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error, ReadBuf};
+use crate::{strides_for, CType, Error};
 
 use super::kernels;
 use super::ops::*;
@@ -221,11 +221,11 @@ impl<T: CType> Convert<T> for OpenCL {
     }
 }
 
-impl<'a, T, L, R> ElementwiseCompare<L, R, T> for OpenCL
+impl<T, L, R> ElementwiseCompare<L, R, T> for OpenCL
 where
     T: CType,
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
 {
     type Output = Compare<L, R, T>;
 
@@ -234,11 +234,11 @@ where
     }
 }
 
-impl<'a, T, L, R> ElementwiseDual<L, R, T> for OpenCL
+impl<T, L, R> ElementwiseDual<L, R, T> for OpenCL
 where
     T: CType,
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
 {
     type Output = Dual<L, R, T>;
 
@@ -251,9 +251,9 @@ where
     }
 }
 
-impl<'a, A, T> Reduce<A, T> for OpenCL
+impl<A, T> Reduce<A, T> for OpenCL
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
@@ -325,9 +325,9 @@ where
     }
 }
 
-impl<'a, A, T> Transform<A, T> for OpenCL
+impl<A, T> Transform<A, T> for OpenCL
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Broadcast = View<A, T>;

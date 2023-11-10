@@ -3,6 +3,8 @@ use crate::opencl;
 use crate::{host, CType, Error, StackVec};
 
 pub trait BufferInstance<T: CType>: Send + Sync + Sized {
+    fn read(&self) -> Result<BufferConverter<T>, Error>;
+
     fn size(&self) -> usize;
 }
 
@@ -14,12 +16,26 @@ pub enum Buffer<T: CType> {
 }
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(self))
+    }
+
     fn size(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => buf.size(),
             Self::Host(buf) => buf.size(),
         }
+    }
+}
+
+impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(*self))
+    }
+
+    fn size(&self) -> usize {
+        BufferInstance::size(*self)
     }
 }
 
@@ -85,6 +101,26 @@ impl<'a, T: CType> BufferConverter<'a, T> {
                 Ok(host::SliceConverter::from(copy))
             }
             Self::Host(buffer) => Ok(buffer),
+        }
+    }
+}
+
+impl<T: CType> From<Buffer<T>> for BufferConverter<'static, T> {
+    fn from(buf: Buffer<T>) -> Self {
+        match buf {
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buf) => Self::CL(buf.into()),
+            Buffer::Host(buf) => Self::Host(buf.into()),
+        }
+    }
+}
+
+impl<'a, T: CType> From<&'a Buffer<T>> for BufferConverter<'a, T> {
+    fn from(buf: &'a Buffer<T>) -> Self {
+        match buf {
+            #[cfg(feature = "opencl")]
+            Buffer::CL(buf) => Self::CL(buf.into()),
+            Buffer::Host(buf) => Self::Host(buf.into()),
         }
     }
 }

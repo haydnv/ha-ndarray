@@ -1,10 +1,10 @@
 use rayon::prelude::*;
 
-use crate::access::AccessOp;
+use crate::access::{Access, AccessOp};
 use crate::array::Array;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::PlatformInstance;
-use crate::{strides_for, CType, Error, ReadBuf, Shape};
+use crate::{strides_for, CType, Error, Shape};
 
 use super::ops::*;
 
@@ -46,8 +46,8 @@ impl PlatformInstance for Host {
 
 impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Host
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Compare<L, R, T>;
@@ -59,8 +59,8 @@ where
 
 impl<'a, L, R, T> ElementwiseDual<L, R, T> for Host
 where
-    L: ReadBuf<'a, T>,
-    R: ReadBuf<'a, T>,
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Output = Dual<L, R, T>;
@@ -76,7 +76,7 @@ where
 
 impl<'a, A, T> Reduce<A, T> for Host
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
@@ -84,7 +84,11 @@ where
             if slice.size() < VEC_MIN_SIZE {
                 slice.as_ref().into_iter().copied().all(|n| n != T::ZERO)
             } else {
-                slice.as_ref().into_par_iter().copied().all(|n| n != T::ZERO)
+                slice
+                    .as_ref()
+                    .into_par_iter()
+                    .copied()
+                    .all(|n| n != T::ZERO)
             }
         })
     }
@@ -94,7 +98,11 @@ where
             if slice.size() < VEC_MIN_SIZE {
                 slice.as_ref().into_iter().copied().any(|n| n != T::ZERO)
             } else {
-                slice.as_ref().into_par_iter().copied().any(|n| n != T::ZERO)
+                slice
+                    .as_ref()
+                    .into_par_iter()
+                    .copied()
+                    .any(|n| n != T::ZERO)
             }
         })
     }
@@ -102,7 +110,7 @@ where
 
 impl<'a, A, T> Transform<A, T> for Host
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Broadcast = View<A, T>;

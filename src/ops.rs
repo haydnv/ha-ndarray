@@ -1,10 +1,10 @@
-use crate::access::AccessOp;
+use crate::access::*;
 use crate::array::Array;
 use crate::buffer::{Buffer, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, CType, Error, ReadBuf};
+use crate::{host, CType, Error};
 
 pub trait Op: Send + Sync + Sized {
     type DType: CType;
@@ -15,7 +15,7 @@ pub trait Op: Send + Sync + Sized {
 pub trait Enqueue<P: PlatformInstance>: Op {
     type Buffer: BufferInstance<Self::DType>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error>;
+    fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
@@ -90,8 +90,8 @@ macro_rules! impl_dual {
     ($op:ty, $t:ty) => {
         impl<'a, L, R, T> Op for $op
         where
-            L: ReadBuf<'a, T>,
-            R: ReadBuf<'a, T>,
+            L: Access<T>,
+            R: Access<T>,
             T: CType,
         {
             type DType = $t;
@@ -107,13 +107,13 @@ macro_rules! impl_dual {
 
         impl<'a, L, R, T> Enqueue<Platform> for $op
         where
-            L: ReadBuf<'a, T>,
-            R: ReadBuf<'a, T>,
+            L: Access<T>,
+            R: Access<T>,
             T: CType,
         {
             type Buffer = Buffer<$t>;
 
-            fn enqueue(self) -> Result<Self::Buffer, Error> {
+            fn enqueue(&self) -> Result<Self::Buffer, Error> {
                 match self {
                     #[cfg(feature = "opencl")]
                     Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
@@ -135,7 +135,7 @@ pub enum View<A, T> {
 
 impl<'a, A, T> Op for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type DType = T;
@@ -151,12 +151,12 @@ where
 
 impl<'a, A, T> Enqueue<Platform> for View<A, T>
 where
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     T: CType,
 {
     type Buffer = Buffer<T>;
 
-    fn enqueue(self) -> Result<Self::Buffer, Error> {
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),

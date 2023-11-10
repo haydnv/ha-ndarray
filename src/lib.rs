@@ -128,12 +128,6 @@ pub type Strides = SmallVec<[usize; 8]>;
 
 pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
 
-pub trait ReadBuf<'a, T: CType>: Send + Sync {
-    fn read(self) -> Result<BufferConverter<'a, T>, Error>;
-
-    fn size(&self) -> usize;
-}
-
 #[inline]
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {

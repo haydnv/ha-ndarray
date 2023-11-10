@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::{BufferConverter, BufferInstance};
 use crate::ops::*;
 use crate::platform::{Convert, PlatformInstance};
-use crate::{CType, Error, ReadBuf, Shape};
+use crate::{CType, Error, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -170,7 +170,7 @@ impl<T, L, P> Array<T, L, P> {
 impl<'a, T, A, P> Array<T, A, P>
 where
     T: CType,
-    A: ReadBuf<'a, T>,
+    A: Access<T>,
     P: Reduce<A, T>,
 {
     pub fn all(self) -> Result<bool, Error> {
