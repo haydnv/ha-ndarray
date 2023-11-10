@@ -25,8 +25,6 @@ where
     R: Access<T>,
     T: CType,
 {
-    type DType = u8;
-
     fn size(&self) -> usize {
         self.left.size()
     }
@@ -99,8 +97,6 @@ where
     R: Access<T>,
     T: CType,
 {
-    type DType = T;
-
     fn size(&self) -> usize {
         self.left.size()
     }
@@ -253,8 +249,6 @@ where
     A: Access<T>,
     T: CType,
 {
-    type DType = T;
-
     fn size(&self) -> usize {
         self.spec.shape.iter().product()
     }

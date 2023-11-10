@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use crate::buffer::{BufferConverter, BufferInstance};
 use crate::ops::Enqueue;
 use crate::platform::PlatformInstance;
-use crate::{CType, Error};
+use crate::{Buffer, CType, Error, Platform};
 
 pub trait Access<T: CType>: Send + Sync {
     fn read(&self) -> Result<BufferConverter<T>, Error>;
@@ -77,7 +77,7 @@ impl<O, P> From<O> for AccessOp<O, P> {
 impl<'a, O, P, T> Access<T> for AccessOp<O, P>
 where
     T: CType,
-    O: Enqueue<P, DType = T>,
+    O: Enqueue<P>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
@@ -87,5 +87,26 @@ where
 
     fn size(&self) -> usize {
         self.op.size()
+    }
+}
+
+pub enum Accessor<T: CType> {
+    Buffer(Buffer<T>),
+    Op(Box<dyn Enqueue<Platform, Buffer = Buffer<T>>>),
+}
+
+impl<T: CType> Access<T> for Accessor<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        match self {
+            Self::Buffer(buf) => buf.read(),
+            Self::Op(op) => op.enqueue().map(BufferConverter::from),
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            Self::Buffer(buf) => buf.size(),
+            Self::Op(op) => op.size(),
+        }
     }
 }

@@ -1,19 +1,17 @@
 use crate::access::*;
 use crate::array::Array;
-use crate::buffer::{Buffer, BufferInstance};
+use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{host, CType, Error};
 
-pub trait Op: Send + Sync + Sized {
-    type DType: CType;
-
+pub trait Op: Send + Sync {
     fn size(&self) -> usize;
 }
 
 pub trait Enqueue<P: PlatformInstance>: Op {
-    type Buffer: BufferInstance<Self::DType>;
+    type Buffer;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
@@ -94,8 +92,6 @@ macro_rules! impl_dual {
             R: Access<T>,
             T: CType,
         {
-            type DType = $t;
-
             fn size(&self) -> usize {
                 match self {
                     #[cfg(feature = "opencl")]
@@ -138,8 +134,6 @@ where
     A: Access<T>,
     T: CType,
 {
-    type DType = T;
-
     fn size(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
