@@ -3,6 +3,10 @@ mod benchmark_nd;
 mod benchmark_py;
 use std::collections::HashMap;
 
+/*
+cargo run --bin benchmark --features benchmark
+*/
+
 fn print_table(
     data_types: &[&str],
     operations: &[&str],
@@ -64,7 +68,7 @@ fn size_index(size: usize, sizes: &[usize]) -> usize {
 fn main() {
     println!("Hi");
 
-    let size_max: u32 = 9;
+    let size_max: u32 = 8;
 
     let data_types: Vec<&str> = vec!["uint8", "uint16", "uint32", "uint64", "float32", "float64"];
     let operations: Vec<&str> = vec!["add", "sub", "mul", "div", "dot"];
