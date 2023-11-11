@@ -1,270 +1,8 @@
-extern crate ocl;
 use ha_ndarray::*;
-use ndarray::Array2;
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
-use numpy::IntoPyArray;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::wrap_pyfunction;
 use rand::Rng;
+use std::collections::HashMap;
+use std::io::{self, Write};
 use std::time::Instant;
-
-#[pymodule]
-#[pyo3(name = "ha_ndarray")]
-fn rustlib(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(ndarray_test, m)?)?;
-    m.add_function(wrap_pyfunction!(ha_ndarray_test, m)?)?;
-    Ok(())
-}
-
-const SMALL_NUMBER: f64 = 1e-10;
-
-enum DynamicArray {
-    U8(Array2<u8>),
-    U16(Array2<u16>),
-    U32(Array2<u32>),
-    U64(Array2<u64>),
-    F32(Array2<f32>),
-    F64(Array2<f64>),
-}
-
-fn random_array(size: usize, datatype: &str) -> DynamicArray {
-    match datatype {
-        "uint8" => DynamicArray::U8(Array2::random((size, size), Uniform::new(0, u8::MAX))),
-        "uint16" => DynamicArray::U16(Array2::random((size, size), Uniform::new(0, u16::MAX))),
-        "uint32" => DynamicArray::U32(Array2::random((size, size), Uniform::new(0, u32::MAX))),
-        "uint64" => DynamicArray::U64(Array2::random((size, size), Uniform::new(0, u64::MAX))),
-        "float32" => DynamicArray::F32(Array2::random((size, size), Uniform::new(0., 1.))),
-        "float64" => DynamicArray::F64(Array2::random((size, size), Uniform::new(0., 1.))),
-        _ => DynamicArray::F32(Array2::random((size, size), Uniform::new(0., 1.))),
-    }
-}
-
-fn replace_zeros(arr: &mut DynamicArray) {
-    match arr {
-        DynamicArray::U8(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0 {
-                    *element = 1; // replace with 1 for unsigned integers
-                }
-            }
-        }
-        DynamicArray::U16(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0 {
-                    *element = 1;
-                }
-            }
-        }
-        DynamicArray::U32(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0 {
-                    *element = 1;
-                }
-            }
-        }
-        DynamicArray::U64(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0 {
-                    *element = 1;
-                }
-            }
-        }
-        DynamicArray::F32(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0.0 {
-                    *element = SMALL_NUMBER as f32; // replace with small number for floating-point numbers
-                }
-            }
-        }
-        DynamicArray::F64(arr_data) => {
-            for element in arr_data.iter_mut() {
-                if *element == 0.0 {
-                    *element = SMALL_NUMBER;
-                }
-            }
-        }
-    }
-}
-
-fn add_arrays(a: &DynamicArray, b: &DynamicArray) -> Result<DynamicArray, &'static str> {
-    match (a, b) {
-        (DynamicArray::U8(arr_a), DynamicArray::U8(arr_b)) => Ok(DynamicArray::U8(arr_a + arr_b)),
-        (DynamicArray::U16(arr_a), DynamicArray::U16(arr_b)) => {
-            Ok(DynamicArray::U16(arr_a + arr_b))
-        }
-        (DynamicArray::U32(arr_a), DynamicArray::U32(arr_b)) => {
-            Ok(DynamicArray::U32(arr_a + arr_b))
-        }
-        (DynamicArray::U64(arr_a), DynamicArray::U64(arr_b)) => {
-            Ok(DynamicArray::U64(arr_a + arr_b))
-        }
-        (DynamicArray::F32(arr_a), DynamicArray::F32(arr_b)) => {
-            Ok(DynamicArray::F32(arr_a + arr_b))
-        }
-        (DynamicArray::F64(arr_a), DynamicArray::F64(arr_b)) => {
-            Ok(DynamicArray::F64(arr_a + arr_b))
-        }
-        _ => Err("nah dawg"),
-    }
-}
-
-fn sub_arrays(a: &DynamicArray, b: &DynamicArray) -> Result<DynamicArray, &'static str> {
-    match (a, b) {
-        (DynamicArray::U8(arr_a), DynamicArray::U8(arr_b)) => Ok(DynamicArray::U8(arr_a - arr_b)),
-        (DynamicArray::U16(arr_a), DynamicArray::U16(arr_b)) => {
-            Ok(DynamicArray::U16(arr_a - arr_b))
-        }
-        (DynamicArray::U32(arr_a), DynamicArray::U32(arr_b)) => {
-            Ok(DynamicArray::U32(arr_a - arr_b))
-        }
-        (DynamicArray::U64(arr_a), DynamicArray::U64(arr_b)) => {
-            Ok(DynamicArray::U64(arr_a - arr_b))
-        }
-        (DynamicArray::F32(arr_a), DynamicArray::F32(arr_b)) => {
-            Ok(DynamicArray::F32(arr_a - arr_b))
-        }
-        (DynamicArray::F64(arr_a), DynamicArray::F64(arr_b)) => {
-            Ok(DynamicArray::F64(arr_a - arr_b))
-        }
-        _ => Err("nah dawg"),
-    }
-}
-
-fn mul_arrays(a: &DynamicArray, b: &DynamicArray) -> Result<DynamicArray, &'static str> {
-    match (a, b) {
-        (DynamicArray::U8(arr_a), DynamicArray::U8(arr_b)) => Ok(DynamicArray::U8(arr_a * arr_b)),
-        (DynamicArray::U16(arr_a), DynamicArray::U16(arr_b)) => {
-            Ok(DynamicArray::U16(arr_a * arr_b))
-        }
-        (DynamicArray::U32(arr_a), DynamicArray::U32(arr_b)) => {
-            Ok(DynamicArray::U32(arr_a * arr_b))
-        }
-        (DynamicArray::U64(arr_a), DynamicArray::U64(arr_b)) => {
-            Ok(DynamicArray::U64(arr_a * arr_b))
-        }
-        (DynamicArray::F32(arr_a), DynamicArray::F32(arr_b)) => {
-            Ok(DynamicArray::F32(arr_a * arr_b))
-        }
-        (DynamicArray::F64(arr_a), DynamicArray::F64(arr_b)) => {
-            Ok(DynamicArray::F64(arr_a * arr_b))
-        }
-        _ => Err("nah dawg"),
-    }
-}
-
-fn div_arrays(a: &DynamicArray, b: &DynamicArray) -> Result<DynamicArray, &'static str> {
-    match (a, b) {
-        (DynamicArray::U8(arr_a), DynamicArray::U8(arr_b)) => Ok(DynamicArray::U8(arr_a / arr_b)),
-        (DynamicArray::U16(arr_a), DynamicArray::U16(arr_b)) => {
-            Ok(DynamicArray::U16(arr_a / arr_b))
-        }
-        (DynamicArray::U32(arr_a), DynamicArray::U32(arr_b)) => {
-            Ok(DynamicArray::U32(arr_a / arr_b))
-        }
-        (DynamicArray::U64(arr_a), DynamicArray::U64(arr_b)) => {
-            Ok(DynamicArray::U64(arr_a / arr_b))
-        }
-        (DynamicArray::F32(arr_a), DynamicArray::F32(arr_b)) => {
-            Ok(DynamicArray::F32(arr_a / arr_b))
-        }
-        (DynamicArray::F64(arr_a), DynamicArray::F64(arr_b)) => {
-            Ok(DynamicArray::F64(arr_a / arr_b))
-        }
-        _ => Err("nah dawg"),
-    }
-}
-
-fn dot_arrays(a: &DynamicArray, b: &DynamicArray) -> Result<DynamicArray, &'static str> {
-    match (a, b) {
-        (DynamicArray::U8(arr_a), DynamicArray::U8(arr_b)) => {
-            Ok(DynamicArray::U8(arr_a.dot(arr_b)))
-        }
-        (DynamicArray::U16(arr_a), DynamicArray::U16(arr_b)) => {
-            Ok(DynamicArray::U16(arr_a.dot(arr_b)))
-        }
-        (DynamicArray::U32(arr_a), DynamicArray::U32(arr_b)) => {
-            Ok(DynamicArray::U32(arr_a.dot(arr_b)))
-        }
-        (DynamicArray::U64(arr_a), DynamicArray::U64(arr_b)) => {
-            Ok(DynamicArray::U64(arr_a.dot(arr_b)))
-        }
-        (DynamicArray::F32(arr_a), DynamicArray::F32(arr_b)) => {
-            Ok(DynamicArray::F32(arr_a.dot(arr_b)))
-        }
-        (DynamicArray::F64(arr_a), DynamicArray::F64(arr_b)) => {
-            Ok(DynamicArray::F64(arr_a.dot(arr_b)))
-        }
-        _ => Err("nah dawg"),
-    }
-}
-
-#[pyfunction]
-pub fn ndarray_test(py: Python) -> PyResult<PyObject> {
-    let labels: Vec<&str> = vec!["uint8", "uint16", "uint32", "uint64", "float32", "float64"];
-    let sizes: Vec<usize> = (1..=11).step_by(2).map(|x| 2_usize.pow(x)).collect();
-    let operations: Vec<&str> = vec!["add", "sub", "mul", "div", "dot"];
-
-    let timings_ndarrays = PyDict::new(py);
-
-    for op in &operations {
-        let mut timing_data = Vec::new();
-        for label in &labels {
-            let mut label_data = Vec::new();
-            for &size in &sizes {
-                println!(
-                    "Rust ndarray - type: {}, size: {}, operation {}",
-                    label, size, op
-                );
-                let mut results = Vec::new();
-                for _ in 0..((sizes.last().unwrap() / &size) + 2) {
-                    let mut a = random_array(size, label);
-                    let mut b = random_array(size, label);
-
-                    let start: Instant;
-
-                    match op.as_ref() {
-                        "add" => {
-                            start = std::time::Instant::now();
-                            let _ = add_arrays(&a, &b);
-                        }
-                        "sub" => {
-                            start = std::time::Instant::now();
-                            let _ = sub_arrays(&a, &b);
-                        }
-                        "mul" => {
-                            start = std::time::Instant::now();
-                            let _ = mul_arrays(&a, &b);
-                        }
-                        "div" => {
-                            replace_zeros(&mut a);
-                            replace_zeros(&mut b);
-                            start = std::time::Instant::now();
-                            let _ = div_arrays(&a, &b);
-                        }
-                        "dot" => {
-                            start = std::time::Instant::now();
-                            let _ = dot_arrays(&a, &b);
-                        }
-                        _ => {
-                            start = std::time::Instant::now();
-                        }
-                    }
-
-                    let duration = start.elapsed();
-                    results.push(duration.as_secs_f64());
-                }
-                let average_time: f64 = results.iter().sum::<f64>() / results.len() as f64;
-                label_data.push(average_time);
-            }
-            timing_data.push(label_data.into_pyarray(py).to_owned());
-        }
-        timings_ndarrays.set_item(op, timing_data)?;
-    }
-
-    Ok(timings_ndarrays.to_object(py))
-}
 
 enum DynamicArrayHa {
     U8(ArrayBase<Vec<u8>>),
@@ -275,18 +13,41 @@ enum DynamicArrayHa {
     F64(ArrayBase<Vec<f64>>),
 }
 
-fn random_array_ha(size: usize, datatype: &str, context: &Context) -> DynamicArrayHa {
+impl Clone for DynamicArrayHa {
+    fn clone(&self) -> Self {
+        match self {
+            DynamicArrayHa::U8(array) => DynamicArrayHa::U8(array.clone()),
+            DynamicArrayHa::U16(array) => DynamicArrayHa::U16(array.clone()),
+            DynamicArrayHa::U32(array) => DynamicArrayHa::U32(array.clone()),
+            DynamicArrayHa::U64(array) => DynamicArrayHa::U64(array.clone()),
+            DynamicArrayHa::F32(array) => DynamicArrayHa::F32(array.clone()),
+            DynamicArrayHa::F64(array) => DynamicArrayHa::F64(array.clone()),
+        }
+    }
+}
+
+fn max_value(size: usize, bytes: u32) -> u64 {
+    let max_val_1: u64 = (2_u64.pow(bytes)) / size as u64;
+    let max_val_2: u64 = bytes as u64 / 2;
+    let max_val: u64 = max_val_1.min(max_val_2);
+    if max_val == 0 {
+        // prevents under/overflow, but maybe this should thin out
+        // the array instead; cos does the compiler recognise
+        // zeors in everything here?
+        1
+    } else {
+        max_val - 1
+    }
+}
+
+fn random_array(size: usize, datatype: &str, context: &Context) -> DynamicArrayHa {
     let mut rng = rand::thread_rng();
+    let max_val = max_value(size, 8);
     match datatype {
         "uint8" => {
             // nonzeros for the div function
             let data: Vec<u8> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<u8>();
-                    if val != 0 {
-                        break val;
-                    }
-                })
+                .map(|_| rng.gen_range(1..=max_val as u8))
                 .collect();
             DynamicArrayHa::U8(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
@@ -294,12 +55,7 @@ fn random_array_ha(size: usize, datatype: &str, context: &Context) -> DynamicArr
         }
         "uint16" => {
             let data: Vec<u16> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<u16>();
-                    if val != 0 {
-                        break val;
-                    }
-                })
+                .map(|_| rng.gen_range(1..=max_val as u16))
                 .collect();
             DynamicArrayHa::U16(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
@@ -307,12 +63,7 @@ fn random_array_ha(size: usize, datatype: &str, context: &Context) -> DynamicArr
         }
         "uint32" => {
             let data: Vec<u32> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<u32>();
-                    if val != 0 {
-                        break val;
-                    }
-                })
+                .map(|_| rng.gen_range(1..=max_val as u32))
                 .collect();
             DynamicArrayHa::U32(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
@@ -320,39 +71,20 @@ fn random_array_ha(size: usize, datatype: &str, context: &Context) -> DynamicArr
         }
         "uint64" => {
             let data: Vec<u64> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<u64>();
-                    if val != 0 {
-                        break val;
-                    }
-                })
+                .map(|_| rng.gen_range(1..=max_val as u64))
                 .collect();
             DynamicArrayHa::U64(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
             )
         }
         "float32" => {
-            let data: Vec<f32> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<f32>();
-                    if val != 0.0 {
-                        break val;
-                    }
-                })
-                .collect();
+            let data: Vec<f32> = (0..size * size).map(|_| rng.gen_range(0.0..=1.0)).collect();
             DynamicArrayHa::F32(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
             )
         }
         "float64" => {
-            let data: Vec<f64> = (0..size * size)
-                .map(|_| loop {
-                    let val = rng.gen::<f64>();
-                    if val != 0.0 {
-                        break val;
-                    }
-                })
-                .collect();
+            let data: Vec<f64> = (0..size * size).map(|_| rng.gen_range(0.0..1.0)).collect();
             DynamicArrayHa::F64(
                 ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
             )
@@ -361,15 +93,15 @@ fn random_array_ha(size: usize, datatype: &str, context: &Context) -> DynamicArr
     }
 }
 
-fn add_arrays_ha(
+fn add_arrays(
     a: DynamicArrayHa,
     b: DynamicArrayHa,
     size: usize,
     context: &Context,
 ) -> Result<DynamicArrayHa, &'static str> {
     match (a, b) {
-        (DynamicArrayHa::U8(arr_a), DynamicArrayHa::U8(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::U8(a), DynamicArrayHa::U8(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -383,8 +115,8 @@ fn add_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U16(arr_a), DynamicArrayHa::U16(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::U16(a), DynamicArrayHa::U16(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -398,8 +130,8 @@ fn add_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U32(arr_a), DynamicArrayHa::U32(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::U32(a), DynamicArrayHa::U32(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -413,8 +145,8 @@ fn add_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U64(arr_a), DynamicArrayHa::U64(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::U64(a), DynamicArrayHa::U64(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -428,8 +160,8 @@ fn add_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F32(arr_a), DynamicArrayHa::F32(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::F32(a), DynamicArrayHa::F32(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -443,8 +175,8 @@ fn add_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F64(arr_a), DynamicArrayHa::F64(arr_b)) => {
-            let result_op = arr_a.add(arr_b).unwrap();
+        (DynamicArrayHa::F64(a), DynamicArrayHa::F64(b)) => {
+            let result_op = a.add(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -462,15 +194,15 @@ fn add_arrays_ha(
     }
 }
 
-fn sub_arrays_ha(
+fn sub_arrays(
     a: DynamicArrayHa,
     b: DynamicArrayHa,
     size: usize,
     context: &Context,
 ) -> Result<DynamicArrayHa, &'static str> {
     match (a, b) {
-        (DynamicArrayHa::U8(arr_a), DynamicArrayHa::U8(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::U8(a), DynamicArrayHa::U8(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -484,8 +216,8 @@ fn sub_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U16(arr_a), DynamicArrayHa::U16(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::U16(a), DynamicArrayHa::U16(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -499,8 +231,8 @@ fn sub_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U32(arr_a), DynamicArrayHa::U32(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::U32(a), DynamicArrayHa::U32(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -514,8 +246,8 @@ fn sub_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U64(arr_a), DynamicArrayHa::U64(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::U64(a), DynamicArrayHa::U64(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -529,8 +261,8 @@ fn sub_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F32(arr_a), DynamicArrayHa::F32(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::F32(a), DynamicArrayHa::F32(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -544,8 +276,8 @@ fn sub_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F64(arr_a), DynamicArrayHa::F64(arr_b)) => {
-            let result_op = arr_a.sub(arr_b).unwrap();
+        (DynamicArrayHa::F64(a), DynamicArrayHa::F64(b)) => {
+            let result_op = a.sub(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -563,15 +295,15 @@ fn sub_arrays_ha(
     }
 }
 
-fn mul_arrays_ha(
+fn mul_arrays(
     a: DynamicArrayHa,
     b: DynamicArrayHa,
     size: usize,
     context: &Context,
 ) -> Result<DynamicArrayHa, &'static str> {
     match (a, b) {
-        (DynamicArrayHa::U8(arr_a), DynamicArrayHa::U8(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::U8(a), DynamicArrayHa::U8(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -585,8 +317,8 @@ fn mul_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U16(arr_a), DynamicArrayHa::U16(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::U16(a), DynamicArrayHa::U16(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -600,8 +332,8 @@ fn mul_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U32(arr_a), DynamicArrayHa::U32(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::U32(a), DynamicArrayHa::U32(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -615,8 +347,8 @@ fn mul_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U64(arr_a), DynamicArrayHa::U64(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::U64(a), DynamicArrayHa::U64(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -630,8 +362,8 @@ fn mul_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F32(arr_a), DynamicArrayHa::F32(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::F32(a), DynamicArrayHa::F32(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -645,8 +377,8 @@ fn mul_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F64(arr_a), DynamicArrayHa::F64(arr_b)) => {
-            let result_op = arr_a.mul(arr_b).unwrap();
+        (DynamicArrayHa::F64(a), DynamicArrayHa::F64(b)) => {
+            let result_op = a.mul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -664,15 +396,15 @@ fn mul_arrays_ha(
     }
 }
 
-fn div_arrays_ha(
+fn div_arrays(
     a: DynamicArrayHa,
     b: DynamicArrayHa,
     size: usize,
     context: &Context,
 ) -> Result<DynamicArrayHa, &'static str> {
     match (a, b) {
-        (DynamicArrayHa::U8(arr_a), DynamicArrayHa::U8(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::U8(a), DynamicArrayHa::U8(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -686,8 +418,8 @@ fn div_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U16(arr_a), DynamicArrayHa::U16(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::U16(a), DynamicArrayHa::U16(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -701,8 +433,8 @@ fn div_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U32(arr_a), DynamicArrayHa::U32(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::U32(a), DynamicArrayHa::U32(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -716,8 +448,8 @@ fn div_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U64(arr_a), DynamicArrayHa::U64(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::U64(a), DynamicArrayHa::U64(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -731,8 +463,8 @@ fn div_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F32(arr_a), DynamicArrayHa::F32(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::F32(a), DynamicArrayHa::F32(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -746,8 +478,8 @@ fn div_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F64(arr_a), DynamicArrayHa::F64(arr_b)) => {
-            let result_op = arr_a.div(arr_b).unwrap();
+        (DynamicArrayHa::F64(a), DynamicArrayHa::F64(b)) => {
+            let result_op = a.div(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -765,15 +497,15 @@ fn div_arrays_ha(
     }
 }
 
-fn dot_arrays_ha(
+fn dot_arrays(
     a: DynamicArrayHa,
     b: DynamicArrayHa,
     size: usize,
     context: &Context,
 ) -> Result<DynamicArrayHa, &'static str> {
     match (a, b) {
-        (DynamicArrayHa::U8(arr_a), DynamicArrayHa::U8(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::U8(a), DynamicArrayHa::U8(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -787,8 +519,8 @@ fn dot_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U16(arr_a), DynamicArrayHa::U16(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::U16(a), DynamicArrayHa::U16(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -802,8 +534,8 @@ fn dot_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U32(arr_a), DynamicArrayHa::U32(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::U32(a), DynamicArrayHa::U32(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -817,8 +549,8 @@ fn dot_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::U64(arr_a), DynamicArrayHa::U64(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::U64(a), DynamicArrayHa::U64(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -832,8 +564,8 @@ fn dot_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F32(arr_a), DynamicArrayHa::F32(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::F32(a), DynamicArrayHa::F32(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -847,8 +579,8 @@ fn dot_arrays_ha(
                     .unwrap(),
             ))
         }
-        (DynamicArrayHa::F64(arr_a), DynamicArrayHa::F64(arr_b)) => {
-            let result_op = arr_a.matmul(arr_b).unwrap();
+        (DynamicArrayHa::F64(a), DynamicArrayHa::F64(b)) => {
+            let result_op = a.matmul(b).unwrap();
             let queue = Queue::new(context.clone(), size * size).unwrap();
             let result_array = if let BufferConverter::Host(SliceConverter::Vec(data)) =
                 result_op.read(&queue).unwrap()
@@ -866,70 +598,68 @@ fn dot_arrays_ha(
     }
 }
 
-fn ha_error_to_py_err(err: ha_ndarray::Error) -> PyErr {
-    pyo3::exceptions::PyRuntimeError::new_err(format!("ha_ndarray error: {}", err))
-}
+pub fn ha_ndarray_test(
+    data_types: Vec<&'static str>,
+    operations: Vec<&'static str>,
+    sizes: Vec<usize>,
+) -> HashMap<&'static str, Vec<Vec<f64>>> {
+    let context = Context::default().unwrap();
 
-#[pyfunction]
-pub fn ha_ndarray_test(py: Python) -> PyResult<PyObject> {
-    let labels: Vec<&str> = vec!["uint8", "uint16", "uint32", "uint64", "float32", "float64"];
-    let sizes: Vec<usize> = (1..=11).step_by(2).map(|x| 2_usize.pow(x)).collect();
-    let operations: Vec<&str> = vec!["add", "sub", "mul", "div", "dot"];
-    let context = Context::default().map_err(ha_error_to_py_err)?;
+    let mut timings = HashMap::new();
 
-    let timings_ha_ndarrays = PyDict::new(py);
-
-    for op in &operations {
+    for op in operations {
         let mut timing_data = Vec::new();
-        for label in &labels {
+        for dtype in &data_types {
             let mut label_data = Vec::new();
             for &size in &sizes {
-                println!(
-                    "Rust ha-ndarray - type: {}, size: {}, operation {}",
-                    label, size, op
-                );
                 let mut results = Vec::new();
-                for _ in 0..((sizes.last().unwrap() / &size) + 2) {
-                    let a = random_array_ha(size, label, &context);
-                    let b = random_array_ha(size, label, &context);
+                for _ in 0..((sizes.last().unwrap() / size) + 2) {
+                    let a = random_array(size, dtype, &context);
+                    let b = random_array(size, dtype, &context);
 
-                    let start: Instant;
-                    match op.as_ref() {
+                    let start;
+
+                    let _ = match op {
                         "add" => {
-                            start = std::time::Instant::now();
-                            let _ = add_arrays_ha(a, b, size, &context);
+                            start = Instant::now();
+                            add_arrays(a, b, size, &context)
                         }
                         "sub" => {
-                            start = std::time::Instant::now();
-                            let _ = sub_arrays_ha(a, b, size, &context);
+                            let c = add_arrays(a.clone(), b, size, &context).unwrap();
+                            start = Instant::now();
+                            sub_arrays(c, a, size, &context)
                         }
                         "mul" => {
-                            start = std::time::Instant::now();
-                            let _ = mul_arrays_ha(a, b, size, &context);
+                            start = Instant::now();
+                            mul_arrays(a, b, size, &context)
                         }
                         "div" => {
-                            start = std::time::Instant::now();
-                            let _ = div_arrays_ha(a, b, size, &context);
+                            start = Instant::now();
+                            div_arrays(a, b, size, &context)
                         }
                         "dot" => {
-                            start = std::time::Instant::now();
-                            let _ = dot_arrays_ha(a, b, size, &context);
+                            start = Instant::now();
+                            dot_arrays(a, b, size, &context)
                         }
-                        _ => {
-                            start = std::time::Instant::now();
-                        }
-                    }
+                        _ => panic!("Unsupported operation: {}", op),
+                    };
 
-                    let duration = start.elapsed();
-                    results.push(duration.as_secs_f64());
+                    results.push(start.elapsed().as_secs_f64());
                 }
                 let average_time: f64 = results.iter().sum::<f64>() / results.len() as f64;
-                label_data.push(average_time);
-            }
-            timing_data.push(label_data.into_pyarray(py).to_owned());
-        }
-        timings_ha_ndarrays.set_item(op, timing_data)?;
-    }
+                label_data.push(average_time.clone());
 
-    Ok(timings_ha_ndarrays.to_object(py))
+                // println!(
+                //     "ha-nd-array - type: {}, size: {}, operation: {}, time: {}",
+                //     dtype, size, op, average_time
+                // );
+                print!(".");
+                io::stdout().flush().unwrap();
+            }
+            timing_data.push(label_data);
+        }
+        timings.insert(op, timing_data);
+    }
+    println!(" ");
+    timings
 }
