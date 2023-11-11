@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Kernel, Program};
 
 use crate::access::Access;
-use crate::array::Array;
 use crate::{strides_for, CType, Enqueue, Error, Op};
 
 use super::kernels;
@@ -180,18 +179,19 @@ impl<A, T> View<A, T>
 where
     T: CType,
 {
-    pub fn new<P>(
-        source: Array<T, A, P>,
+    pub fn new(
+        access: A,
         shape: &[usize],
+        broadcast: &[usize],
         strides: &[usize],
     ) -> Result<Self, Error> {
-        let size = shape.iter().product();
-        let source_strides = strides_for(source.shape(), source.ndim());
+        let size = broadcast.iter().product();
+        let source_strides = strides_for(shape, shape.len());
 
         let program = kernels::view::view::<T>(OpenCL.context(), shape, strides, &source_strides)?;
 
         Ok(Self {
-            access: source.into_inner(),
+            access,
             program,
             size,
             dtype: PhantomData,

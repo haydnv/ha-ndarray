@@ -85,25 +85,15 @@ impl<T, A, P> Array<T, A, P> {
     where
         P: Transform<A, T>,
     {
-        if shape.len() < self.ndim() {
+        if !can_broadcast(self.shape(), &shape) {
             return Err(Error::Bounds(format!(
                 "cannot broadcast {self:?} into {shape:?}"
             )));
         }
 
-        for (dim, bdim) in self.shape().iter().rev().zip(shape.iter().rev()) {
-            if dim == bdim || *dim == 1 {
-                // ok
-            } else {
-                return Err(Error::Bounds(format!(
-                    "cannot broadcast dimension {dim} into {bdim}"
-                )));
-            }
-        }
-
-        let platform = self.platform;
-
-        let access = self.platform.broadcast(self, &shape)?;
+        let platform = P::select(shape.iter().product());
+        let broadcast = Shape::from_slice(&shape);
+        let access = platform.broadcast(self.access, self.shape, broadcast)?;
 
         Ok(Array {
             shape,
@@ -121,16 +111,14 @@ impl<T, L, P> Array<T, L, P> {
     where
         P: ElementwiseCompare<L, R, T>,
     {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.eq(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
+        same_shape("compare", self.shape(), other.shape())?;
+
+        Ok(Array {
+            shape: self.shape,
+            access: self.platform.eq(self.access, other.access)?,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 
     // array-array arithmetic
@@ -138,32 +126,28 @@ impl<T, L, P> Array<T, L, P> {
     where
         P: ElementwiseDual<L, R, T>,
     {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.add(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
+        same_shape("add", self.shape(), other.shape())?;
+
+        Ok(Array {
+            shape: self.shape,
+            access: self.platform.add(self.access, other.access)?,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 
     pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
     where
         P: ElementwiseDual<L, R, T>,
     {
-        if self.shape == other.shape {
-            Ok(Array {
-                shape: self.shape,
-                access: self.platform.sub(self.access, other.access)?,
-                platform: self.platform,
-                dtype: PhantomData,
-            })
-        } else {
-            todo!("broadcast")
-        }
+        same_shape("subtract", self.shape(), other.shape())?;
+
+        Ok(Array {
+            shape: self.shape,
+            access: self.platform.sub(self.access, other.access)?,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 }
 
@@ -190,5 +174,37 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
             std::any::type_name::<T>(),
             self.shape
         )
+    }
+}
+
+#[inline]
+fn can_broadcast(left: &[usize], right: &[usize]) -> bool {
+    if left.len() < right.len() {
+        return can_broadcast(right, left);
+    }
+
+    for (l, r) in left.iter().copied().rev().zip(right.iter().copied().rev()) {
+        if l == r || l == 1 || r == 1 {
+            // pass
+        } else {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[inline]
+fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<(), Error> {
+    if left == right {
+        Ok(())
+    } else if can_broadcast(left, right) {
+        Err(Error::Bounds(format!(
+            "cannot {op_name} arrays with shapes {left:?} and {right:?} (consider broadcasting)"
+        )))
+    } else {
+        Err(Error::Bounds(format!(
+            "cannot {op_name} arrays with shapes {left:?} and {right:?}"
+        )))
     }
 }

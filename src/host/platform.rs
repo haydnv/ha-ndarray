@@ -1,11 +1,12 @@
 use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
-use crate::array::Array;
+use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
-use crate::platform::PlatformInstance;
-use crate::{strides_for, CType, Error, Shape};
+use crate::platform::{Convert, PlatformInstance};
+use crate::{strides_for, CType, Error, Shape, StackVec};
 
+use super::buffer::Buffer;
 use super::ops::*;
 
 pub const VEC_MIN_SIZE: usize = 64;
@@ -19,12 +20,28 @@ impl PlatformInstance for Stack {
     }
 }
 
+impl<T: CType> Convert<T> for Stack {
+    type Buffer = StackVec<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_slice().map(|slice| slice.into_stackvec())
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Heap;
 
 impl PlatformInstance for Heap {
     fn select(_size_hint: usize) -> Self {
         Self
+    }
+}
+
+impl<T: CType> Convert<T> for Heap {
+    type Buffer = Vec<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_slice().map(|slice| slice.into_vec())
     }
 }
 
@@ -41,6 +58,29 @@ impl PlatformInstance for Host {
         } else {
             Self::Heap(Heap)
         }
+    }
+}
+
+impl<T: CType> Convert<T> for Host {
+    type Buffer = Buffer<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        match self {
+            Self::Heap(heap) => heap.convert(buffer).map(Buffer::Heap),
+            Self::Stack(stack) => stack.convert(buffer).map(Buffer::Stack),
+        }
+    }
+}
+
+impl From<Heap> for Host {
+    fn from(heap: Heap) -> Self {
+        Self::Heap(heap)
+    }
+}
+
+impl From<Stack> for Host {
+    fn from(stack: Stack) -> Self {
+        Self::Stack(stack)
     }
 }
 
@@ -117,10 +157,11 @@ where
 
     fn broadcast(
         self,
-        array: Array<T, A, Self>,
-        shape: &[usize],
+        array: A,
+        shape: Shape,
+        broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        let strides = strides_for(array.shape(), shape.len());
-        Ok(View::new(array, Shape::from_slice(shape), strides).into())
+        let strides = strides_for(&shape, broadcast.len());
+        Ok(View::new(array, broadcast, strides).into())
     }
 }

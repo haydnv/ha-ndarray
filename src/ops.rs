@@ -1,10 +1,9 @@
 use crate::access::*;
-use crate::array::Array;
 use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, CType, Error};
+use crate::{host, CType, Error, Shape};
 
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
@@ -41,8 +40,9 @@ pub trait Transform<A, T>: PlatformInstance {
 
     fn broadcast(
         self,
-        array: Array<T, A, Self>,
-        shape: &[usize],
+        access: A,
+        shape: Shape,
+        broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error>;
 }
 
@@ -156,5 +156,18 @@ where
             Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
             Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
         }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T> From<opencl::ops::View<A, T>> for View<A, T> {
+    fn from(op: opencl::ops::View<A, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<A, T> From<host::ops::View<A, T>> for View<A, T> {
+    fn from(op: host::ops::View<A, T>) -> Self {
+        Self::Host(op)
     }
 }

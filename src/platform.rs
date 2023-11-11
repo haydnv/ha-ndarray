@@ -1,9 +1,9 @@
 use crate::access::{Access, AccessOp};
-use crate::buffer::{BufferConverter, BufferInstance};
+use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, Host};
+use crate::{host, CType, Error, Host, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -50,6 +50,18 @@ impl From<opencl::OpenCL> for Platform {
 impl From<host::Host> for Platform {
     fn from(host: Host) -> Self {
         Self::Host(host)
+    }
+}
+
+impl<T: CType> Convert<T> for Platform {
+    type Buffer = Buffer<T>;
+
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.convert(buffer).map(Buffer::CL),
+            Self::Host(host) => host.convert(buffer).map(Buffer::Host),
+        }
     }
 }
 
@@ -168,6 +180,27 @@ where
         match Self::select(access.size()) {
             Self::CL(cl) => cl.all(access),
             Self::Host(host) => host.all(access),
+        }
+    }
+}
+
+impl<A, T> Transform<A, T> for Platform
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Broadcast = View<A, T>;
+
+    fn broadcast(
+        self,
+        access: A,
+        shape: Shape,
+        broadcast: Shape,
+    ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.broadcast(access, shape, broadcast).map(AccessOp::wrap),
+            Self::Host(host) => host.broadcast(access, shape, broadcast).map(AccessOp::wrap),
         }
     }
 }

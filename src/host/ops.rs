@@ -5,7 +5,6 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
-use crate::array::Array;
 use crate::buffer::BufferConverter;
 use crate::{strides_for, CType, Enqueue, Error, Op, Shape, StackVec, Strides};
 
@@ -229,11 +228,11 @@ where
     A: Access<T>,
     T: CType,
 {
-    pub fn new<P>(array: Array<T, A, P>, shape: Shape, strides: Strides) -> Self {
-        let source_strides = strides_for(array.shape(), array.ndim());
+    pub fn new(access: A, shape: Shape, strides: Strides) -> Self {
+        let source_strides = strides_for(&shape, shape.len());
 
         Self {
-            access: array.into_inner(),
+            access,
             spec: ViewSpec {
                 shape,
                 strides,

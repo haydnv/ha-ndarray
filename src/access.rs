@@ -110,3 +110,20 @@ impl<T: CType> Access<T> for Accessor<T> {
         }
     }
 }
+
+impl<T: CType, B: Into<Buffer<T>>> From<AccessBuffer<B>> for Accessor<T> {
+    fn from(access: AccessBuffer<B>) -> Self {
+        Self::Buffer(access.buffer.into())
+    }
+}
+
+impl<T, O> From<AccessOp<O, Platform>> for Accessor<T>
+where
+    T: CType,
+    O: Enqueue<Platform, Buffer = Buffer<T>> + Sized + 'static,
+{
+    fn from(access: AccessOp<O, Platform>) -> Self {
+        let op: Box<dyn Enqueue<Platform, Buffer = Buffer<T>>> = Box::new(access.op);
+        Self::Op(op)
+    }
+}

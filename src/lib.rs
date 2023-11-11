@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::{Add, Sub};
 
+pub use smallvec::smallvec as shape;
 use smallvec::SmallVec;
 
 use access::AccessBuffer;

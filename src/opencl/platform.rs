@@ -4,11 +4,10 @@ use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
 
 use crate::access::{Access, AccessOp};
-use crate::array::Array;
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error};
+use crate::{strides_for, CType, Error, Shape};
 
 use super::kernels;
 use super::ops::*;
@@ -334,10 +333,11 @@ where
 
     fn broadcast(
         self,
-        array: Array<T, A, Self>,
-        shape: &[usize],
+        access: A,
+        shape: Shape,
+        broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        let strides = strides_for(array.shape(), shape.len());
-        View::new(array, shape, &strides).map(AccessOp::from)
+        let strides = strides_for(&shape, broadcast.len());
+        View::new(access, &shape, &broadcast, &strides).map(AccessOp::from)
     }
 }
