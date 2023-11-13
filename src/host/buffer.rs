@@ -44,6 +44,22 @@ pub enum Buffer<T> {
     Stack(StackVec<T>),
 }
 
+impl<T: Clone> Buffer<T> {
+    pub fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::Heap(data) => data,
+            Self::Stack(data) => data.into_vec(),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        match self {
+            Self::Heap(data) => data.to_vec(),
+            Self::Stack(data) => data.to_vec(),
+        }
+    }
+}
+
 impl<T> Borrow<[T]> for Buffer<T> {
     fn borrow(&self) -> &[T] {
         match self {

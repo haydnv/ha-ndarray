@@ -4,10 +4,11 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{CType, Error, Shape, StackVec};
+use crate::{CType, Error, Shape};
 
 use super::buffer::Buffer;
 use super::ops::*;
+use super::StackVec;
 
 pub const VEC_MIN_SIZE: usize = 64;
 

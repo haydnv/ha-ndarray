@@ -1,9 +1,11 @@
+use std::fmt;
+
 #[cfg(feature = "stream")]
 use destream::{de, en};
 
 #[cfg(feature = "opencl")]
 use crate::opencl;
-use crate::{host, CType, Error, StackVec};
+use crate::{host, CType, Error};
 
 pub trait BufferInstance<T: CType>: Send + Sync + Sized {
     fn read(&self) -> Result<BufferConverter<T>, Error>;
@@ -11,7 +13,7 @@ pub trait BufferInstance<T: CType>: Send + Sync + Sized {
     fn size(&self) -> usize;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Buffer<T: CType> {
     #[cfg(feature = "opencl")]
     CL(ocl::Buffer<T>),
@@ -134,8 +136,8 @@ impl<T: CType> From<Vec<T>> for BufferConverter<'static, T> {
     }
 }
 
-impl<T: CType> From<StackVec<T>> for BufferConverter<'static, T> {
-    fn from(buf: StackVec<T>) -> Self {
+impl<T: CType> From<host::StackVec<T>> for BufferConverter<'static, T> {
+    fn from(buf: host::StackVec<T>) -> Self {
         Self::Host(buf.into())
     }
 }
@@ -161,46 +163,187 @@ impl<'a, T: CType> From<&'a ocl::Buffer<T>> for BufferConverter<'a, T> {
 }
 
 #[cfg(feature = "stream")]
-impl<'en, T: CType> en::IntoStream<'en> for Buffer<T>
-where
-    for<'a> &'a [T]: en::IntoStream<'en>,
-{
-    fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
-        en::IntoStream::into_stream(BufferConverter::from(self), encoder)
+struct BufferVisitor<T> {
+    data: Vec<T>,
+}
+
+#[cfg(feature = "stream")]
+impl<T> BufferVisitor<T> {
+    fn new() -> Self {
+        Self { data: Vec::new() }
     }
 }
 
 #[cfg(feature = "stream")]
-impl<'en, T: CType> en::ToStream<'en> for Buffer<T>
-where
-    for<'a> &'a [T]: en::IntoStream<'en>,
-{
-    fn to_stream<E: en::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
-        en::IntoStream::into_stream(BufferConverter::from(self), encoder)
-    }
+macro_rules! decode_buffer {
+    ($t:ty, $name:expr, $decode:ident, $visit:ident, $encode:ident) => {
+        #[async_trait::async_trait]
+        impl de::Visitor for BufferVisitor<$t> {
+            type Value = Buffer<$t>;
+
+            fn expecting() -> &'static str {
+                $name
+            }
+
+            async fn $visit<A: de::ArrayAccess<$t>>(
+                self,
+                mut array: A,
+            ) -> Result<Self::Value, A::Error> {
+                const BUF_SIZE: usize = 4_096;
+                let mut data = self.data;
+
+                let mut buf = [<$t>::ZERO; BUF_SIZE];
+                loop {
+                    let len = array.buffer(&mut buf).await?;
+                    if len == 0 {
+                        break;
+                    } else {
+                        data.extend_from_slice(&buf[..len]);
+                    }
+                }
+
+                data.shrink_to_fit();
+
+                Ok(Buffer::Host(data.into()))
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl de::FromStream for Buffer<$t> {
+            type Context = ();
+
+            async fn from_stream<D: de::Decoder>(
+                _cxt: (),
+                decoder: &mut D,
+            ) -> Result<Self, D::Error> {
+                decoder.$decode(BufferVisitor::<$t>::new()).await
+            }
+        }
+
+        impl<'en> en::ToStream<'en> for Buffer<$t> {
+            fn to_stream<E: en::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
+                match self {
+                    Self::Host(buffer) => {
+                        let fut = futures::future::ready(buffer.to_vec());
+                        let stream = futures::stream::once(fut);
+                        encoder.$encode(stream)
+                    }
+                    #[cfg(feature = "opencl")]
+                    Self::CL(buffer) => {
+                        let mut data = Vec::with_capacity(buffer.len());
+                        buffer.read(&mut data).enq().map_err(en::Error::custom)?;
+                        encoder.$encode(futures::stream::once(futures::future::ready(data)))
+                    }
+                }
+            }
+        }
+
+        impl<'en> en::IntoStream<'en> for Buffer<$t> {
+            fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
+                match self {
+                    Self::Host(buffer) => {
+                        let buffer = buffer.to_vec();
+                        encoder.$encode(futures::stream::once(futures::future::ready(buffer)))
+                    }
+                    #[cfg(feature = "opencl")]
+                    Self::CL(buffer) => {
+                        let mut data = Vec::with_capacity(buffer.len());
+                        buffer.read(&mut data).enq().map_err(en::Error::custom)?;
+                        encoder.$encode(futures::stream::once(futures::future::ready(data)))
+                    }
+                }
+            }
+        }
+    };
 }
 
 #[cfg(feature = "stream")]
-impl<'en, T: CType> en::IntoStream<'en> for BufferConverter<'en, T>
-where
-    for<'a> &'a [T]: en::IntoStream<'en>,
-{
-    fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
-        let slice = self.to_slice().map_err(en::Error::custom)?;
-        en::IntoStream::<'en>::into_stream(slice.as_ref(), encoder)
-    }
-}
+decode_buffer!(
+    u8,
+    "byte array",
+    decode_array_u8,
+    visit_array_u8,
+    encode_array_u8
+);
 
 #[cfg(feature = "stream")]
-#[async_trait::async_trait]
-impl<T: CType> de::FromStream for Buffer<T>
-where
-    T: de::FromStream<Context = ()>,
-{
-    type Context = ();
+decode_buffer!(
+    u16,
+    "16-bit unsigned int array",
+    decode_array_u16,
+    visit_array_u16,
+    encode_array_u16
+);
 
-    async fn from_stream<D: de::Decoder>(cxt: (), decoder: &mut D) -> Result<Self, D::Error> {
-        let data = Vec::<T>::from_stream(cxt, decoder).await?;
-        Ok(Self::Host(data.into()))
+#[cfg(feature = "stream")]
+decode_buffer!(
+    u32,
+    "32-bit unsigned int array",
+    decode_array_u32,
+    visit_array_u32,
+    encode_array_u32
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    u64,
+    "64-bit unsigned int array",
+    decode_array_u64,
+    visit_array_u64,
+    encode_array_u64
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    i16,
+    "16-bit int array",
+    decode_array_i16,
+    visit_array_i16,
+    encode_array_i16
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    i32,
+    "32-bit int array",
+    decode_array_i32,
+    visit_array_i32,
+    encode_array_i32
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    i64,
+    "64-bit int array",
+    decode_array_i64,
+    visit_array_i64,
+    encode_array_i64
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    f32,
+    "32-bit int array",
+    decode_array_f32,
+    visit_array_f32,
+    encode_array_f32
+);
+
+#[cfg(feature = "stream")]
+decode_buffer!(
+    f64,
+    "64-bit int array",
+    decode_array_f64,
+    visit_array_f64,
+    encode_array_f64
+);
+
+impl<T: CType + fmt::Debug> fmt::Debug for Buffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Host(buffer) => fmt::Debug::fmt(buffer, f),
+            #[cfg(feature = "opencl")]
+            Self::CL(buffer) => fmt::Debug::fmt(buffer, f),
+        }
     }
 }

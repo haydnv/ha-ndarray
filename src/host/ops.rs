@@ -6,11 +6,11 @@ use rayon::prelude::*;
 
 use crate::access::Access;
 use crate::buffer::BufferConverter;
-use crate::{strides_for, CType, Enqueue, Error, Op, Shape, StackVec, Strides};
+use crate::{strides_for, CType, Enqueue, Error, Op, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
-use super::VEC_MIN_SIZE;
+use super::{StackVec, VEC_MIN_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,

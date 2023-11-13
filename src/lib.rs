@@ -7,16 +7,15 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
-pub use host::{Host, StackVec};
 use ops::*;
 pub use platform::*;
 
 mod access;
 mod array;
 mod buffer;
-mod host;
+pub mod host;
 #[cfg(feature = "opencl")]
-mod opencl;
+pub mod opencl;
 mod ops;
 mod platform;
 
@@ -26,7 +25,7 @@ pub trait CType:
     + Add<Output = Self>
     + Sub<Output = Self>
     + Sum
-    + Eq
+    + PartialEq
     + Copy
     + Send
     + Sync
@@ -46,7 +45,7 @@ pub trait CType:
     Add<Output = Self>
     + Sub<Output = Self>
     + Sum
-    + Eq
+    + PartialEq
     + Copy
     + Send
     + Sync
@@ -61,31 +60,28 @@ pub trait CType:
     const ONE: Self;
 }
 
-impl CType for u8 {
-    const TYPE: &'static str = "uchar";
+macro_rules! c_type {
+    ($t:ty, $str:expr, $one:expr, $zero:expr) => {
+        impl CType for $t {
+            const TYPE: &'static str = $str;
 
-    const ZERO: Self = 0;
+            const ZERO: Self = $zero;
 
-    const ONE: Self = 1;
+            const ONE: Self = $one;
+        }
+    };
 }
 
-impl CType for i32 {
-    const TYPE: &'static str = "int";
-    const ZERO: Self = 0;
-    const ONE: Self = 1;
-}
-
-impl CType for u32 {
-    const TYPE: &'static str = "uint";
-    const ZERO: Self = 0;
-    const ONE: Self = 1;
-}
-
-impl CType for u64 {
-    const TYPE: &'static str = "ulong";
-    const ZERO: Self = 0;
-    const ONE: Self = 1;
-}
+c_type!(f32, "float", 1.0, 0.0);
+c_type!(f64, "double", 1.0, 0.0);
+c_type!(i8, "char", 1, 0);
+c_type!(i16, "short", 1, 0);
+c_type!(i32, "int", 1, 0);
+c_type!(i64, "long", 1, 0);
+c_type!(u8, "uchar", 1, 0);
+c_type!(u16, "ushort", 1, 0);
+c_type!(u32, "uint", 1, 0);
+c_type!(u64, "ulong", 1, 0);
 
 /// An array math error
 pub enum Error {
