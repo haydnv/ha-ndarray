@@ -1,3 +1,6 @@
+#[cfg(feature = "stream")]
+use destream::{de, en};
+
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::{host, CType, Error, StackVec};
@@ -154,5 +157,50 @@ impl<T: CType> From<ocl::Buffer<T>> for BufferConverter<'static, T> {
 impl<'a, T: CType> From<&'a ocl::Buffer<T>> for BufferConverter<'a, T> {
     fn from(buf: &'a ocl::Buffer<T>) -> Self {
         Self::CL(buf.into())
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<'en, T: CType> en::IntoStream<'en> for Buffer<T>
+where
+    for<'a> &'a [T]: en::IntoStream<'en>,
+{
+    fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
+        en::IntoStream::into_stream(BufferConverter::from(self), encoder)
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<'en, T: CType> en::ToStream<'en> for Buffer<T>
+where
+    for<'a> &'a [T]: en::IntoStream<'en>,
+{
+    fn to_stream<E: en::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
+        en::IntoStream::into_stream(BufferConverter::from(self), encoder)
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<'en, T: CType> en::IntoStream<'en> for BufferConverter<'en, T>
+where
+    for<'a> &'a [T]: en::IntoStream<'en>,
+{
+    fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
+        let slice = self.to_slice().map_err(en::Error::custom)?;
+        en::IntoStream::<'en>::into_stream(slice.as_ref(), encoder)
+    }
+}
+
+#[cfg(feature = "stream")]
+#[async_trait::async_trait]
+impl<T: CType> de::FromStream for Buffer<T>
+where
+    T: de::FromStream<Context = ()>,
+{
+    type Context = ();
+
+    async fn from_stream<D: de::Decoder>(cxt: (), decoder: &mut D) -> Result<Self, D::Error> {
+        let data = Vec::<T>::from_stream(cxt, decoder).await?;
+        Ok(Self::Host(data.into()))
     }
 }

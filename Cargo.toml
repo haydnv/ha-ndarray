@@ -12,12 +12,17 @@ keywords = ["ndarray", "tensor", "gpu", "ml", "parallel"]
 categories = ["data-structures", "hardware-support", "mathematics"]
 
 [features]
+all = ["opencl", "stream"]
 opencl = ["ocl"]
+stream = ["async-trait", "destream", "futures"]
 
 [build-dependencies]
 pkg-config = "0.3"
 
 [dependencies]
+async-trait = { version = "0.1", optional = true }
+destream = { version = "0.7", optional = true }
+futures = { version = "0.3", optional = true }
 lazy_static = "1.4"
 num_cpus = "1.16"
 ocl = { version = "0.19", optional = true }
