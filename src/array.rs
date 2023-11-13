@@ -164,6 +164,10 @@ where
     pub fn any(self) -> Result<bool, Error> {
         self.platform.any(self.access)
     }
+
+    pub fn sum_all(self) -> Result<T, Error> {
+        self.platform.sum(self.access)
+    }
 }
 
 impl<T, A, P> fmt::Debug for Array<T, A, P> {

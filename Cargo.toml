@@ -19,6 +19,7 @@ pkg-config = "0.3"
 
 [dependencies]
 lazy_static = "1.4"
+num_cpus = "1.16"
 ocl = { version = "0.19", optional = true }
 rayon = "1.8"
 smallvec = "1.11"

@@ -1,5 +1,7 @@
 use std::fmt;
 
+use super::div_ceil;
+
 pub mod elementwise;
 pub mod reduce;
 pub mod view;

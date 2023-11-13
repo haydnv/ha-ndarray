@@ -228,13 +228,14 @@ where
     A: Access<T>,
     T: CType,
 {
-    pub fn new(access: A, shape: Shape, strides: Strides) -> Self {
+    pub fn new(access: A, shape: Shape, broadcast: Shape) -> Self {
+        let strides = strides_for(&shape, broadcast.len());
         let source_strides = strides_for(&shape, shape.len());
 
         Self {
             access,
             spec: ViewSpec {
-                shape,
+                shape: broadcast,
                 strides,
                 source_strides,
                 dtype: PhantomData,

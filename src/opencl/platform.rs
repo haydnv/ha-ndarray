@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
@@ -7,7 +8,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error, Shape};
+use crate::{strides_for, BufferInstance, CType, Error, Shape};
 
 use super::kernels;
 use super::ops::*;
@@ -321,6 +322,15 @@ where
         queue.finish()?;
 
         Ok(result == [1])
+    }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        let buffer = access.read()?.to_cl()?;
+        let buffer = buffer.as_ref();
+
+        let queue = self.queue(buffer.size(), buffer.default_queue(), None)?;
+
+        kernels::reduce::reduce(T::ZERO, "add", queue, buffer, Add::add).map_err(Error::from)
     }
 }
 

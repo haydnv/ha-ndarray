@@ -1,14 +1,15 @@
 use std::fmt;
+use std::iter::Sum;
 use std::ops::{Add, Sub};
 
 pub use smallvec::smallvec as shape;
 use smallvec::SmallVec;
 
-use access::AccessBuffer;
+pub use access::*;
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 pub use host::{Host, StackVec};
 use ops::*;
-pub use platform::Platform;
+pub use platform::*;
 
 mod access;
 mod array;
@@ -24,6 +25,7 @@ pub trait CType:
     ocl::OclPrm
     + Add<Output = Self>
     + Sub<Output = Self>
+    + Sum
     + Eq
     + Copy
     + Send
@@ -43,6 +45,7 @@ pub trait CType:
 pub trait CType:
     Add<Output = Self>
     + Sub<Output = Self>
+    + Sum
     + Eq
     + Copy
     + Send

@@ -228,7 +228,7 @@ where
             .build()?;
 
         let kernel = Kernel::builder()
-            .name("reorder")
+            .name("view")
             .program(&self.program)
             .queue(queue)
             .global_work_size(self.size)

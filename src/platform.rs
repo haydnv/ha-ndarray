@@ -3,7 +3,7 @@ use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, Host, Shape};
+use crate::{host, CType, Error, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -48,7 +48,7 @@ impl From<opencl::OpenCL> for Platform {
 }
 
 impl From<host::Host> for Platform {
-    fn from(host: Host) -> Self {
+    fn from(host: host::Host) -> Self {
         Self::Host(host)
     }
 }
@@ -161,6 +161,12 @@ where
             Self::Host(host) => host.all(access),
         }
     }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        match Self::select(access.size()) {
+            Self::Host(host) => host.sum(access),
+        }
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -180,6 +186,13 @@ where
         match Self::select(access.size()) {
             Self::CL(cl) => cl.all(access),
             Self::Host(host) => host.all(access),
+        }
+    }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        match Self::select(access.size()) {
+            Self::CL(cl) => cl.sum(access),
+            Self::Host(host) => host.sum(access),
         }
     }
 }

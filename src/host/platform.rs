@@ -4,7 +4,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error, Shape, StackVec};
+use crate::{CType, Error, Shape, StackVec};
 
 use super::buffer::Buffer;
 use super::ops::*;
@@ -28,6 +28,33 @@ impl<T: CType> Convert<T> for Stack {
     }
 }
 
+impl<A, T> Reduce<A, T> for Stack
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.as_ref().iter().copied().all(|n| n != T::ZERO))
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.as_ref().iter().copied().any(|n| n != T::ZERO))
+    }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.as_ref().iter().copied().sum())
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Heap;
 
@@ -42,6 +69,39 @@ impl<T: CType> Convert<T> for Heap {
 
     fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
         buffer.to_slice().map(|slice| slice.into_vec())
+    }
+}
+
+impl<A, T> Reduce<A, T> for Heap
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn all(self, access: A) -> Result<bool, Error> {
+        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
+            slice
+                .as_ref()
+                .into_par_iter()
+                .copied()
+                .all(|n| n != T::ZERO)
+        })
+    }
+
+    fn any(self, access: A) -> Result<bool, Error> {
+        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
+            slice
+                .as_ref()
+                .into_par_iter()
+                .copied()
+                .any(|n| n != T::ZERO)
+        })
+    }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.as_ref().into_par_iter().copied().sum())
     }
 }
 
@@ -120,31 +180,24 @@ where
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
-        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
-            if slice.size() < VEC_MIN_SIZE {
-                slice.as_ref().into_iter().copied().all(|n| n != T::ZERO)
-            } else {
-                slice
-                    .as_ref()
-                    .into_par_iter()
-                    .copied()
-                    .all(|n| n != T::ZERO)
-            }
-        })
+        match self {
+            Self::Heap(heap) => heap.all(access),
+            Self::Stack(stack) => stack.all(access),
+        }
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
-            if slice.size() < VEC_MIN_SIZE {
-                slice.as_ref().into_iter().copied().any(|n| n != T::ZERO)
-            } else {
-                slice
-                    .as_ref()
-                    .into_par_iter()
-                    .copied()
-                    .any(|n| n != T::ZERO)
-            }
-        })
+        match self {
+            Self::Heap(heap) => heap.all(access),
+            Self::Stack(stack) => stack.all(access),
+        }
+    }
+
+    fn sum(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Heap(heap) => heap.sum(access),
+            Self::Stack(stack) => stack.sum(access),
+        }
     }
 }
 
@@ -161,7 +214,6 @@ where
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        let strides = strides_for(&shape, broadcast.len());
-        Ok(View::new(array, broadcast, strides).into())
+        Ok(View::new(array, shape, broadcast).into())
     }
 }

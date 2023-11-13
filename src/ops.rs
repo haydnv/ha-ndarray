@@ -33,6 +33,8 @@ pub trait Reduce<A, T>: PlatformInstance {
     fn all(self, access: A) -> Result<bool, Error>;
 
     fn any(self, access: A) -> Result<bool, Error>;
+
+    fn sum(self, access: A) -> Result<T, Error>;
 }
 
 pub trait Transform<A, T>: PlatformInstance {
