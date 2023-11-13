@@ -127,6 +127,7 @@ pub type Shape = SmallVec<[usize; 8]>;
 pub type Strides = SmallVec<[usize; 8]>;
 
 pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
+pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
 
 #[inline]
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.

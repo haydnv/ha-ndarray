@@ -44,10 +44,33 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
     }
 }
 
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
+    fn size(&self) -> usize {
+        BufferInstance::size(&**self)
+    }
+
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        BufferInstance::read(&**self)
+    }
+}
+
 #[cfg(feature = "opencl")]
 impl<T: CType> From<ocl::Buffer<T>> for Buffer<T> {
     fn from(buf: ocl::Buffer<T>) -> Self {
         Self::CL(buf)
+    }
+}
+
+impl<T: CType> From<host::StackVec<T>> for Buffer<T> {
+    fn from(buf: host::StackVec<T>) -> Self {
+        Self::Host(buf.into())
+    }
+}
+
+impl<T: CType> From<Vec<T>> for Buffer<T> {
+    fn from(buf: Vec<T>) -> Self {
+        Self::Host(buf.into())
     }
 }
 

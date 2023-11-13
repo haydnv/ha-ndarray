@@ -3,9 +3,9 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use crate::access::*;
-use crate::buffer::{BufferConverter, BufferInstance};
+use crate::buffer::BufferInstance;
 use crate::ops::*;
-use crate::platform::{Convert, PlatformInstance};
+use crate::platform::PlatformInstance;
 use crate::{CType, Error, Shape};
 
 pub struct Array<T, A, P> {
@@ -39,16 +39,9 @@ where
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
-    pub fn new<'a, D>(buffer: D, shape: Shape) -> Result<Self, Error>
-    where
-        P: Convert<T, Buffer = B>,
-        D: Into<BufferConverter<'a, T>>,
-    {
-        let buffer = buffer.into();
-
+    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
         if shape.iter().product::<usize>() == buffer.size() {
             let platform = P::select(buffer.size());
-            let buffer = platform.convert(buffer)?;
             let access = buffer.into();
 
             Ok(Self {
