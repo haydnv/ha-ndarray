@@ -1,8 +1,8 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::marker::PhantomData;
 
 use crate::buffer::{BufferConverter, BufferInstance};
-use crate::ops::Enqueue;
+use crate::ops::{Enqueue, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
 
@@ -12,11 +12,26 @@ pub trait Access<T: CType>: Send + Sync {
     fn size(&self) -> usize;
 }
 
+pub trait AccessMut<'a, T: CType>: Access<T> {
+    type Data;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+}
+
 pub struct AccessBuffer<B> {
     buffer: B,
 }
 
 impl<B> AccessBuffer<B> {
+    pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuffer<&mut RB>
+    where
+        B: BorrowMut<RB>,
+    {
+        AccessBuffer {
+            buffer: self.buffer.borrow_mut(),
+        }
+    }
+
     pub fn as_ref<RB: ?Sized>(&self) -> AccessBuffer<&RB>
     where
         B: Borrow<RB>,
@@ -87,6 +102,44 @@ where
 
     fn size(&self) -> usize {
         self.op.size()
+    }
+}
+
+pub struct AccessSlice<A, O, P> {
+    source: A,
+    read: O,
+    platform: PhantomData<P>,
+}
+
+impl<A, O, P, T> Access<T> for AccessSlice<A, O, P>
+where
+    T: CType,
+    A: Access<T>,
+    O: Enqueue<P>,
+    P: PlatformInstance,
+    BufferConverter<'static, T>: From<O::Buffer>,
+{
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        self.read.enqueue().map(BufferConverter::from)
+    }
+
+    fn size(&self) -> usize {
+        self.read.size()
+    }
+}
+
+impl<'a, A, O, P, T> AccessMut<'a, T> for AccessSlice<A, O, P>
+where
+    T: CType,
+    A: Access<T>,
+    O: Write<'a, P>,
+    P: PlatformInstance,
+    BufferConverter<'static, T>: From<O::Buffer>,
+{
+    type Data = O::Data;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        todo!()
     }
 }
 

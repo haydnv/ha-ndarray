@@ -6,11 +6,11 @@ use rayon::prelude::*;
 
 use crate::access::Access;
 use crate::buffer::BufferConverter;
-use crate::{strides_for, CType, Enqueue, Error, Op, Shape, Strides};
+use crate::{strides_for, CType, Enqueue, Error, Op, Range, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
-use super::{StackVec, VEC_MIN_SIZE};
+use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -161,6 +161,37 @@ where
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::from)
         }
+    }
+}
+
+pub struct Slice<A, T> {
+    access: A,
+    range: Range,
+    dtype: PhantomData<T>,
+}
+
+impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
+    fn size(&self) -> usize {
+        self.range
+            .iter()
+            .map(|axis_range| axis_range.size())
+            .product()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Heap> for Slice<A, T> {
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        todo!()
+    }
+}
+
+impl<'a, A: Access<T>, T: CType> crate::ops::Write<'a, Heap> for Slice<A, T> {
+    type Data = SliceConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) {
+        todo!()
     }
 }
 

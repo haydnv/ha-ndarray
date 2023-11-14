@@ -122,12 +122,72 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+pub type Range = SmallVec<[AxisRange; 8]>;
+
 pub type Shape = SmallVec<[usize; 8]>;
 
 pub type Strides = SmallVec<[usize; 8]>;
 
 pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
+
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
+
+/// Bounds on an individual array axis
+#[derive(Clone)]
+pub enum AxisRange {
+    At(usize),
+    In(usize, usize, usize),
+    Of(SmallVec<[usize; 8]>),
+}
+
+impl AxisRange {
+    /// Return `true` if this is an index bound (i.e. not a slice)
+    pub fn is_index(&self) -> bool {
+        match self {
+            Self::At(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Return the number of elements contained within this bound.
+    /// Returns `0` for an index bound.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::At(_) => 0,
+            Self::In(start, stop, step) => (stop - start) / step,
+            Self::Of(indices) => indices.len(),
+        }
+    }
+}
+
+impl From<usize> for AxisRange {
+    fn from(i: usize) -> Self {
+        Self::At(i)
+    }
+}
+
+impl From<std::ops::Range<usize>> for AxisRange {
+    fn from(range: std::ops::Range<usize>) -> Self {
+        Self::In(range.start, range.end, 1)
+    }
+}
+
+impl From<SmallVec<[usize; 8]>> for AxisRange {
+    fn from(indices: SmallVec<[usize; 8]>) -> Self {
+        Self::Of(indices)
+    }
+}
+
+impl fmt::Debug for AxisRange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::At(i) => write!(f, "{}", i),
+            Self::In(start, stop, 1) => write!(f, "{}:{}", start, stop),
+            Self::In(start, stop, step) => write!(f, "{}:{}:{}", start, stop, step),
+            Self::Of(indices) => write!(f, "{:?}", indices),
+        }
+    }
+}
 
 #[inline]
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.

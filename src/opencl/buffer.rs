@@ -1,5 +1,7 @@
-use crate::{BufferConverter, BufferInstance, CType, Error};
 use ocl::Buffer;
+
+use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
+use crate::{CType, Error};
 
 impl<T: CType> BufferInstance<T> for ocl::Buffer<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
@@ -11,6 +13,25 @@ impl<T: CType> BufferInstance<T> for ocl::Buffer<T> {
     }
 }
 
+impl<'a, T: CType> BufferMut<'a, T> for ocl::Buffer<T> {
+    type Data = CLConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        if data.size() == self.size() {
+            data.as_ref()
+                .copy(self, None, None)
+                .enq()
+                .map_err(Error::from)
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot overwrite a buffer of size {} with one of size {}",
+                self.size(),
+                data.size()
+            )))
+        }
+    }
+}
+
 impl<'a, T: CType> BufferInstance<T> for &'a ocl::Buffer<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::CL((*self).into()))
@@ -18,6 +39,24 @@ impl<'a, T: CType> BufferInstance<T> for &'a ocl::Buffer<T> {
 
     fn size(&self) -> usize {
         self.len()
+    }
+}
+
+impl<'a, T: CType> BufferInstance<T> for &'a mut ocl::Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::CL((&**self).into()))
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a, T: CType> BufferMut<'a, T> for &'a mut ocl::Buffer<T> {
+    type Data = &'a ocl::Buffer<T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        BufferMut::write(&mut **self, data.into())
     }
 }
 

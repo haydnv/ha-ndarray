@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{CType, Error, Shape};
+use crate::{BufferConverter, CType, Error, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -58,6 +58,18 @@ where
         }
     }
 
+    pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuffer<&mut RB>, P>
+    where
+        B: BorrowMut<RB>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: self.access.as_mut(),
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+
     pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuffer<&RB>, P>
     where
         B: Borrow<RB>,
@@ -68,6 +80,23 @@ where
             platform: self.platform,
             dtype: PhantomData,
         }
+    }
+}
+
+// write ops
+impl<T, L, P> Array<T, L, P>
+where
+    T: CType,
+{
+    pub fn write<'a, R>(&'a mut self, other: &'a Array<T, R, P>) -> Result<(), Error>
+    where
+        L: AccessMut<'a, T>,
+        R: Access<T> + 'a,
+        L::Data: From<BufferConverter<'a, T>>,
+    {
+        same_shape("write", self.shape(), other.shape())?;
+        let data = other.access.read()?;
+        self.access.write(data.into())
     }
 }
 

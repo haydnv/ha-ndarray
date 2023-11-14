@@ -13,6 +13,12 @@ pub trait BufferInstance<T: CType>: Send + Sync + Sized {
     fn size(&self) -> usize;
 }
 
+pub trait BufferMut<'a, T: CType>: BufferInstance<T> {
+    type Data;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+}
+
 #[derive(Clone)]
 pub enum Buffer<T: CType> {
     #[cfg(feature = "opencl")]
@@ -34,6 +40,18 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
+impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
+    type Data = BufferConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(buf) => buf.write(data.to_cl()?),
+            Self::Host(buf) => buf.write(data.to_slice()?),
+        }
+    }
+}
+
 impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::from(*self))
@@ -41,6 +59,24 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
 
     fn size(&self) -> usize {
         BufferInstance::size(*self)
+    }
+}
+
+impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok(BufferConverter::from(&**self))
+    }
+
+    fn size(&self) -> usize {
+        BufferInstance::size(*self)
+    }
+}
+
+impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
+    type Data = BufferConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        Buffer::<T>::write(self, data)
     }
 }
 

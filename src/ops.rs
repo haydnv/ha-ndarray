@@ -15,6 +15,12 @@ pub trait Enqueue<P: PlatformInstance>: Op {
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
+pub trait Write<'a, P: PlatformInstance>: Enqueue<P> {
+    type Data;
+
+    fn write(&'a mut self, data: Self::Data);
+}
+
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
     type Output: Enqueue<Self>;
 

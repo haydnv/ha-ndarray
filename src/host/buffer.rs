@@ -2,7 +2,8 @@ use std::borrow::Borrow;
 
 use smallvec::SmallVec;
 
-use crate::{BufferConverter, BufferInstance, CType, Error};
+use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
+use crate::{CType, Error};
 
 use super::VEC_MIN_SIZE;
 
@@ -18,6 +19,14 @@ impl<T: CType> BufferInstance<T> for StackVec<T> {
     }
 }
 
+impl<'a, T: CType> BufferMut<'a, T> for StackVec<T> {
+    type Data = &'a [T];
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        self.as_mut_slice().write(data)
+    }
+}
+
 impl<T: CType> BufferInstance<T> for Vec<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         Ok(self.as_slice().into())
@@ -28,6 +37,14 @@ impl<T: CType> BufferInstance<T> for Vec<T> {
     }
 }
 
+impl<'a, T: CType> BufferMut<'a, T> for Vec<T> {
+    type Data = &'a [T];
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        self.as_mut_slice().write(data)
+    }
+}
+
 impl<'a, T: CType> BufferInstance<T> for &'a [T] {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         Ok((*self).into())
@@ -35,6 +52,33 @@ impl<'a, T: CType> BufferInstance<T> for &'a [T] {
 
     fn size(&self) -> usize {
         self.len()
+    }
+}
+
+impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
+    fn read(&self) -> Result<BufferConverter<T>, Error> {
+        Ok((&**self).into())
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a, T: CType> BufferMut<'a, T> for &'a mut [T] {
+    type Data = &'a [T];
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        if data.len() == self.len() {
+            self.copy_from_slice(data);
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot overwrite a buffer of size {} with one of size {}",
+                self.len(),
+                data.len()
+            )))
+        }
     }
 }
 
@@ -78,6 +122,17 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         match self {
             Self::Heap(buf) => buf.size(),
             Self::Stack(buf) => buf.size(),
+        }
+    }
+}
+
+impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
+    type Data = SliceConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        match self {
+            Self::Heap(buf) => buf.write(data.as_ref()),
+            Self::Stack(buf) => buf.write(data.as_ref()),
         }
     }
 }
