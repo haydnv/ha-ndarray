@@ -26,69 +26,73 @@ impl Clone for DynamicArrayHa {
     }
 }
 
-fn max_value(size: usize, bytes: u32) -> u64 {
-    let max_val_1: u64 = (2_u64.pow(bytes)) / size as u64;
-    let max_val_2: u64 = bytes as u64 / 2;
-    let max_val: u64 = max_val_1.min(max_val_2);
-    if max_val == 0 {
-        // prevents under/overflow, but maybe this should thin out
-        // the array instead; cos does the compiler recognise
-        // zeors in everything here?
-        1
-    } else {
-        max_val - 1
-    }
-}
-
-fn random_array(size: usize, datatype: &str, context: &Context) -> DynamicArrayHa {
+fn random_array(size: usize, datatype: &str, context: &Context, op: &str) -> DynamicArrayHa {
     let mut rng = rand::thread_rng();
-    let max_val = max_value(size, 8);
+    let array: Vec<f32> = (0..size * size).map(|_| rng.gen_range(0.0..=1.0)).collect();
+    let mapped_array: Vec<f32>;
+    // map array; 95% of number == 1, 5% of numbers are 2 (avoids over/underflows)
+    let threshold: f32 = (((size * size) - size) / (size * size)) as f32;
+    if op == "div" {
+        mapped_array = array
+            .iter()
+            .map(|x| if x > &threshold { 2.0 } else { 1.0 })
+            .collect();
+    } else {
+        mapped_array = array
+            .iter()
+            .map(|x| if x > &threshold { 0.0 } else { 1.0 })
+            .collect();
+    }
     match datatype {
-        "uint8" => {
-            // nonzeros for the div function
-            let data: Vec<u8> = (0..size * size)
-                .map(|_| rng.gen_range(1..=max_val as u8))
-                .collect();
-            DynamicArrayHa::U8(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+        "uint8" => DynamicArrayHa::U8(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as u8).collect(),
             )
-        }
-        "uint16" => {
-            let data: Vec<u16> = (0..size * size)
-                .map(|_| rng.gen_range(1..=max_val as u16))
-                .collect();
-            DynamicArrayHa::U16(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+            .unwrap(),
+        ),
+        "uint16" => DynamicArrayHa::U16(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as u16).collect(),
             )
-        }
-        "uint32" => {
-            let data: Vec<u32> = (0..size * size)
-                .map(|_| rng.gen_range(1..=max_val as u32))
-                .collect();
-            DynamicArrayHa::U32(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+            .unwrap(),
+        ),
+        "uint32" => DynamicArrayHa::U32(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as u32).collect(),
             )
-        }
-        "uint64" => {
-            let data: Vec<u64> = (0..size * size)
-                .map(|_| rng.gen_range(1..=max_val as u64))
-                .collect();
-            DynamicArrayHa::U64(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+            .unwrap(),
+        ),
+
+        "uint64" => DynamicArrayHa::U64(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as u64).collect(),
             )
-        }
-        "float32" => {
-            let data: Vec<f32> = (0..size * size).map(|_| rng.gen_range(0.0..=1.0)).collect();
-            DynamicArrayHa::F32(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+            .unwrap(),
+        ),
+        "float32" => DynamicArrayHa::F32(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as f32).collect(),
             )
-        }
-        "float64" => {
-            let data: Vec<f64> = (0..size * size).map(|_| rng.gen_range(0.0..1.0)).collect();
-            DynamicArrayHa::F64(
-                ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size, size], data).unwrap(),
+            .unwrap(),
+        ),
+        "float64" => DynamicArrayHa::F64(
+            ArrayBase::<Vec<_>>::with_context(
+                context.clone(),
+                vec![size, size],
+                mapped_array.iter().map(|x| *x as f64).collect(),
             )
-        }
+            .unwrap(),
+        ),
         _ => panic!("Invalid datatype"),
     }
 }
@@ -613,9 +617,10 @@ pub fn ha_ndarray_test(
             let mut label_data = Vec::new();
             for &size in &sizes {
                 let mut results = Vec::new();
-                for _ in 0..((sizes.last().unwrap() / size) + 2) {
-                    let a = random_array(size, dtype, &context);
-                    let b = random_array(size, dtype, &context);
+                for _ in 0..10 {
+                    //((sizes.last().unwrap() / size) + 2) {
+                    let a = random_array(size, dtype, &context, op);
+                    let b = random_array(size, dtype, &context, op);
 
                     let start;
 

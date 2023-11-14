@@ -15,7 +15,7 @@ categories = ["data-structures", "hardware-support", "mathematics"]
 all = ["freqfs", "opencl", "stream"]
 opencl = ["ocl"]
 stream = ["async-trait", "destream", "futures"]
-benchmark = ["ndarray", "ndarray-rand"]
+benchmark = ["ndarray", "ndarray-rand"] # run with `cargo run --bin benchmark --features benchmark`
 
 [build-dependencies]
 pkg-config = "0.3"

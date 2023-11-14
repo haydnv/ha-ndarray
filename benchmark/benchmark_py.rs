@@ -22,7 +22,7 @@ fn max_value(size: usize, bytes: u32) -> u64 {
     let max_val_1: u64 = (2_u64.pow(bytes)) / size as u64;
     let max_val_2: u64 = bytes as u64 / 2;
     let max_val: u64 = max_val_1.min(max_val_2);
-    if max_val == 0 {
+    if max_val == 0 || max_val == 1 {
         // prevents under/overflow, but maybe this should thin out
         // the array instead; cos does the compiler recognise
         // zeors in everything here?
@@ -46,7 +46,8 @@ pub fn py_ndarray_test(
             let mut label_data = Vec::new();
             for &size in &sizes {
                 let mut results = Vec::new();
-                for _ in 0..((sizes.last().unwrap() / size) + 2) {
+                for _ in 0..10 {
+                    //((sizes.last().unwrap() / size) + 2) {
                     let time: f64;
                     let mut max_val: u64 = 0;
                     match *dtype {
@@ -81,6 +82,7 @@ b = ((np.random.random(({}, {})) + 1) * {}).astype('{}')
 start = time.perf_counter()
 c = a + b
 print(time.perf_counter() - start)
+c = c[:, 0] + 1
 "#,
                                 size, size, max_val, dtype, size, size, max_val, dtype
                             );
@@ -96,6 +98,7 @@ c = a + b
 start = time.perf_counter()
 d = c - a
 print(time.perf_counter() - start)
+c = c[:, 0] + 1
 "#,
                                 size, size, max_val, dtype, size, size, max_val, dtype
                             );
@@ -110,6 +113,7 @@ b = ((np.random.random(({}, {})) + 1) * {}).astype('{}')
 start = time.perf_counter()
 c = a * b
 print(time.perf_counter() - start)
+c = c[:, 0] + 1
 "#,
                                 size, size, max_val, dtype, size, size, max_val, dtype
                             );
@@ -124,6 +128,7 @@ b = ((np.random.random(({}, {})) + 1) * {}).astype('{}')
 start = time.perf_counter()
 c = a / b
 print(time.perf_counter() - start)
+c = c[:, 0] + 1
 "#,
                                 size, size, max_val, dtype, size, size, max_val, dtype
                             );
@@ -133,11 +138,14 @@ print(time.perf_counter() - start)
                             let script = format!(
                                 r#"import numpy as np
 import time
-a = ((np.random.random(({}, {})) + 1) * {}).astype('{}')  # from 1 -> max_val
-b = ((np.random.random(({}, {})) + 1) * {}).astype('{}')
-start = time.perf_counter()
-c = a.dot(b)
-print(time.perf_counter() - start)
+from threadpoolctl import threadpool_limits
+with threadpool_limits(limits=1, user_api='blas'):
+    a = ((np.random.random(({}, {})) + 1) * {}).astype('{}')  # from 1 -> max_val
+    b = ((np.random.random(({}, {})) + 1) * {}).astype('{}')
+    start = time.perf_counter()
+    c = a.dot(b)
+    print(time.perf_counter() - start)
+    c = c[:, 0] + 1
 "#,
                                 size, size, max_val, dtype, size, size, max_val, dtype
                             );

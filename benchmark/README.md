@@ -2,12 +2,56 @@
 
 ## what is this benchmark?
 - a comparison of numpy, ndarray and ha-ndarray
-- graphed with matplotlib in a python env with matplotlib / numpy
-- can be built into a python env with maturin (maturin build --release)
-- followed by `python benchmark.py`
+build with `cargo run --bin benchmark --features benchmark`
+
+## how to?
+- activate / use a python env with both numpy AND threadpoolctl; since numpy will try sneak in extra processing cores using blas / lapack
 
 ## output
-- creates fig.png
+- a table is printed to shell
 
-## Issues
-- was pretty confusing -> I have no idea how the ha-ndarray crate works and if I'm implementing the right functions or hardware acceleration at all!
+## todo
+
+- adapting this code to run using [criterion](https://docs.rs/criterion/latest/criterion/)
+
+## example output from benchmarking tool (on Mac M1)
+
+```
+|------------|-----------|--------|-----------|-----------|-----------|-------|-------|
+| Operation  | Data Type |  Size  | Py Timing | ND Timing | HA Timing | Py/HA | ND/HA |
+|------------|-----------|--------|-----------|-----------|-----------|-------|-------|
+| dot        | uint8     | 2      | 0.0000028 | 0.0000147 | 0.0002722 | 0.01  | 0.05  |
+| dot        | uint8     | 8      | 0.0000034 | 0.0000371 | 0.0002053 | 0.02  | 0.18  |
+| dot        | uint8     | 32     | 0.0000183 | 0.0018211 | 0.0006551 | 0.03  | 2.78  |
+| dot        | uint8     | 128    | 0.0009910 | 0.1016602 | 0.0130858 | 0.08  | 7.77  |
+| dot        | uint8     | 512    | 0.1026337 | 6.5552052 | 0.7481555 | 0.14  | 8.76  |
+| dot        | uint16    | 2      | 0.0000032 | 0.0000034 | 0.0000896 | 0.04  | 0.04  |
+| dot        | uint16    | 8      | 0.0000031 | 0.0000307 | 0.0001649 | 0.02  | 0.19  |
+| dot        | uint16    | 32     | 0.0000183 | 0.0016600 | 0.0007088 | 0.03  | 2.34  |
+| dot        | uint16    | 128    | 0.0009960 | 0.1031005 | 0.0134186 | 0.07  | 7.68  |
+| dot        | uint16    | 512    | 0.1052454 | 6.7306841 | 0.7533191 | 0.14  | 8.93  |
+| dot        | uint32    | 2      | 0.0000027 | 0.0000086 | 0.0001363 | 0.02  | 0.06  |
+| dot        | uint32    | 8      | 0.0000035 | 0.0000302 | 0.0002317 | 0.02  | 0.13  |
+| dot        | uint32    | 32     | 0.0000188 | 0.0016341 | 0.0007419 | 0.03  | 2.20  |
+| dot        | uint32    | 128    | 0.0009989 | 0.1033499 | 0.0107558 | 0.09  | 9.61  |
+| dot        | uint32    | 512    | 0.1048753 | 6.6982450 | 0.5545132 | 0.19  | 12.08 |
+| dot        | uint64    | 2      | 0.0000030 | 0.0000033 | 0.0000995 | 0.03  | 0.03  |
+| dot        | uint64    | 8      | 0.0000034 | 0.0000304 | 0.0001734 | 0.02  | 0.18  |
+| dot        | uint64    | 32     | 0.0000190 | 0.0016391 | 0.0006644 | 0.03  | 2.47  |
+| dot        | uint64    | 128    | 0.0010846 | 0.1035903 | 0.0106401 | 0.10  | 9.74  |
+| dot        | uint64    | 512    | 0.1348254 | 6.6535001 | 0.5521369 | 0.24  | 12.05 |
+| dot        | float32   | 2      | 0.0000045 | 0.0000178 | 0.0000855 | 0.05  | 0.21  |
+| dot        | float32   | 8      | 0.0000053 | 0.0000049 | 0.0002775 | 0.02  | 0.02  |
+| dot        | float32   | 32     | 0.0000104 | 0.0000671 | 0.0009872 | 0.01  | 0.07  |
+| dot        | float32   | 128    | 0.0000171 | 0.0031265 | 0.0109358 | 0.00  | 0.29  |
+| dot        | float32   | 512    | 0.0004344 | 0.1866442 | 0.5921286 | 0.00  | 0.32  |
+| dot        | float64   | 2      | 0.0000028 | 0.0000072 | 0.0001373 | 0.02  | 0.05  |
+| dot        | float64   | 8      | 0.0000029 | 0.0000063 | 0.0002422 | 0.01  | 0.03  |
+| dot        | float64   | 32     | 0.0000104 | 0.0001254 | 0.0006856 | 0.02  | 0.18  |
+| dot        | float64   | 128    | 0.0000341 | 0.0064823 | 0.0124295 | 0.00  | 0.52  |
+| dot        | float64   | 512    | 0.0008398 | 0.4008469 | 0.5813587 | 0.00  | 0.69  |
+|------------|-----------|--------|-----------|-----------|-----------|-------|-------|
+
+
+
+```

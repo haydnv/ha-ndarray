@@ -2,6 +2,7 @@ mod benchmark_ha;
 mod benchmark_nd;
 mod benchmark_py;
 use std::collections::HashMap;
+use std::io::{self, Write};
 
 /*
 cargo run --bin benchmark --features benchmark
@@ -16,14 +17,14 @@ fn print_table(
     timings_ha: &HashMap<&str, Vec<Vec<f64>>>,
 ) {
     println!(
-        "\n\n\n|------------|-----------|------|-----------|-----------|-----------|-------|-------|"
+        "\n\n\n|------------|-----------|--------|-----------|-----------|-----------|-------|-------|"
     );
     println!(
-        "| {:<10} | {:<9} | {:<4} | {:<9} | {:<9} | {:<9} | {:<5} | {:<5} |",
+        "| {:<10} | {:<9} |  {:<4}  | {:<9} | {:<9} | {:<9} | {:<5} | {:<5} |",
         "Operation", "Data Type", "Size", "Py Timing", "ND Timing", "HA Timing", "Py/HA", "ND/HA"
     );
     println!(
-        "|------------|-----------|------|-----------|-----------|-----------|-------|-------|"
+        "|------------|-----------|--------|-----------|-----------|-----------|-------|-------|"
     );
 
     for &op in operations {
@@ -37,7 +38,7 @@ fn print_table(
                 let nd_ha = nd_time / ha_time;
 
                 println!(
-                    "| {:<10} | {:<9} | {:<4} | {:<9.7} | {:<9.7} | {:<9.7} | {:<5.2} | {:<5.2} |",
+                    "| {:<10} | {:<9} | {:<6} | {:<9.7} | {:<9.7} | {:<9.7} | {:<5.2} | {:<5.2} |",
                     op, dtype, size, py_time, nd_time, ha_time, py_ha, nd_ha
                 );
             }
@@ -45,7 +46,7 @@ fn print_table(
     }
 
     println!(
-        "|------------|-----------|------|-----------|-----------|-----------|-------|-------|"
+        "|------------|-----------|--------|-----------|-----------|-----------|-------|-------|"
     );
 }
 
@@ -66,22 +67,28 @@ fn size_index(size: usize, sizes: &[usize]) -> usize {
 }
 
 fn main() {
-    println!("Hi");
+    println!("Running benchmark");
 
-    let size_max: u32 = 8;
+    let size_max: u32 = 9;
 
     let data_types: Vec<&str> = vec!["uint8", "uint16", "uint32", "uint64", "float32", "float64"];
-    let operations: Vec<&str> = vec!["add", "sub", "mul", "div", "dot"];
+    let operations: Vec<&str> = vec!["dot"];
     let sizes: Vec<usize> = (1..=size_max).step_by(2).map(|x| 2_usize.pow(x)).collect();
 
-    let timings_py: HashMap<&str, Vec<Vec<f64>>> =
-        benchmark_py::py_ndarray_test(data_types.clone(), operations.clone(), sizes.clone());
-
+    print!("ndarray ");
+    io::stdout().flush().unwrap();
     let timings_nd: HashMap<&str, Vec<Vec<f64>>> =
         benchmark_nd::ndarray_test(data_types.clone(), operations.clone(), sizes.clone());
 
+    print!("ha-ndarray ");
+    io::stdout().flush().unwrap();
     let timings_ha: HashMap<&str, Vec<Vec<f64>>> =
         benchmark_ha::ha_ndarray_test(data_types.clone(), operations.clone(), sizes.clone());
+
+    print!("numpy ");
+    io::stdout().flush().unwrap();
+    let timings_py: HashMap<&str, Vec<Vec<f64>>> =
+        benchmark_py::py_ndarray_test(data_types.clone(), operations.clone(), sizes.clone());
 
     print_table(
         &data_types,
