@@ -4,9 +4,10 @@ use std::ops::{Add, Sub};
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::access::Access;
+use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
-use crate::{strides_for, CType, Enqueue, Error, Op, Range, Shape, Strides};
+use crate::ops::Op;
+use crate::{strides_for, AxisRange, CType, Enqueue, Error, Range, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -166,16 +167,90 @@ where
 
 pub struct Slice<A, T> {
     access: A,
+    source_strides: Strides,
     range: Range,
+    shape: Shape,
+    strides: Strides,
     dtype: PhantomData<T>,
+}
+
+impl<A, T> Slice<A, T> {
+    pub fn new(access: A, shape: &[usize], range: Range) -> Self {
+        let source_strides = strides_for(shape, shape.len());
+        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        let strides = strides_for(&shape, shape.len());
+
+        Self {
+            access,
+            source_strides,
+            range,
+            shape,
+            strides,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
+    fn source_offset(&self, offset: usize) -> usize {
+        debug_assert!(!self.shape.is_empty());
+        debug_assert_eq!(self.shape.len(), self.strides.len());
+
+        let mut coord = self
+            .strides
+            .iter()
+            .copied()
+            .zip(&self.shape)
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            });
+
+        let mut offset = 0;
+        for (stride, bound) in self.source_strides.iter().zip(self.range.iter()) {
+            let i = match bound {
+                AxisRange::At(i) => *i,
+                AxisRange::In(start, stop, step) => {
+                    let i = start + (coord.next().expect("i") * step);
+                    debug_assert!(i < *stop);
+                    i
+                }
+                AxisRange::Of(indices) => indices[coord.next().expect("i")],
+            };
+
+            offset += i * stride;
+        }
+
+        offset
+    }
+
+    fn read(&self, source: &[T]) -> Result<StackVec<T>, Error> {
+        let output = (0..self.size())
+            .into_iter()
+            .map(|offset_out| self.source_offset(offset_out))
+            .map(|offset_in| source[offset_in])
+            .collect();
+
+        Ok(output)
+    }
+
+    fn read_parallel(&self, source: &[T]) -> Result<Vec<T>, Error> {
+        let output = (0..self.size())
+            .into_par_iter()
+            .map(|offset_out| self.source_offset(offset_out))
+            .map(|offset_in| source[offset_in])
+            .collect();
+
+        Ok(output)
+    }
 }
 
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     fn size(&self) -> usize {
-        self.range
-            .iter()
-            .map(|axis_range| axis_range.size())
-            .product()
+        self.shape.iter().product()
     }
 }
 
@@ -183,15 +258,60 @@ impl<A: Access<T>, T: CType> Enqueue<Heap> for Slice<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        todo!()
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .and_then(|buf| self.read_parallel(buf.as_ref()))
     }
 }
 
-impl<'a, A: Access<T>, T: CType> crate::ops::Write<'a, Heap> for Slice<A, T> {
+impl<A: Access<T>, T: CType> Enqueue<Stack> for Slice<A, T> {
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .and_then(|buf| self.read(buf.as_ref()))
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Host> for Slice<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+impl<'a, B, T> crate::ops::Write<'a, Heap> for Slice<AccessBuffer<B>, T>
+where
+    B: AsMut<[T]>,
+    T: CType,
+    AccessBuffer<B>: Access<T>,
+{
     type Data = SliceConverter<'a, T>;
 
-    fn write(&'a mut self, data: Self::Data) {
-        todo!()
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        if data.size() == self.size() {
+            for (offset, value) in data.as_ref().into_iter().copied().enumerate() {
+                let source_offset = self.source_offset(offset);
+                let source = self.access.as_mut().into_inner();
+                source.as_mut()[source_offset] = value;
+            }
+
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot overwrite a slice of size {} with a buffer of size {}",
+                self.size(),
+                data.size(),
+            )))
+        }
     }
 }
 

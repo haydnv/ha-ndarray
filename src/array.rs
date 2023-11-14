@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{BufferConverter, CType, Error, Shape};
+use crate::{CType, Convert, Error, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -92,11 +92,16 @@ where
     where
         L: AccessMut<'a, T>,
         R: Access<T> + 'a,
-        L::Data: From<BufferConverter<'a, T>>,
+        P: Convert<T, Buffer = L::Data>,
     {
         same_shape("write", self.shape(), other.shape())?;
-        let data = other.access.read()?;
-        self.access.write(data.into())
+
+        let data = other
+            .access
+            .read()
+            .and_then(|buf| self.platform.convert(buf))?;
+
+        self.access.write(data)
     }
 }
 

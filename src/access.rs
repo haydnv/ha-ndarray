@@ -1,7 +1,7 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::marker::PhantomData;
 
-use crate::buffer::{BufferConverter, BufferInstance};
+use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::ops::{Enqueue, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
@@ -40,6 +40,10 @@ impl<B> AccessBuffer<B> {
             buffer: self.buffer.borrow(),
         }
     }
+
+    pub fn into_inner(self) -> B {
+        self.buffer
+    }
 }
 
 impl<B> From<B> for AccessBuffer<B> {
@@ -59,6 +63,18 @@ where
 
     fn size(&self) -> usize {
         self.buffer.size()
+    }
+}
+
+impl<'a, T, B> AccessMut<'a, T> for AccessBuffer<B>
+where
+    T: CType,
+    B: BufferMut<'a, T>,
+{
+    type Data = B::Data;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        self.buffer.write(data)
     }
 }
 

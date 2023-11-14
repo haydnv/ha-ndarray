@@ -10,8 +10,8 @@ use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, BufferInstance, CType, Error, Shape};
 
-use super::kernels;
 use super::ops::*;
+use super::programs;
 use super::CL_PLATFORM;
 
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
@@ -157,7 +157,7 @@ impl PlatformInstance for OpenCL {
 
 impl OpenCL {
     /// Borrow the OpenCL [`Context`] of this platform.
-    pub fn context(&self) -> &Context {
+    pub fn context<'a>() -> &'a Context {
         &CL_PLATFORM.cl_context
     }
 
@@ -179,7 +179,6 @@ impl OpenCL {
     }
 
     pub(crate) fn queue(
-        &self,
         size_hint: usize,
         left: Option<&Queue>,
         right: Option<&Queue>,
@@ -208,7 +207,7 @@ impl OpenCL {
             .select_device(device_type)
             .expect("OpenCL device");
 
-        Queue::new(self.context(), device, None)
+        Queue::new(&CL_PLATFORM.cl_context, device, None)
     }
 }
 
@@ -230,7 +229,7 @@ where
     type Output = Compare<L, R, T>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        Compare::eq(self, left, right).map(AccessOp::from)
+        Compare::eq(left, right).map(AccessOp::from)
     }
 }
 
@@ -243,11 +242,11 @@ where
     type Output = Dual<L, R, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        Dual::add(self, left, right).map(AccessOp::from)
+        Dual::add(left, right).map(AccessOp::from)
     }
 
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
-        Dual::sub(self, left, right).map(AccessOp::from)
+        Dual::sub(left, right).map(AccessOp::from)
     }
 }
 
@@ -262,17 +261,17 @@ where
 
         let result = [1];
 
-        let program = kernels::reduce::all::<T>(self.context())?;
+        let program = programs::reduce::all::<T>(Self::context())?;
 
         let flag = unsafe {
             Buffer::builder()
-                .context(self.context())
+                .context(Self::context())
                 .use_host_slice(&result)
                 .len(1)
                 .build()?
         };
 
-        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+        let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
 
         let kernel = Kernel::builder()
             .name("all")
@@ -296,17 +295,17 @@ where
 
         let result = [0];
 
-        let program = kernels::reduce::any::<T>(self.context())?;
+        let program = programs::reduce::any::<T>(Self::context())?;
 
         let flag = unsafe {
             Buffer::builder()
-                .context(self.context())
+                .context(Self::context())
                 .use_host_slice(&result)
                 .len(1)
                 .build()?
         };
 
-        let queue = self.queue(buffer.len(), buffer.default_queue(), None)?;
+        let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
 
         let kernel = Kernel::builder()
             .name("any")
@@ -328,9 +327,9 @@ where
         let buffer = access.read()?.to_cl()?;
         let buffer = buffer.as_ref();
 
-        let queue = self.queue(buffer.size(), buffer.default_queue(), None)?;
+        let queue = Self::queue(buffer.size(), buffer.default_queue(), None)?;
 
-        kernels::reduce::reduce(T::ZERO, "add", queue, buffer, Add::add).map_err(Error::from)
+        programs::reduce::reduce(T::ZERO, "add", queue, buffer, Add::add).map_err(Error::from)
     }
 }
 

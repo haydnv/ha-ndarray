@@ -4,6 +4,7 @@ use super::div_ceil;
 
 pub mod elementwise;
 pub mod reduce;
+pub mod slice;
 pub mod view;
 
 const TILE_SIZE: usize = 8;

@@ -3,7 +3,7 @@ use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, CType, Error, Shape};
+use crate::{host, BufferConverter, CType, Error, Shape};
 
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
@@ -18,7 +18,7 @@ pub trait Enqueue<P: PlatformInstance>: Op {
 pub trait Write<'a, P: PlatformInstance>: Enqueue<P> {
     type Data;
 
-    fn write(&'a mut self, data: Self::Data);
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
@@ -92,6 +92,40 @@ impl<L, R, T> From<host::ops::Dual<L, R, T>> for Dual<L, R, T> {
     }
 }
 
+macro_rules! impl_unary {
+    ($op:ty, $t:ty) => {
+        impl<'a, A, T> Op for $op
+        where
+            A: Access<T>,
+            T: CType,
+        {
+            fn size(&self) -> usize {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.size(),
+                    Self::Host(op) => op.size(),
+                }
+            }
+        }
+
+        impl<'a, A, T> Enqueue<Platform> for $op
+        where
+            A: Access<T>,
+            T: CType,
+        {
+            type Buffer = Buffer<$t>;
+
+            fn enqueue(&self) -> Result<Self::Buffer, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                }
+            }
+        }
+    };
+}
+
 macro_rules! impl_dual {
     ($op:ty, $t:ty) => {
         impl<'a, L, R, T> Op for $op
@@ -131,41 +165,55 @@ macro_rules! impl_dual {
 impl_dual!(Compare<L, R, T>, u8);
 impl_dual!(Dual<L, R, T>, T);
 
+pub enum Slice<A, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Slice<A, T>),
+    Host(host::ops::Slice<A, T>),
+}
+
+impl_unary!(Slice<A, T>, T);
+
+#[cfg(feature = "opencl")]
+impl<'a, A, T> Write<'a, Platform> for Slice<A, T>
+where
+    A: Access<T>,
+    T: CType,
+    host::ops::Slice<A, T>: Write<'a, host::Host, Data = host::SliceConverter<'a, T>>,
+    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, Data = opencl::CLConverter<'a, T>>,
+{
+    type Data = BufferConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        match self {
+            Self::CL(op) => Write::write(op, data.to_cl()?),
+            Self::Host(op) => Write::write(op, data.to_slice()?),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<'a, A, T> Write<'a, Platform> for Slice<A, T>
+where
+    A: Access<T>,
+    T: CType,
+    host::ops::Slice<A, T>: Write<'a, host::Host, Data = host::SliceConverter<'a, T>>,
+{
+    type Data = BufferConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        match self {
+            Self::Host(op) => Write::write(op, data.to_slice()?),
+        }
+    }
+}
+
 pub enum View<A, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::View<A, T>),
     Host(host::ops::View<A, T>),
 }
 
-impl<'a, A, T> Op for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
-    }
-}
-
-impl<'a, A, T> Enqueue<Platform> for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    type Buffer = Buffer<T>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
-        }
-    }
-}
+impl_unary!(View<A, T>, T);
 
 #[cfg(feature = "opencl")]
 impl<A, T> From<opencl::ops::View<A, T>> for View<A, T> {

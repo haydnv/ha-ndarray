@@ -150,12 +150,12 @@ impl AxisRange {
     }
 
     /// Return the number of elements contained within this bound.
-    /// Returns `0` for an index bound.
-    pub fn size(&self) -> usize {
+    /// Returns `None` for an index bound.
+    pub fn size(&self) -> Option<usize> {
         match self {
-            Self::At(_) => 0,
-            Self::In(start, stop, step) => (stop - start) / step,
-            Self::Of(indices) => indices.len(),
+            Self::At(_) => None,
+            Self::In(start, stop, step) => Some((stop - start) / step),
+            Self::Of(indices) => Some(indices.len()),
         }
     }
 }

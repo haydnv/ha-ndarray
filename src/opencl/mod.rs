@@ -7,9 +7,9 @@ pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
 mod buffer;
-mod kernels;
 pub mod ops;
 mod platform;
+mod programs;
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {

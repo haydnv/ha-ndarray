@@ -3,27 +3,26 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Kernel, Program};
 
 use crate::access::Access;
-use crate::{strides_for, CType, Enqueue, Error, Op};
+use crate::ops::Write;
+use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Op, Range, Shape, Strides};
 
-use super::kernels;
 use super::platform::OpenCL;
+use super::{programs, CLConverter};
 
 pub struct Compare<L, R, T> {
     left: L,
     right: R,
-    platform: OpenCL,
     program: Program,
     dtype: PhantomData<T>,
 }
 
 impl<L, R, T: CType> Compare<L, R, T> {
-    pub fn eq(platform: OpenCL, left: L, right: R) -> Result<Self, Error> {
-        let program = kernels::elementwise::compare::<T>("eq", platform.context())?;
+    pub fn eq(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::compare::<T>("eq", OpenCL::context())?;
 
         Ok(Self {
             left,
             right,
-            platform,
             program,
             dtype: PhantomData,
         })
@@ -57,9 +56,7 @@ where
         let left = left.as_ref();
         let right = right.as_ref();
 
-        let queue = self
-            .platform
-            .queue(left.len(), left.default_queue(), right.default_queue())?;
+        let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -85,31 +82,28 @@ where
 pub struct Dual<L, R, T> {
     left: L,
     right: R,
-    platform: OpenCL,
     program: Program,
     dtype: PhantomData<T>,
 }
 
 impl<L, R, T: CType> Dual<L, R, T> {
-    pub fn add(platform: OpenCL, left: L, right: R) -> Result<Self, Error> {
-        let program = kernels::elementwise::dual::<T>("add", platform.context())?;
+    pub fn add(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual::<T>("add", OpenCL::context())?;
 
         Ok(Self {
             left,
             right,
-            platform,
             program,
             dtype: PhantomData,
         })
     }
 
-    pub fn sub(platform: OpenCL, left: L, right: R) -> Result<Self, Error> {
-        let program = kernels::elementwise::dual::<T>("sub", platform.context())?;
+    pub fn sub(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual::<T>("sub", OpenCL::context())?;
 
         Ok(Self {
             left,
             right,
-            platform,
             program,
             dtype: PhantomData,
         })
@@ -143,9 +137,7 @@ where
         let left = left.as_ref();
         let right = right.as_ref();
 
-        let queue = self
-            .platform
-            .queue(left.len(), left.default_queue(), right.default_queue())?;
+        let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -165,6 +157,122 @@ where
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+pub struct Slice<A, T> {
+    access: A,
+    range: Range,
+    shape: Shape,
+    strides: Strides,
+    source_strides: Strides,
+    read: Program,
+    write: Option<Program>,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T: CType> Slice<A, T> {
+    pub fn new(access: A, shape: &[usize], range: Range) -> Result<Self, Error> {
+        let source_strides = strides_for(shape, shape.len());
+        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        let strides = strides_for(&shape, shape.len());
+
+        let read = programs::slice::read_slice::<T>(
+            OpenCL::context(),
+            &shape,
+            &strides,
+            &range,
+            &source_strides,
+        )?;
+
+        Ok(Self {
+            access,
+            range,
+            shape,
+            strides,
+            source_strides,
+            read,
+            write: None,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
+    fn size(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
+impl<A, T> Enqueue<OpenCL> for Slice<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let source = self.access.read()?.to_cl()?;
+        let source = source.as_ref();
+        let queue = OpenCL::queue(self.size(), source.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.size())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("read_slice")
+            .program(&self.read)
+            .queue(queue)
+            .global_work_size(output.len())
+            .arg(source)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<'a, B, T> Write<'a, OpenCL> for Slice<AccessBuffer<B>, T>
+where
+    B: AsMut<Buffer<T>>,
+    T: CType,
+    AccessBuffer<B>: Access<T>,
+{
+    type Data = CLConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        let size_hint = self.size();
+        let source = self.access.as_mut().into_inner();
+        let queue = OpenCL::queue(size_hint, source.as_mut().default_queue(), None)?;
+
+        if self.write.is_none() {
+            let program = programs::slice::write_to_slice::<T>(
+                OpenCL::context(),
+                &self.shape,
+                &self.strides,
+                &self.range,
+                &self.source_strides,
+            )?;
+
+            self.write = Some(program);
+        }
+
+        let kernel = Kernel::builder()
+            .name("write_slice")
+            .program(self.write.as_ref().expect("CL write op"))
+            .queue(queue)
+            .global_work_size(data.size())
+            .arg(source.as_mut())
+            .arg(data.as_ref())
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(())
     }
 }
 
@@ -188,7 +296,8 @@ where
         let size = broadcast.iter().product();
         let source_strides = strides_for(shape, shape.len());
 
-        let program = kernels::view::view::<T>(OpenCL.context(), shape, strides, &source_strides)?;
+        let program =
+            programs::view::view::<T>(OpenCL::context(), shape, strides, &source_strides)?;
 
         Ok(Self {
             access,
@@ -220,7 +329,7 @@ where
         let source = self.access.read()?.to_cl()?;
         let source = source.as_ref();
 
-        let queue = OpenCL.queue(self.size, source.default_queue(), None)?;
+        let queue = OpenCL::queue(self.size, source.default_queue(), None)?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
