@@ -1,18 +1,18 @@
 use crate::access::{Access, AccessOp};
-use crate::buffer::{Buffer, BufferConverter, BufferInstance};
+use crate::buffer::BufferConverter;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, Shape};
+use crate::{host, CType, Error, Range, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
 }
 
-pub trait Convert<T: CType>: PlatformInstance {
-    type Buffer: BufferInstance<T>;
+pub trait Convert<'a, T: CType>: PlatformInstance {
+    type Buffer;
 
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -53,15 +53,11 @@ impl From<host::Host> for Platform {
     }
 }
 
-impl<T: CType> Convert<T> for Platform {
-    type Buffer = Buffer<T>;
+impl<'a, T: CType> Convert<'a, T> for Platform {
+    type Buffer = BufferConverter<'a, T>;
 
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(cl) => cl.convert(buffer).map(Buffer::CL),
-            Self::Host(host) => host.convert(buffer).map(Buffer::Host),
-        }
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        Ok(buffer)
     }
 }
 
@@ -203,6 +199,7 @@ where
     T: CType,
 {
     type Broadcast = View<A, T>;
+    type Slice = Slice<A, T>;
 
     fn broadcast(
         self,
@@ -214,6 +211,19 @@ where
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.broadcast(access, shape, broadcast).map(AccessOp::wrap),
             Self::Host(host) => host.broadcast(access, shape, broadcast).map(AccessOp::wrap),
+        }
+    }
+
+    fn slice(
+        self,
+        access: A,
+        shape: &[usize],
+        range: Range,
+    ) -> Result<AccessOp<Self::Slice, Self>, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.slice(access, shape, range).map(AccessOp::wrap),
+            Self::Host(host) => host.slice(access, shape, range).map(AccessOp::wrap),
         }
     }
 }

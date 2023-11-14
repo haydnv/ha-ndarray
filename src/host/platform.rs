@@ -4,11 +4,10 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{CType, Error, Shape};
+use crate::{CType, Error, Range, Shape};
 
-use super::buffer::Buffer;
+use super::buffer::SliceConverter;
 use super::ops::*;
-use super::StackVec;
 
 pub const VEC_MIN_SIZE: usize = 64;
 
@@ -18,14 +17,6 @@ pub struct Stack;
 impl PlatformInstance for Stack {
     fn select(_size_hint: usize) -> Self {
         Self
-    }
-}
-
-impl<T: CType> Convert<T> for Stack {
-    type Buffer = StackVec<T>;
-
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.to_slice().map(|slice| slice.into_stackvec())
     }
 }
 
@@ -62,14 +53,6 @@ pub struct Heap;
 impl PlatformInstance for Heap {
     fn select(_size_hint: usize) -> Self {
         Self
-    }
-}
-
-impl<T: CType> Convert<T> for Heap {
-    type Buffer = Vec<T>;
-
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.to_slice().map(|slice| slice.into_vec())
     }
 }
 
@@ -122,14 +105,11 @@ impl PlatformInstance for Host {
     }
 }
 
-impl<T: CType> Convert<T> for Host {
-    type Buffer = Buffer<T>;
+impl<'a, T: CType> Convert<'a, T> for Host {
+    type Buffer = SliceConverter<'a, T>;
 
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        match self {
-            Self::Heap(heap) => heap.convert(buffer).map(Buffer::Heap),
-            Self::Stack(stack) => stack.convert(buffer).map(Buffer::Stack),
-        }
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_slice()
     }
 }
 
@@ -208,6 +188,7 @@ where
     T: CType,
 {
     type Broadcast = View<A, T>;
+    type Slice = Slice<A, T>;
 
     fn broadcast(
         self,
@@ -216,5 +197,14 @@ where
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         Ok(View::new(array, shape, broadcast).into())
+    }
+
+    fn slice(
+        self,
+        access: A,
+        shape: &[usize],
+        range: Range,
+    ) -> Result<AccessOp<Self::Slice, Self>, Error> {
+        Ok(Slice::new(access, shape, range).into())
     }
 }

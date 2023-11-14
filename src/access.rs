@@ -105,7 +105,7 @@ impl<O, P> From<O> for AccessOp<O, P> {
     }
 }
 
-impl<'a, O, P, T> Access<T> for AccessOp<O, P>
+impl<O, P, T> Access<T> for AccessOp<O, P>
 where
     T: CType,
     O: Enqueue<P>,
@@ -121,33 +121,25 @@ where
     }
 }
 
-pub struct AccessSlice<A, O, P> {
-    source: A,
-    read: O,
-    platform: PhantomData<P>,
-}
-
-impl<A, O, P, T> Access<T> for AccessSlice<A, O, P>
+impl<'a, O, P, T> Access<T> for &'a AccessOp<O, P>
 where
     T: CType,
-    A: Access<T>,
     O: Enqueue<P>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        self.read.enqueue().map(BufferConverter::from)
+    fn read(&self) -> Result<BufferConverter<'static, T>, Error> {
+        self.op.enqueue().map(BufferConverter::from)
     }
 
     fn size(&self) -> usize {
-        self.read.size()
+        self.op.size()
     }
 }
 
-impl<'a, A, O, P, T> AccessMut<'a, T> for AccessSlice<A, O, P>
+impl<'a, O, P, T> AccessMut<'a, T> for AccessOp<O, P>
 where
     T: CType,
-    A: Access<T>,
     O: Write<'a, P>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
@@ -155,7 +147,7 @@ where
     type Data = O::Data;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        todo!()
+        self.op.write(data)
     }
 }
 

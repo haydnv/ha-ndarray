@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{CType, Convert, Error, Shape};
+use crate::{AxisRange, CType, Convert, Error, Range, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -83,6 +83,22 @@ where
     }
 }
 
+impl<T, O, P> Array<T, AccessOp<O, P>, P>
+where
+    T: CType,
+    O: Enqueue<P>,
+    P: PlatformInstance,
+{
+    pub fn as_ref(&self) -> Array<T, &AccessOp<O, P>, P> {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: &self.access,
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+}
+
 // write ops
 impl<T, L, P> Array<T, L, P>
 where
@@ -92,7 +108,7 @@ where
     where
         L: AccessMut<'a, T>,
         R: Access<T> + 'a,
-        P: Convert<T, Buffer = L::Data>,
+        P: Convert<'a, T, Buffer = L::Data>,
     {
         same_shape("write", self.shape(), other.shape())?;
 
@@ -121,6 +137,33 @@ impl<T, A, P> Array<T, A, P> {
         let platform = P::select(shape.iter().product());
         let broadcast = Shape::from_slice(&shape);
         let access = platform.broadcast(self.access, self.shape, broadcast)?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+
+    pub fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error>
+    where
+        P: Transform<A, T>,
+    {
+        for (dim, range) in self.shape.iter().zip(&range) {
+            match range {
+                AxisRange::At(i) if i < dim => Ok(()),
+                AxisRange::In(start, stop, _step) if start < dim && stop <= dim => Ok(()),
+                AxisRange::Of(indices) if indices.iter().all(|i| i < dim) => Ok(()),
+                range => Err(Error::Bounds(format!(
+                    "invalid range {range:?} for dimension {dim}"
+                ))),
+            }?;
+        }
+
+        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        let platform = P::select(shape.iter().product());
+        let access = platform.slice(self.access, &self.shape, range)?;
 
         Ok(Array {
             shape,

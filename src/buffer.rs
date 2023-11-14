@@ -201,6 +201,12 @@ impl<T: CType> From<host::StackVec<T>> for BufferConverter<'static, T> {
     }
 }
 
+impl<T: CType> From<host::Buffer<T>> for BufferConverter<'static, T> {
+    fn from(buf: host::Buffer<T>) -> Self {
+        Self::Host(buf.into())
+    }
+}
+
 impl<'a, T: CType> From<&'a [T]> for BufferConverter<'a, T> {
     fn from(buf: &'a [T]) -> Self {
         Self::Host(buf.into())

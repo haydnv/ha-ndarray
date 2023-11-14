@@ -24,15 +24,13 @@ pub type Array<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>
 
 #[cfg(test)]
 mod tests {
-    use smallvec::smallvec;
+    use crate::{shape, slice, AxisRange, Error};
 
     use super::*;
 
-    use crate::Error;
-
     #[test]
     fn test_add() -> Result<(), Error> {
-        let shape = smallvec![1, 2, 3];
+        let shape = shape![1, 2, 3];
 
         let buffer = OpenCL::create_buffer::<u64>(6)?;
         let left = Array::new(buffer, shape.clone())?;
@@ -53,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_sub() -> Result<(), Error> {
-        let shape = smallvec![1, 2, 3];
+        let shape = shape![1, 2, 3];
 
         let buffer = OpenCL::copy_into_buffer(&[0, 1, 2, 3, 4, 5])?;
         let array = Array::new(buffer, shape.clone())?;
@@ -61,6 +59,25 @@ mod tests {
         let actual = array.as_ref().sub(array.as_ref())?;
 
         assert!(!actual.any()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice() -> Result<(), Error> {
+        let buf = OpenCL::copy_into_buffer(&[0; 6])?;
+        let array = Array::new(buf, shape![2, 3])?;
+        let mut slice = array.slice(slice![AxisRange::In(0, 2, 1), AxisRange::At(1)])?;
+
+        let buf = OpenCL::copy_into_buffer(&[0, 0])?;
+        let zeros = Array::new(buf, shape![2])?;
+
+        let buf = OpenCL::copy_into_buffer(&[0, 0])?;
+        let ones = Array::new(buf, shape![2])?;
+
+        assert!(slice.as_ref().eq(zeros)?.all()?);
+
+        slice.write(&ones)?;
 
         Ok(())
     }

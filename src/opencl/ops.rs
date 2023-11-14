@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel, Program};
@@ -238,7 +239,7 @@ where
 
 impl<'a, B, T> Write<'a, OpenCL> for Slice<AccessBuffer<B>, T>
 where
-    B: AsMut<Buffer<T>>,
+    B: Borrow<Buffer<T>>,
     T: CType,
     AccessBuffer<B>: Access<T>,
 {
@@ -246,8 +247,8 @@ where
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         let size_hint = self.size();
-        let source = self.access.as_mut().into_inner();
-        let queue = OpenCL::queue(size_hint, source.as_mut().default_queue(), None)?;
+        let source = self.access.as_ref().into_inner();
+        let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
 
         if self.write.is_none() {
             let program = programs::slice::write_to_slice::<T>(
@@ -266,7 +267,7 @@ where
             .program(self.write.as_ref().expect("CL write op"))
             .queue(queue)
             .global_work_size(data.size())
-            .arg(source.as_mut())
+            .arg(source)
             .arg(data.as_ref())
             .build()?;
 

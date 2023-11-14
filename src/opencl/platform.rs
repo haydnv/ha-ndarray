@@ -8,11 +8,11 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, BufferInstance, CType, Error, Shape};
+use crate::{strides_for, BufferInstance, CType, Error, Range, Shape};
 
 use super::ops::*;
-use super::programs;
 use super::CL_PLATFORM;
+use super::{programs, CLConverter};
 
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
 
@@ -211,12 +211,11 @@ impl OpenCL {
     }
 }
 
-impl<T: CType> Convert<T> for OpenCL {
-    type Buffer = Buffer<T>;
+impl<'a, T: CType> Convert<'a, T> for OpenCL {
+    type Buffer = CLConverter<'a, T>;
 
-    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        let buffer = buffer.to_cl()?;
-        buffer.into_buffer()
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_cl().map_err(Error::from)
     }
 }
 
@@ -339,6 +338,7 @@ where
     T: CType,
 {
     type Broadcast = View<A, T>;
+    type Slice = Slice<A, T>;
 
     fn broadcast(
         self,
@@ -348,5 +348,14 @@ where
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         let strides = strides_for(&shape, broadcast.len());
         View::new(access, &shape, &broadcast, &strides).map(AccessOp::from)
+    }
+
+    fn slice(
+        self,
+        access: A,
+        shape: &[usize],
+        range: Range,
+    ) -> Result<AccessOp<Self::Slice, Self>, Error> {
+        Slice::new(access, shape, range).map(AccessOp::from)
     }
 }

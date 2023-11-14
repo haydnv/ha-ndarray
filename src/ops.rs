@@ -3,7 +3,7 @@ use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, BufferConverter, CType, Error, Shape};
+use crate::{host, BufferConverter, CType, Error, Range, Shape};
 
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
@@ -45,6 +45,7 @@ pub trait Reduce<A, T>: PlatformInstance {
 
 pub trait Transform<A, T>: PlatformInstance {
     type Broadcast: Enqueue<Self>;
+    type Slice: Enqueue<Self>;
 
     fn broadcast(
         self,
@@ -52,6 +53,13 @@ pub trait Transform<A, T>: PlatformInstance {
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error>;
+
+    fn slice(
+        self,
+        access: A,
+        shape: &[usize],
+        range: Range,
+    ) -> Result<AccessOp<Self::Slice, Self>, Error>;
 }
 
 pub enum Compare<L, R, T> {
@@ -204,6 +212,19 @@ where
         match self {
             Self::Host(op) => Write::write(op, data.to_slice()?),
         }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T> From<opencl::ops::Slice<A, T>> for Slice<A, T> {
+    fn from(op: opencl::ops::Slice<A, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<A, T> From<host::ops::Slice<A, T>> for Slice<A, T> {
+    fn from(op: host::ops::Slice<A, T>) -> Self {
+        Self::Host(op)
     }
 }
 

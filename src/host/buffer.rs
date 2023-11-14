@@ -113,6 +113,15 @@ impl<T> Borrow<[T]> for Buffer<T> {
     }
 }
 
+impl<T> AsMut<[T]> for Buffer<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        match self {
+            Self::Heap(buf) => buf.as_mut_slice(),
+            Self::Stack(buf) => buf.as_mut_slice(),
+        }
+    }
+}
+
 impl<T: CType> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         Ok(BufferConverter::Host(self.into()))

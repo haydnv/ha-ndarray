@@ -248,6 +248,31 @@ impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
     }
 }
 
+impl<B, T> Slice<AccessBuffer<B>, T>
+where
+    B: AsMut<[T]>,
+    T: CType,
+    AccessBuffer<B>: Access<T>,
+{
+    fn overwrite(&mut self, data: &[T]) -> Result<(), Error> {
+        if data.len() == self.size() {
+            for (offset, value) in data.as_ref().into_iter().copied().enumerate() {
+                let source_offset = self.source_offset(offset);
+                let source = self.access.as_mut().into_inner();
+                source.as_mut()[source_offset] = value;
+            }
+
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot overwrite a slice of size {} with a buffer of size {}",
+                self.size(),
+                data.len(),
+            )))
+        }
+    }
+}
+
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     fn size(&self) -> usize {
         self.shape.iter().product()
@@ -294,24 +319,36 @@ where
     T: CType,
     AccessBuffer<B>: Access<T>,
 {
+    type Data = &'a [T];
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        self.overwrite(data)
+    }
+}
+
+impl<'a, B, T> crate::ops::Write<'a, Stack> for Slice<AccessBuffer<B>, T>
+where
+    B: AsMut<[T]>,
+    T: CType,
+    AccessBuffer<B>: Access<T>,
+{
+    type Data = &'a [T];
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        self.overwrite(data)
+    }
+}
+
+impl<'a, B, T> crate::ops::Write<'a, Host> for Slice<AccessBuffer<B>, T>
+where
+    B: AsMut<[T]>,
+    T: CType,
+    AccessBuffer<B>: Access<T>,
+{
     type Data = SliceConverter<'a, T>;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        if data.size() == self.size() {
-            for (offset, value) in data.as_ref().into_iter().copied().enumerate() {
-                let source_offset = self.source_offset(offset);
-                let source = self.access.as_mut().into_inner();
-                source.as_mut()[source_offset] = value;
-            }
-
-            Ok(())
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot overwrite a slice of size {} with a buffer of size {}",
-                self.size(),
-                data.size(),
-            )))
-        }
+        self.overwrite(data.as_ref())
     }
 }
 

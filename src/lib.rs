@@ -2,6 +2,7 @@ use std::fmt;
 use std::iter::Sum;
 use std::ops::{Add, Sub};
 
+pub use smallvec::smallvec as slice;
 pub use smallvec::smallvec as shape;
 use smallvec::SmallVec;
 
