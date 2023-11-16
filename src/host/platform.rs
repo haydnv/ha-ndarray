@@ -2,7 +2,7 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
+use crate::ops::{ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
 use crate::{CType, Error, Range, Shape};
 
@@ -131,35 +131,39 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Output = Compare<L, R, T>;
+    type Op = Compare<L, R, T>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Compare::eq(left, right).into())
     }
 }
 
-impl<'a, L, R, T> ElementwiseDual<L, R, T> for Host
+impl<L, R, T> ElementwiseDual<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
     T: CType,
 {
-    type Output = Dual<L, R, T>;
+    type Op = Dual<L, R, T>;
 
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::add(left, right).into())
     }
 
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::sub(left, right).into())
     }
 }
 
-impl<'a, A, T> Reduce<A, T> for Host
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
+    type Op = Unary<A, T, T>;
+
+    fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::ln(access).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> Reduce<A, T> for Host {
     fn all(self, access: A) -> Result<bool, Error> {
         match self {
             Self::Heap(heap) => heap.all(access),

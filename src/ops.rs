@@ -22,17 +22,23 @@ pub trait Write<'a, P: PlatformInstance>: Enqueue<P> {
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
-    type Output: Enqueue<Self>;
+    type Op: Enqueue<Self>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait ElementwiseDual<L, R, T>: PlatformInstance {
-    type Output: Enqueue<Self>;
+    type Op: Enqueue<Self>;
 
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error>;
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+pub trait ElementwiseUnary<A, T>: PlatformInstance {
+    type Op: Enqueue<Self>;
+
+    fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait Reduce<A, T>: PlatformInstance {
@@ -100,7 +106,7 @@ impl<L, R, T> From<host::ops::Dual<L, R, T>> for Dual<L, R, T> {
     }
 }
 
-macro_rules! impl_unary {
+macro_rules! impl_view {
     ($op:ty, $t:ty) => {
         impl<'a, A, T> Op for $op
         where
@@ -179,7 +185,7 @@ pub enum Slice<A, T> {
     Host(host::ops::Slice<A, T>),
 }
 
-impl_unary!(Slice<A, T>, T);
+impl_view!(Slice<A, T>, T);
 
 #[cfg(feature = "opencl")]
 impl<'a, A, T> Write<'a, Platform> for Slice<A, T>
@@ -228,13 +234,64 @@ impl<A, T> From<host::ops::Slice<A, T>> for Slice<A, T> {
     }
 }
 
+pub enum Unary<A, IT, OT> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Unary<A, IT, OT>),
+    Host(host::ops::Unary<A, IT, OT>),
+}
+
+impl<A, IT, OT> Op for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<A, IT, OT> Enqueue<Platform> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<A, IT, OT> From<host::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
+    fn from(op: host::ops::Unary<A, IT, OT>) -> Self {
+        Self::Host(op)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, IT, OT> From<opencl::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
+    fn from(op: opencl::ops::Unary<A, IT, OT>) -> Self {
+        Self::CL(op)
+    }
+}
+
 pub enum View<A, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::View<A, T>),
     Host(host::ops::View<A, T>),
 }
 
-impl_unary!(View<A, T>, T);
+impl_view!(View<A, T>, T);
 
 #[cfg(feature = "opencl")]
 impl<A, T> From<opencl::ops::View<A, T>> for View<A, T> {

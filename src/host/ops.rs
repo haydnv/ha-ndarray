@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
 use crate::ops::Op;
-use crate::{strides_for, AxisRange, CType, Enqueue, Error, Range, Shape, Strides};
+use crate::{strides_for, AxisRange, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -349,6 +349,91 @@ where
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.overwrite(data.as_ref())
+    }
+}
+
+pub struct Unary<A, IT, OT> {
+    access: A,
+    op: fn(IT) -> OT,
+}
+
+impl<A, T> Unary<A, T, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    pub fn ln(access: A) -> Self {
+        Self {
+            access,
+            op: |n| T::from_float(n.to_float().ln()),
+        }
+    }
+}
+
+impl<A, IT, OT> Op for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A, IT, OT> Enqueue<Heap> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Vec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|input| {
+                input
+                    .as_ref()
+                    .into_par_iter()
+                    .copied()
+                    .map(self.op)
+                    .collect()
+            })
+    }
+}
+
+impl<A, IT, OT> Enqueue<Stack> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = StackVec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|input| input.as_ref().into_iter().copied().map(self.op).collect())
+    }
+}
+
+impl<A, IT, OT> Enqueue<Host> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
+        }
     }
 }
 

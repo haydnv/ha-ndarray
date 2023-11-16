@@ -68,9 +68,9 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Output = Compare<L, R, T>;
+    type Op = Compare<L, R, T>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
         }
@@ -84,9 +84,9 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Output = Compare<L, R, T>;
+    type Op = Compare<L, R, T>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::CL(cl) => cl.eq(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
@@ -101,15 +101,15 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Output = Dual<L, R, T>;
+    type Op = Dual<L, R, T>;
 
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.add(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.sub(left, right).map(AccessOp::wrap),
         }
@@ -123,16 +123,16 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Output = Dual<L, R, T>;
+    type Op = Dual<L, R, T>;
 
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::CL(cl) => cl.add(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.add(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::CL(cl) => cl.sub(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.sub(left, right).map(AccessOp::wrap),
@@ -141,11 +141,30 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<'a, A, T> Reduce<A, T> for Platform
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
+    type Op = Unary<A, T, T>;
+
+    fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
+    type Op = Unary<A, T, T>;
+
+    fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.ln(access).map(AccessOp::wrap),
+            Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> Reduce<A, T> for Platform {
     fn all(self, access: A) -> Result<bool, Error> {
         match Self::select(access.size()) {
             Self::Host(host) => host.all(access),

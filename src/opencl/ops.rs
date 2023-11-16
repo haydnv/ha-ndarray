@@ -277,6 +277,71 @@ where
     }
 }
 
+pub struct Unary<A, IT, OT> {
+    access: A,
+    program: Program,
+    dtype: PhantomData<(IT, OT)>,
+}
+
+impl<A, T> Unary<A, T, T>
+where
+    T: CType,
+{
+    pub fn ln(access: A) -> Result<Self, Error> {
+        let program = programs::elementwise::unary::<T, T>("_log", OpenCL::context())?;
+
+        Ok(Self {
+            access,
+            program,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A, IT, OT> Op for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A, IT, OT> Enqueue<OpenCL> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+        let input = input.as_ref();
+        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("unary")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(input.len())
+            .arg(input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
 pub struct View<A, T> {
     access: A,
     program: Program,

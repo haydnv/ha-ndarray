@@ -6,7 +6,7 @@ use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{ElementwiseCompare, ElementwiseDual, Reduce, Transform};
+use crate::ops::{ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, BufferInstance, CType, Error, Range, Shape};
 
@@ -225,9 +225,9 @@ where
     L: Access<T>,
     R: Access<T>,
 {
-    type Output = Compare<L, R, T>;
+    type Op = Compare<L, R, T>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Compare::eq(left, right).map(AccessOp::from)
     }
 }
@@ -238,22 +238,26 @@ where
     L: Access<T>,
     R: Access<T>,
 {
-    type Output = Dual<L, R, T>;
+    type Op = Dual<L, R, T>;
 
-    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::add(left, right).map(AccessOp::from)
     }
 
-    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Output, Self>, Error> {
+    fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::sub(left, right).map(AccessOp::from)
     }
 }
 
-impl<A, T> Reduce<A, T> for OpenCL
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
+    type Op = Unary<A, T, T>;
+
+    fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::ln(access).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
         let buffer = buffer.as_ref();

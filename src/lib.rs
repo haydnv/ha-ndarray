@@ -39,6 +39,12 @@ pub trait CType:
     const ZERO: Self;
 
     const ONE: Self;
+
+    type Float: Float;
+
+    fn from_float(float: Self::Float) -> Self;
+
+    fn to_float(self) -> Self::Float;
 }
 
 #[cfg(not(feature = "opencl"))]
@@ -59,30 +65,62 @@ pub trait CType:
     const ZERO: Self;
 
     const ONE: Self;
+
+    type Float: Float;
+
+    fn from_float(float: Self::Float) -> Self;
+
+    fn to_float(self) -> Self::Float;
 }
 
 macro_rules! c_type {
-    ($t:ty, $str:expr, $one:expr, $zero:expr) => {
+    ($t:ty, $str:expr, $one:expr, $zero:expr, $float:ty) => {
         impl CType for $t {
             const TYPE: &'static str = $str;
 
             const ZERO: Self = $zero;
 
             const ONE: Self = $one;
+
+            type Float = $float;
+
+            fn from_float(float: $float) -> Self {
+                float as $t
+            }
+
+            fn to_float(self) -> $float {
+                self as $float
+            }
         }
     };
 }
 
-c_type!(f32, "float", 1.0, 0.0);
-c_type!(f64, "double", 1.0, 0.0);
-c_type!(i8, "char", 1, 0);
-c_type!(i16, "short", 1, 0);
-c_type!(i32, "int", 1, 0);
-c_type!(i64, "long", 1, 0);
-c_type!(u8, "uchar", 1, 0);
-c_type!(u16, "ushort", 1, 0);
-c_type!(u32, "uint", 1, 0);
-c_type!(u64, "ulong", 1, 0);
+c_type!(f32, "float", 1.0, 0.0, Self);
+c_type!(f64, "double", 1.0, 0.0, Self);
+c_type!(i8, "char", 1, 0, f32);
+c_type!(i16, "short", 1, 0, f32);
+c_type!(i32, "int", 1, 0, f32);
+c_type!(i64, "long", 1, 0, f64);
+c_type!(u8, "uchar", 1, 0, f32);
+c_type!(u16, "ushort", 1, 0, f32);
+c_type!(u32, "uint", 1, 0, f32);
+c_type!(u64, "ulong", 1, 0, f64);
+
+pub trait Float: CType {
+    fn ln(self) -> Self;
+}
+
+impl Float for f32 {
+    fn ln(self) -> Self {
+        f32::ln(self)
+    }
+}
+
+impl Float for f64 {
+    fn ln(self) -> Self {
+        f64::ln(self)
+    }
+}
 
 /// An array math error
 pub enum Error {

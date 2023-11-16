@@ -172,12 +172,25 @@ impl<T, A, P> Array<T, A, P> {
             dtype: PhantomData,
         })
     }
+
+    // math
+    pub fn ln(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
+    where
+        P: ElementwiseUnary<A, T>,
+    {
+        self.platform.ln(self.access).map(|access| Array {
+            access,
+            shape: self.shape,
+            platform: self.platform,
+            dtype: self.dtype,
+        })
+    }
 }
 
 // array-array ops
 impl<T, L, P> Array<T, L, P> {
     // array-array comparison
-    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Output, P>, P>, Error>
+    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Op, P>, P>, Error>
     where
         P: ElementwiseCompare<L, R, T>,
     {
@@ -192,7 +205,7 @@ impl<T, L, P> Array<T, L, P> {
     }
 
     // array-array arithmetic
-    pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
+    pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
         P: ElementwiseDual<L, R, T>,
     {
@@ -206,7 +219,7 @@ impl<T, L, P> Array<T, L, P> {
         })
     }
 
-    pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Output, P>, P>, Error>
+    pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
         P: ElementwiseDual<L, R, T>,
     {
