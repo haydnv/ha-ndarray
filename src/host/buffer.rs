@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::ops::Deref;
 
 use smallvec::SmallVec;
 
@@ -249,8 +250,10 @@ impl<'a, T> From<&'a [T]> for SliceConverter<'a, T> {
     }
 }
 
-impl<'a, T> AsRef<[T]> for SliceConverter<'a, T> {
-    fn as_ref(&self) -> &[T] {
+impl<'a, T> Deref for SliceConverter<'a, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
         match self {
             Self::Heap(data) => data.as_slice(),
             Self::Stack(data) => data.as_slice(),

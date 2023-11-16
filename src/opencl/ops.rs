@@ -54,9 +54,6 @@ where
         let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
-        let left = left.as_ref();
-        let right = right.as_ref();
-
         let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
@@ -69,8 +66,8 @@ where
             .program(&self.program)
             .queue(queue)
             .global_work_size(left.len())
-            .arg(left)
-            .arg(right)
+            .arg(&*left)
+            .arg(&*right)
             .arg(&output)
             .build()?;
 
@@ -135,9 +132,6 @@ where
         let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
-        let left = left.as_ref();
-        let right = right.as_ref();
-
         let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
 
         let output = Buffer::builder()
@@ -150,8 +144,8 @@ where
             .program(&self.program)
             .queue(queue)
             .global_work_size(left.len())
-            .arg(left)
-            .arg(right)
+            .arg(&*left)
+            .arg(&*right)
             .arg(&output)
             .build()?;
 
@@ -214,7 +208,6 @@ where
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
-        let source = source.as_ref();
         let queue = OpenCL::queue(self.size(), source.default_queue(), None)?;
 
         let output = Buffer::builder()
@@ -227,7 +220,7 @@ where
             .program(&self.read)
             .queue(queue)
             .global_work_size(output.len())
-            .arg(source)
+            .arg(&*source)
             .arg(&output)
             .build()?;
 
@@ -268,7 +261,7 @@ where
             .queue(queue)
             .global_work_size(data.size())
             .arg(source)
-            .arg(data.as_ref())
+            .arg(&*data)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -319,7 +312,6 @@ where
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
-        let input = input.as_ref();
         let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
 
         let output = Buffer::builder()
@@ -332,7 +324,7 @@ where
             .program(&self.program)
             .queue(queue)
             .global_work_size(input.len())
-            .arg(input)
+            .arg(&*input)
             .arg(&output)
             .build()?;
 
@@ -393,7 +385,6 @@ where
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
-        let source = source.as_ref();
 
         let queue = OpenCL::queue(self.size, source.default_queue(), None)?;
 
@@ -407,7 +398,7 @@ where
             .program(&self.program)
             .queue(queue)
             .global_work_size(self.size)
-            .arg(source)
+            .arg(&*source)
             .arg(&output)
             .build()?;
 

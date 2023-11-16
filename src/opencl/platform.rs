@@ -8,7 +8,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Reduce, Transform};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, BufferInstance, CType, Error, Range, Shape};
+use crate::{strides_for, CType, Error, Range, Shape};
 
 use super::ops::*;
 use super::CL_PLATFORM;
@@ -52,7 +52,7 @@ impl From<Vec<Device>> for DeviceList {
     fn from(devices: Vec<Device>) -> Self {
         Self {
             devices,
-            next: std::sync::Arc::new(Default::default()),
+            next: Arc::new(Default::default()),
         }
     }
 }
@@ -260,7 +260,6 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
 impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
-        let buffer = buffer.as_ref();
 
         let result = [1];
 
@@ -282,7 +281,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
             .queue(queue.clone())
             .global_work_size(buffer.len())
             .arg(&flag)
-            .arg(buffer)
+            .arg(&*buffer)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -294,7 +293,6 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
 
     fn any(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
-        let buffer = buffer.as_ref();
 
         let result = [0];
 
@@ -316,7 +314,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
             .queue(queue.clone())
             .global_work_size(buffer.len())
             .arg(&flag)
-            .arg(buffer)
+            .arg(&*buffer)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -328,11 +326,10 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
 
     fn sum(self, access: A) -> Result<T, Error> {
         let buffer = access.read()?.to_cl()?;
-        let buffer = buffer.as_ref();
 
         let queue = Self::queue(buffer.size(), buffer.default_queue(), None)?;
 
-        programs::reduce::reduce(T::ZERO, "add", queue, buffer, Add::add).map_err(Error::from)
+        programs::reduce::reduce(T::ZERO, "add", queue, &*buffer, Add::add).map_err(Error::from)
     }
 }
 

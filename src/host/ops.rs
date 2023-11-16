@@ -256,7 +256,7 @@ where
 {
     fn overwrite(&mut self, data: &[T]) -> Result<(), Error> {
         if data.len() == self.size() {
-            for (offset, value) in data.as_ref().into_iter().copied().enumerate() {
+            for (offset, value) in data.into_iter().copied().enumerate() {
                 let source_offset = self.source_offset(offset);
                 let source = self.access.as_mut().into_inner();
                 source.as_mut()[source_offset] = value;
@@ -286,7 +286,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap> for Slice<A, T> {
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .and_then(|buf| self.read_parallel(buf.as_ref()))
+            .and_then(|buf| self.read_parallel(&*buf))
     }
 }
 
@@ -297,7 +297,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack> for Slice<A, T> {
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .and_then(|buf| self.read(buf.as_ref()))
+            .and_then(|buf| self.read(&*buf))
     }
 }
 
@@ -348,7 +348,7 @@ where
     type Data = SliceConverter<'a, T>;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        self.overwrite(data.as_ref())
+        self.overwrite(&*data)
     }
 }
 
@@ -393,14 +393,7 @@ where
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|input| {
-                input
-                    .as_ref()
-                    .into_par_iter()
-                    .copied()
-                    .map(self.op)
-                    .collect()
-            })
+            .map(|input| input.into_par_iter().copied().map(self.op).collect())
     }
 }
 
@@ -416,7 +409,7 @@ where
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|input| input.as_ref().into_iter().copied().map(self.op).collect())
+            .map(|input| input.into_iter().copied().map(self.op).collect())
     }
 }
 
@@ -466,7 +459,6 @@ impl<T: CType> ViewSpec<T> {
 
     fn read(&self, source: BufferConverter<T>) -> Result<StackVec<T>, Error> {
         let source = source.to_slice()?;
-        let source = source.as_ref();
 
         let buffer = (0..self.shape.iter().product())
             .into_iter()
@@ -479,7 +471,6 @@ impl<T: CType> ViewSpec<T> {
 
     fn read_parallel(&self, source: BufferConverter<T>) -> Result<Vec<T>, Error> {
         let source = source.to_slice()?;
-        let source = source.as_ref();
 
         let buffer = (0..self.shape.iter().product())
             .into_par_iter()
@@ -582,10 +573,9 @@ where
     let right = right.to_slice()?;
 
     let output = left
-        .as_ref()
         .into_iter()
         .copied()
-        .zip(right.as_ref().into_iter().copied())
+        .zip(right.into_iter().copied())
         .map(|(l, r)| (zip)(l, r))
         .collect();
 
@@ -605,10 +595,9 @@ where
     let right = right.to_slice()?;
 
     let output = left
-        .as_ref()
         .into_par_iter()
         .copied()
-        .zip(right.as_ref().into_par_iter().copied())
+        .zip(right.into_par_iter().copied())
         .map(|(l, r)| (zip)(l, r))
         .collect();
 

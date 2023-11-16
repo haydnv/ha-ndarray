@@ -159,7 +159,6 @@ impl<'a, T: CType> BufferConverter<'a, T> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => {
-                let buffer = buffer.as_ref();
                 let mut copy = vec![T::default(); buffer.len()];
                 buffer.read(&mut copy[..]).enq()?;
                 Ok(host::SliceConverter::from(copy))

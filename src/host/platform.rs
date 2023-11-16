@@ -29,21 +29,21 @@ where
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.as_ref().iter().copied().all(|n| n != T::ZERO))
+            .map(|slice| slice.iter().copied().all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.as_ref().iter().copied().any(|n| n != T::ZERO))
+            .map(|slice| slice.iter().copied().any(|n| n != T::ZERO))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.as_ref().iter().copied().sum())
+            .map(|slice| slice.iter().copied().sum())
     }
 }
 
@@ -62,30 +62,24 @@ where
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
-        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
-            slice
-                .as_ref()
-                .into_par_iter()
-                .copied()
-                .all(|n| n != T::ZERO)
-        })
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.into_par_iter().copied().all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        access.read().and_then(|buf| buf.to_slice()).map(|slice| {
-            slice
-                .as_ref()
-                .into_par_iter()
-                .copied()
-                .any(|n| n != T::ZERO)
-        })
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.into_par_iter().copied().any(|n| n != T::ZERO))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.as_ref().into_par_iter().copied().sum())
+            .map(|slice| slice.into_par_iter().copied().sum())
     }
 }
 
