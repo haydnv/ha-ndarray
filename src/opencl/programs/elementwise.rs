@@ -1,8 +1,12 @@
-use ocl::{Context, Error, Program};
+use memoize::memoize;
+use ocl::Program;
 
-use crate::CType;
+use crate::Error;
 
-pub fn compare<T: CType>(op: &'static str, context: &Context) -> Result<Program, Error> {
+use super::build;
+
+#[memoize]
+pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
         inline uchar eq(const {c_type} left, const {c_type} right) {{
@@ -18,13 +22,13 @@ pub fn compare<T: CType>(op: &'static str, context: &Context) -> Result<Program,
             output[offset] = {op}(left[offset], right[offset]);
         }}
         "#,
-        c_type = T::TYPE,
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }
 
-pub fn dual<T: CType>(op: &'static str, context: &Context) -> Result<Program, Error> {
+#[memoize]
+pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
         inline {c_type} add(const {c_type} left, const {c_type} right) {{
@@ -44,32 +48,29 @@ pub fn dual<T: CType>(op: &'static str, context: &Context) -> Result<Program, Er
             output[offset] = {op}(left[offset], right[offset]);
         }}
         "#,
-        c_type = T::TYPE,
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }
 
-pub fn unary<IT, OT>(op: &'static str, context: &Context) -> Result<Program, Error>
-where
-    IT: CType,
-    OT: CType,
-{
+pub fn unary(
+    f_type: &'static str,
+    i_type: &'static str,
+    o_type: &'static str,
+    op: &'static str,
+) -> Result<Program, Error> {
     let src = format!(
         r#"
-        inline {ftype} _log(const {ftype} input) {{
+        inline {f_type} _log(const {f_type} input) {{
             return log(input);
         }}
 
-        __kernel void unary(__global const {itype}* input, __global {otype}* output) {{
+        __kernel void unary(__global const {i_type}* input, __global {o_type}* output) {{
             const ulong offset = get_global_id(0);
             output[offset] = {op}(input[offset]);
         }}
         "#,
-        ftype = <IT::Float as CType>::TYPE,
-        itype = IT::TYPE,
-        otype = OT::TYPE,
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }

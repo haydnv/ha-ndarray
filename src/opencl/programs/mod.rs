@@ -1,14 +1,13 @@
 use std::fmt;
 
-use super::div_ceil;
+use crate::Error;
+
+use super::OpenCL;
 
 pub mod elementwise;
 pub mod reduce;
 pub mod slice;
 pub mod view;
-
-const TILE_SIZE: usize = 8;
-const WG_SIZE: usize = 64;
 
 struct ArrayFormat<'a, T> {
     arr: &'a [T],
@@ -30,4 +29,12 @@ impl<'a, T: fmt::Display> fmt::Display for ArrayFormat<'a, T> {
 
         f.write_str(" }")
     }
+}
+
+#[inline]
+fn build(src: &str) -> Result<ocl::Program, Error> {
+    ocl::Program::builder()
+        .source(src)
+        .build(OpenCL::context())
+        .map_err(Error::from)
 }

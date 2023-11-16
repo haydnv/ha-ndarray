@@ -19,7 +19,7 @@ pub struct Compare<L, R, T> {
 
 impl<L, R, T: CType> Compare<L, R, T> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::compare::<T>("eq", OpenCL::context())?;
+        let program = programs::elementwise::compare(T::TYPE, "eq")?;
 
         Ok(Self {
             left,
@@ -86,7 +86,7 @@ pub struct Dual<L, R, T> {
 
 impl<L, R, T: CType> Dual<L, R, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual::<T>("add", OpenCL::context())?;
+        let program = programs::elementwise::dual(T::TYPE, "add")?;
 
         Ok(Self {
             left,
@@ -97,7 +97,7 @@ impl<L, R, T: CType> Dual<L, R, T> {
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual::<T>("sub", OpenCL::context())?;
+        let program = programs::elementwise::dual(T::TYPE, "sub")?;
 
         Ok(Self {
             left,
@@ -172,12 +172,12 @@ impl<A, T: CType> Slice<A, T> {
         let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
         let strides = strides_for(&shape, shape.len());
 
-        let read = programs::slice::read_slice::<T>(
-            OpenCL::context(),
-            &shape,
-            &strides,
-            &range,
-            &source_strides,
+        let read = programs::slice::read_slice(
+            T::TYPE,
+            shape.clone(),
+            strides.clone(),
+            range.clone(),
+            source_strides.clone(),
         )?;
 
         Ok(Self {
@@ -244,12 +244,12 @@ where
         let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
 
         if self.write.is_none() {
-            let program = programs::slice::write_to_slice::<T>(
-                OpenCL::context(),
-                &self.shape,
-                &self.strides,
-                &self.range,
-                &self.source_strides,
+            let program = programs::slice::write_to_slice(
+                T::TYPE,
+                self.shape.clone(),
+                self.strides.clone(),
+                self.range.clone(),
+                self.source_strides.clone(),
             )?;
 
             self.write = Some(program);
@@ -281,7 +281,7 @@ where
     T: CType,
 {
     pub fn ln(access: A) -> Result<Self, Error> {
-        let program = programs::elementwise::unary::<T, T>("_log", OpenCL::context())?;
+        let program = programs::elementwise::unary(T::Float::TYPE, T::TYPE, T::TYPE, "_log")?;
 
         Ok(Self {
             access,
@@ -345,17 +345,11 @@ impl<A, T> View<A, T>
 where
     T: CType,
 {
-    pub fn new(
-        access: A,
-        shape: &[usize],
-        broadcast: &[usize],
-        strides: &[usize],
-    ) -> Result<Self, Error> {
+    pub fn new(access: A, shape: Shape, broadcast: Shape, strides: Strides) -> Result<Self, Error> {
         let size = broadcast.iter().product();
-        let source_strides = strides_for(shape, shape.len());
+        let source_strides = strides_for(&shape, shape.len());
 
-        let program =
-            programs::view::view::<T>(OpenCL::context(), shape, strides, &source_strides)?;
+        let program = programs::view::view(T::TYPE, shape.clone(), strides, source_strides)?;
 
         Ok(Self {
             access,

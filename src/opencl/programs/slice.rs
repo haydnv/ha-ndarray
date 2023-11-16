@@ -1,16 +1,18 @@
 use std::fmt;
 
-use ocl::{Context, Error, Program};
+use memoize::memoize;
+use ocl::Program;
 
-use crate::{AxisRange, CType};
+use crate::{AxisRange, Error, Range, Shape, Strides};
 
-use super::ArrayFormat;
+use super::{build, ArrayFormat};
 
-struct Range<'a> {
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct RangeFormat<'a> {
     axes: &'a [AxisRange],
 }
 
-impl<'a> Range<'a> {
+impl<'a> RangeFormat<'a> {
     fn max_indices(&self) -> usize {
         self.axes
             .iter()
@@ -23,7 +25,7 @@ impl<'a> Range<'a> {
     }
 }
 
-impl<'a> fmt::Display for Range<'a> {
+impl<'a> fmt::Display for RangeFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("{ ")?;
 
@@ -59,12 +61,14 @@ impl<'a> fmt::Display for Range<'a> {
     }
 }
 
-pub fn read_slice<T: CType>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisRange],
-    source_strides: &[usize],
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn read_slice(
+    c_type: &'static str,
+    shape: Shape,
+    strides: Strides,
+    axes: Range,
+    source_strides: Strides,
 ) -> Result<Program, Error> {
     let ndim = shape.len();
     assert_eq!(ndim, strides.len());
@@ -72,11 +76,13 @@ pub fn read_slice<T: CType>(
     let source_ndim = axes.len();
     assert_eq!(source_ndim, source_strides.len());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let dims = ArrayFormat::from(shape.as_slice());
+    let strides = ArrayFormat::from(strides.as_slice());
 
-    let bounds = Range { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let bounds = RangeFormat {
+        axes: axes.as_slice(),
+    };
+    let source_strides = ArrayFormat::from(source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -100,8 +106,8 @@ pub fn read_slice<T: CType>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void read_slice(
-                __global const {dtype}* restrict input,
-                __global {dtype}* restrict output)
+                __global const {c_type}* restrict input,
+                __global {c_type}* restrict output)
         {{
             const ulong offset_out = get_global_id(0);
 
@@ -145,19 +151,20 @@ pub fn read_slice<T: CType>(
             output[offset_out] = input[offset_in];
         }}
         "#,
-        dtype = T::TYPE,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }
 
-pub fn write_to_slice<T: CType>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisRange],
-    source_strides: &[usize],
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn write_to_slice(
+    c_type: &'static str,
+    shape: Shape,
+    strides: Strides,
+    axes: Range,
+    source_strides: Strides,
 ) -> Result<Program, Error> {
     let ndim = shape.len();
     assert_eq!(ndim, strides.len());
@@ -165,11 +172,13 @@ pub fn write_to_slice<T: CType>(
     let source_ndim = axes.len();
     assert_eq!(source_ndim, source_strides.len());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let dims = ArrayFormat::from(shape.as_slice());
+    let strides = ArrayFormat::from(strides.as_slice());
 
-    let bounds = Range { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let bounds = RangeFormat {
+        axes: axes.as_slice(),
+    };
+    let source_strides = ArrayFormat::from(source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -193,8 +202,8 @@ pub fn write_to_slice<T: CType>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void write_slice(
-                __global {dtype}* restrict output,
-                __global const {dtype}* restrict input)
+                __global {c_type}* restrict output,
+                __global const {c_type}* restrict input)
         {{
             const ulong offset_in = get_global_id(0);
 
@@ -238,19 +247,20 @@ pub fn write_to_slice<T: CType>(
             output[offset_out] = input[offset_in];
         }}
         "#,
-        dtype = T::TYPE,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }
 
-pub fn write_value_to_slice<T: CType>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisRange],
-    source_strides: &[usize],
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn write_value_to_slice(
+    c_type: &'static str,
+    shape: Shape,
+    strides: Strides,
+    axes: Range,
+    source_strides: Strides,
 ) -> Result<Program, Error> {
     let ndim = shape.len();
     assert_eq!(ndim, strides.len());
@@ -258,11 +268,13 @@ pub fn write_value_to_slice<T: CType>(
     let source_ndim = axes.len();
     assert_eq!(source_ndim, source_strides.len());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let dims = ArrayFormat::from(shape.as_slice());
+    let strides = ArrayFormat::from(strides.as_slice());
 
-    let bounds = Range { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let bounds = RangeFormat {
+        axes: axes.as_slice(),
+    };
+    let source_strides = ArrayFormat::from(source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -286,8 +298,8 @@ pub fn write_value_to_slice<T: CType>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void write_slice_value(
-                __global {dtype}* restrict output,
-                const {dtype} input)
+                __global {c_type}* restrict output,
+                const {c_type} input)
         {{
             const ulong offset_in = get_global_id(0);
 
@@ -331,9 +343,8 @@ pub fn write_value_to_slice<T: CType>(
             output[offset_out] = input;
         }}
         "#,
-        dtype = T::TYPE,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }

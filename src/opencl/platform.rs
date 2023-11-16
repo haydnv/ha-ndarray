@@ -1,8 +1,8 @@
-use std::ops::Add;
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
+use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
@@ -11,8 +11,8 @@ use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, CType, Error, Range, Shape};
 
 use super::ops::*;
-use super::CL_PLATFORM;
-use super::{programs, CLConverter};
+use super::{div_ceil, programs, CLConverter};
+use super::{CL_PLATFORM, WG_SIZE};
 
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
 
@@ -263,7 +263,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
 
         let result = [1];
 
-        let program = programs::reduce::all::<T>(Self::context())?;
+        let program = programs::reduce::all(T::TYPE)?;
 
         let flag = unsafe {
             Buffer::builder()
@@ -296,7 +296,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
 
         let result = [0];
 
-        let program = programs::reduce::any::<T>(Self::context())?;
+        let program = programs::reduce::any(T::TYPE)?;
 
         let flag = unsafe {
             Buffer::builder()
@@ -325,11 +325,78 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
-        let buffer = access.read()?.to_cl()?;
+        const MIN_SIZE: usize = 8192;
 
-        let queue = Self::queue(buffer.size(), buffer.default_queue(), None)?;
+        let input = access.read()?.to_cl()?;
 
-        programs::reduce::reduce(T::ZERO, "add", queue, &*buffer, Add::add).map_err(Error::from)
+        let min_size = MIN_SIZE * num_cpus::get();
+
+        if input.len() < min_size {
+            let mut result = vec![T::ZERO; input.len()];
+            input.read(&mut result).enq()?;
+            return Ok(result.into_par_iter().sum());
+        }
+
+        let queue = Self::queue(input.size(), input.default_queue(), None)?;
+
+        let program = programs::reduce::reduce(T::TYPE, "add")?;
+
+        let mut buffer = {
+            let output = Buffer::builder()
+                .queue(queue.clone())
+                .len(div_ceil(input.len(), WG_SIZE))
+                .fill_val(T::ZERO)
+                .build()?;
+
+            let kernel = Kernel::builder()
+                .name("reduce")
+                .program(&program)
+                .queue(queue.clone())
+                .local_work_size(WG_SIZE)
+                .global_work_size(WG_SIZE * output.len())
+                .arg(input.len() as u64)
+                .arg(&*input)
+                .arg(&output)
+                .arg_local::<T>(WG_SIZE)
+                .build()?;
+
+            unsafe { kernel.enq()? };
+
+            output
+        };
+
+        while buffer.len() >= min_size {
+            let input = buffer;
+
+            let output = Buffer::builder()
+                .queue(queue.clone())
+                .len(div_ceil(input.len(), WG_SIZE))
+                .fill_val(T::ZERO)
+                .build()?;
+
+            let kernel = Kernel::builder()
+                .name("reduce")
+                .program(&program)
+                .queue(queue.clone())
+                .local_work_size(WG_SIZE)
+                .global_work_size(WG_SIZE * output.len())
+                .arg(input.len() as u64)
+                .arg(&input)
+                .arg(&output)
+                .arg_local::<T>(WG_SIZE)
+                .build()?;
+
+            unsafe { kernel.enq()? }
+
+            buffer = output;
+        }
+
+        let mut result = vec![T::ZERO; buffer.len()];
+        buffer.read(&mut result).enq()?;
+
+        queue.finish()?;
+
+        Ok(result.into_par_iter().sum())
     }
 }
 
@@ -348,7 +415,7 @@ where
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         let strides = strides_for(&shape, broadcast.len());
-        View::new(access, &shape, &broadcast, &strides).map(AccessOp::from)
+        View::new(access, shape, broadcast, strides).map(AccessOp::from)
     }
 
     fn slice(

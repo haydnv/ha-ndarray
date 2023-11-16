@@ -11,6 +11,10 @@ pub mod ops;
 mod platform;
 mod programs;
 
+const TILE_SIZE: usize = 8;
+
+const WG_SIZE: usize = 64;
+
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {
         assert!(VEC_MIN_SIZE < GPU_MIN_SIZE);

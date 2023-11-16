@@ -1,23 +1,26 @@
-use ocl::{Context, Error, Program};
+use memoize::memoize;
+use ocl::Program;
 
-use crate::CType;
+use crate::{Error, Shape, Strides};
 
-use super::ArrayFormat;
+use super::{build, ArrayFormat};
 
-pub fn view<T: CType>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    source_strides: &[usize],
+// TODO: support SharedCache
+#[memoize(Capacity: 1024)]
+pub fn view(
+    c_type: &'static str,
+    shape: Shape,
+    strides: Strides,
+    source_strides: Strides,
 ) -> Result<Program, Error> {
     let ndim = shape.len();
     assert_eq!(strides.len(), ndim);
 
     let source_ndim = source_strides.len();
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
-    let source_strides = ArrayFormat::from(source_strides);
+    let dims = ArrayFormat::from(shape.as_slice());
+    let strides = ArrayFormat::from(strides.as_slice());
+    let source_strides = ArrayFormat::from(source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -52,8 +55,7 @@ pub fn view<T: CType>(
             output[offset] = input[source_offset];
         }}
         "#,
-        c_type = T::TYPE,
     );
 
-    Program::builder().source(src).build(context)
+    build(&src)
 }

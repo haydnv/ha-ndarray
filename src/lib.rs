@@ -127,13 +127,26 @@ pub enum Error {
     Bounds(String),
     Interface(String),
     #[cfg(feature = "opencl")]
-    OCL(ocl::Error),
+    OCL(std::sync::Arc<ocl::Error>),
+}
+
+// Clone is required to support memorizing OpenCL programs
+// since constructing an [`ocl::Program`] can return an error
+impl Clone for Error {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Bounds(msg) => Self::Bounds(msg.clone()),
+            Self::Interface(msg) => Self::Interface(msg.clone()),
+            #[cfg(feature = "opencl")]
+            Self::OCL(cause) => Self::OCL(cause.clone()),
+        }
+    }
 }
 
 #[cfg(feature = "opencl")]
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
-        Self::OCL(cause)
+        Self::OCL(std::sync::Arc::new(cause))
     }
 }
 
@@ -161,6 +174,8 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+pub type Axes = SmallVec<[usize; 8]>;
+
 pub type Range = SmallVec<[AxisRange; 8]>;
 
 pub type Shape = SmallVec<[usize; 8]>;
@@ -172,7 +187,7 @@ pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
 
 /// Bounds on an individual array axis
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub enum AxisRange {
     At(usize),
     In(usize, usize, usize),
