@@ -11,8 +11,12 @@ use super::VEC_MIN_SIZE;
 pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 impl<T: CType> BufferInstance<T> for StackVec<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(self.as_slice().into())
+    fn read(&self) -> BufferConverter<T> {
+        self.as_slice().into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&self.as_slice(), offset)
     }
 
     fn size(&self) -> usize {
@@ -29,8 +33,12 @@ impl<'a, T: CType> BufferMut<'a, T> for StackVec<T> {
 }
 
 impl<T: CType> BufferInstance<T> for Vec<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(self.as_slice().into())
+    fn read(&self) -> BufferConverter<T> {
+        self.as_slice().into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&self.as_slice(), offset)
     }
 
     fn size(&self) -> usize {
@@ -47,8 +55,17 @@ impl<'a, T: CType> BufferMut<'a, T> for Vec<T> {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a [T] {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok((*self).into())
+    fn read(&self) -> BufferConverter<T> {
+        (*self).into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        self.get(offset).copied().ok_or_else(|| {
+            Error::Bounds(format!(
+                "invalid offset {offset} for a buffer of length {}",
+                self.len()
+            ))
+        })
     }
 
     fn size(&self) -> usize {
@@ -57,8 +74,12 @@ impl<'a, T: CType> BufferInstance<T> for &'a [T] {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok((&**self).into())
+    fn read(&self) -> BufferConverter<T> {
+        (&**self).into()
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&&**self, offset)
     }
 
     fn size(&self) -> usize {
@@ -124,8 +145,15 @@ impl<T> AsMut<[T]> for Buffer<T> {
 }
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::Host(self.into()))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::Host(self.into())
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            Self::Heap(buf) => buf.read_value(offset),
+            Self::Stack(buf) => buf.read_value(offset),
+        }
     }
 
     fn size(&self) -> usize {

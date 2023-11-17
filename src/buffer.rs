@@ -8,7 +8,9 @@ use crate::opencl;
 use crate::{host, CType, Error};
 
 pub trait BufferInstance<T: CType>: Send + Sync + Sized {
-    fn read(&self) -> Result<BufferConverter<T>, Error>;
+    fn read(&self) -> BufferConverter<T>;
+
+    fn read_value(&self, offset: usize) -> Result<T, Error>;
 
     fn size(&self) -> usize;
 }
@@ -27,8 +29,16 @@ pub enum Buffer<T: CType> {
 }
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(self))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::from(self)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(buf) => buf.read_value(offset),
+            Self::Host(buf) => buf.read_value(offset),
+        }
     }
 
     fn size(&self) -> usize {
@@ -53,8 +63,12 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(*self))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::from(*self)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(*self, offset)
     }
 
     fn size(&self) -> usize {
@@ -63,8 +77,12 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&**self))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::from(&**self)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&**self, offset)
     }
 
     fn size(&self) -> usize {
@@ -82,12 +100,16 @@ impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
 
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
+    fn read(&self) -> BufferConverter<T> {
+        BufferInstance::read(&**self)
+    }
+
     fn size(&self) -> usize {
         BufferInstance::size(&**self)
     }
 
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        BufferInstance::read(&**self)
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&**self, offset)
     }
 }
 

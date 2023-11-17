@@ -6,8 +6,18 @@ use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::{CType, Error};
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::CL(self.into()))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::CL(self.into())
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        if offset < self.len() {
+            let slice = self.map().offset(offset).len(1).read();
+            let value = unsafe { slice.enq()? };
+            Ok(value.get(0).copied().expect("value"))
+        } else {
+            Err(Error::Bounds(format!("invalid offset {offset} for a buffer of length {}", self.len())))
+        }
     }
 
     fn size(&self) -> usize {
@@ -32,8 +42,12 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::CL((*self).into()))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::CL((*self).into())
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(*self, offset)
     }
 
     fn size(&self) -> usize {
@@ -42,8 +56,12 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::CL((&**self).into()))
+    fn read(&self) -> BufferConverter<T> {
+        BufferConverter::CL((&**self).into())
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(*self, offset)
     }
 
     fn size(&self) -> usize {

@@ -58,7 +58,7 @@ where
     B: BufferInstance<T>,
 {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
-        self.buffer.read()
+        Ok(self.buffer.read())
     }
 
     fn size(&self) -> usize {
@@ -159,7 +159,7 @@ pub enum Accessor<T: CType> {
 impl<T: CType> Access<T> for Accessor<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         match self {
-            Self::Buffer(buf) => buf.read(),
+            Self::Buffer(buf) => Ok(buf.read()),
             Self::Op(op) => op.enqueue().map(BufferConverter::from),
         }
     }
