@@ -62,7 +62,30 @@ impl<'a, T: CType> Convert<'a, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Platform
+impl<T: CType> Construct<T> for Platform {
+    type Range = Linear<T>;
+
+    fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
+        match self {
+            Self::Host(host) => host.range(start, stop, size).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CType> Construct<T> for Platform {
+    type Range = Linear<T>;
+
+    fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.range(start, stop, size).map(AccessOp::wrap),
+            Self::Host(host) => host.range(start, stop, size).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
@@ -159,6 +182,44 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
         match self {
             Self::CL(cl) => cl.ln(access).map(AccessOp::wrap),
             Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl Random for Platform {
+    type Normal = RandomNormal;
+    type Uniform = RandomUniform;
+
+    fn random_normal(self, size: usize) -> Result<AccessOp<Self::Normal, Self>, Error> {
+        match self {
+            Self::Host(host) => host.random_normal(size).map(AccessOp::wrap),
+        }
+    }
+
+    fn random_uniform(self, size: usize) -> Result<AccessOp<Self::Uniform, Self>, Error> {
+        match self {
+            Self::Host(host) => host.random_uniform(size).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl Random for Platform {
+    type Normal = RandomNormal;
+    type Uniform = RandomUniform;
+
+    fn random_normal(self, size: usize) -> Result<AccessOp<Self::Normal, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.random_normal(size).map(AccessOp::wrap),
+            Self::Host(host) => host.random_normal(size).map(AccessOp::wrap),
+        }
+    }
+
+    fn random_uniform(self, size: usize) -> Result<AccessOp<Self::Uniform, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.random_uniform(size).map(AccessOp::wrap),
+            Self::Host(host) => host.random_uniform(size).map(AccessOp::wrap),
         }
     }
 }

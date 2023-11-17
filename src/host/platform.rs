@@ -2,9 +2,11 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Reduce, Transform};
+use crate::ops::{
+    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Random, Reduce, Transform,
+};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{CType, Error, Range, Shape};
+use crate::{CType, Error, Float, Range, Shape};
 
 use super::buffer::SliceConverter;
 use super::ops::*;
@@ -119,7 +121,20 @@ impl From<Stack> for Host {
     }
 }
 
-impl<'a, L, R, T> ElementwiseCompare<L, R, T> for Host
+impl<T: CType> Construct<T> for Host {
+    type Range = Linear<T>;
+
+    fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
+        if start <= stop {
+            let step = (stop - start).to_float().to_f64() / size as f64;
+            Ok(Linear::new(start, step, size).into())
+        } else {
+            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+        }
+    }
+}
+
+impl<L, R, T> ElementwiseCompare<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
@@ -154,6 +169,19 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::ln(access).into())
+    }
+}
+
+impl Random for Host {
+    type Normal = RandomNormal;
+    type Uniform = RandomUniform;
+
+    fn random_normal(self, size: usize) -> Result<AccessOp<Self::Normal, Self>, Error> {
+        Ok(RandomNormal::new(size).into())
+    }
+
+    fn random_uniform(self, size: usize) -> Result<AccessOp<Self::Uniform, Self>, Error> {
+        Ok(RandomUniform::new(size).into())
     }
 }
 

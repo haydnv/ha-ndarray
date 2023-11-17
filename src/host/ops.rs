@@ -1,13 +1,18 @@
+use std::f32::consts::PI;
+use std::iter;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
+use rand::Rng;
 use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
 use crate::ops::Op;
-use crate::{strides_for, AxisRange, CType, Enqueue, Error, Float, Range, Shape, Strides};
+use crate::{
+    stackvec, strides_for, AxisRange, CType, Enqueue, Error, Float, Range, Shape, Strides,
+};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -161,6 +166,211 @@ where
             Enqueue::<Stack>::enqueue(self).map(Buffer::from)
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::from)
+        }
+    }
+}
+
+pub struct Linear<T> {
+    start: T,
+    step: f64,
+    size: usize,
+}
+
+impl<T> Linear<T> {
+    pub fn new(start: T, step: f64, size: usize) -> Self {
+        Self { start, step, size }
+    }
+}
+
+impl<T: Send + Sync> Op for Linear<T> {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl<T: CType> Enqueue<Stack> for Linear<T> {
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let start = self.start.to_float().to_f64();
+
+        let buffer = (0..self.size)
+            .into_iter()
+            .map(|i| i as f64)
+            .map(|i| i * self.step)
+            .map(|o| start + o)
+            .map(T::from_f64)
+            .collect();
+
+        Ok(buffer)
+    }
+}
+
+impl<T: CType> Enqueue<Heap> for Linear<T> {
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let start = self.start.to_float().to_f64();
+
+        let buffer = (0..self.size)
+            .into_par_iter()
+            .map(|i| i as f64)
+            .map(|i| i * self.step)
+            .map(|o| start + o)
+            .map(T::from_f64)
+            .collect();
+
+        Ok(buffer)
+    }
+}
+
+impl<T: CType> Enqueue<Host> for Linear<T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+pub struct RandomNormal {
+    size: usize,
+}
+
+impl RandomNormal {
+    pub fn new(size: usize) -> Self {
+        Self { size }
+    }
+
+    fn box_muller(u: [f32; 2]) -> [f32; 2] {
+        let [u1, u2] = u;
+        let r = (u1.ln() * -2.).sqrt();
+        let theta = 2. * PI * u2;
+        [r * theta.cos(), r * theta.sin()]
+    }
+}
+
+impl Op for RandomNormal {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl Enqueue<Heap> for RandomNormal {
+    type Buffer = Vec<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let mut u = vec![
+            0.0f32;
+            if self.size % 2 == 0 {
+                self.size
+            } else {
+                self.size + 1
+            }
+        ];
+
+        rand::thread_rng().fill(&mut u[..]);
+
+        let mut output = u
+            .par_chunks_exact(2)
+            .map(|u| {
+                let u: [f32; 2] = u.try_into().expect("u");
+                Self::box_muller(u)
+            })
+            .flatten()
+            .collect::<Vec<f32>>();
+
+        if output.len() > self.size {
+            output.pop();
+        }
+
+        debug_assert_eq!(output.len(), self.size);
+
+        Ok(output)
+    }
+}
+
+impl Enqueue<Stack> for RandomNormal {
+    type Buffer = StackVec<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let mut rng = rand::thread_rng();
+
+        let mut output = iter::repeat_with(|| [rng.gen(), rng.gen()])
+            .take(self.size.div_ceil(2))
+            .map(Self::box_muller)
+            .flatten()
+            .collect::<StackVec<f32>>();
+
+        if output.len() > self.size {
+            output.pop();
+        }
+
+        debug_assert_eq!(output.len(), self.size);
+
+        Ok(output)
+    }
+}
+
+impl Enqueue<Host> for RandomNormal {
+    type Buffer = Buffer<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+pub struct RandomUniform {
+    size: usize,
+}
+
+impl RandomUniform {
+    pub fn new(size: usize) -> Self {
+        Self { size }
+    }
+}
+
+impl Op for RandomUniform {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl Enqueue<Heap> for RandomUniform {
+    type Buffer = Vec<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let mut data = vec![0.; self.size];
+        rand::thread_rng().fill(&mut data[..]);
+        Ok(data)
+    }
+}
+
+impl Enqueue<Stack> for RandomUniform {
+    type Buffer = StackVec<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let mut data = stackvec![0.; self.size];
+        rand::thread_rng().fill(&mut data[..]);
+        Ok(data)
+    }
+}
+
+impl Enqueue<Host> for RandomUniform {
+    type Buffer = Buffer<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size < VEC_MIN_SIZE {
+            Enqueue::<Stack>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
         }
     }
 }

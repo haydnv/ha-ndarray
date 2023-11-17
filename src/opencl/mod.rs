@@ -86,12 +86,3 @@ mod tests {
         Ok(())
     }
 }
-
-#[inline]
-fn div_ceil(num: usize, denom: usize) -> usize {
-    if num % denom == 0 {
-        num / denom
-    } else {
-        (num / denom) + 1
-    }
-}

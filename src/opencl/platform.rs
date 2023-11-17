@@ -6,12 +6,14 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Reduce, Transform};
+use crate::ops::{
+    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Random, Reduce, Transform,
+};
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error, Range, Shape};
+use crate::{strides_for, CType, Error, Float, Range, Shape};
 
 use super::ops::*;
-use super::{div_ceil, programs, CLConverter};
+use super::{programs, CLConverter};
 use super::{CL_PLATFORM, WG_SIZE};
 
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
@@ -219,6 +221,19 @@ impl<'a, T: CType> Convert<'a, T> for OpenCL {
     }
 }
 
+impl<T: CType> Construct<T> for OpenCL {
+    type Range = Linear<T>;
+
+    fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
+        if start <= stop {
+            let step = (stop - start).to_float().to_f64() / size as f64;
+            Linear::new(start, step, size).map(AccessOp::from)
+        } else {
+            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+        }
+    }
+}
+
 impl<T, L, R> ElementwiseCompare<L, R, T> for OpenCL
 where
     T: CType,
@@ -254,6 +269,19 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::ln(access).map(AccessOp::from)
+    }
+}
+
+impl Random for OpenCL {
+    type Normal = RandomNormal;
+    type Uniform = RandomUniform;
+
+    fn random_normal(self, size: usize) -> Result<AccessOp<Self::Normal, Self>, Error> {
+        RandomNormal::new(size).map(AccessOp::from)
+    }
+
+    fn random_uniform(self, size: usize) -> Result<AccessOp<Self::Uniform, Self>, Error> {
+        RandomUniform::new(size).map(AccessOp::from)
     }
 }
 
@@ -344,7 +372,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
         let mut buffer = {
             let output = Buffer::builder()
                 .queue(queue.clone())
-                .len(div_ceil(input.len(), WG_SIZE))
+                .len(input.len().div_ceil(WG_SIZE))
                 .fill_val(T::ZERO)
                 .build()?;
 
@@ -370,7 +398,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
 
             let output = Buffer::builder()
                 .queue(queue.clone())
-                .len(div_ceil(input.len(), WG_SIZE))
+                .len(input.len().div_ceil(WG_SIZE))
                 .fill_val(T::ZERO)
                 .build()?;
 

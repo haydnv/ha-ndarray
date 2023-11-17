@@ -4,6 +4,7 @@ use std::ops::{Add, Sub};
 
 pub use smallvec::smallvec as slice;
 pub use smallvec::smallvec as shape;
+pub use smallvec::smallvec as stackvec;
 use smallvec::SmallVec;
 
 pub use access::*;
@@ -27,6 +28,7 @@ pub trait CType:
     + Sub<Output = Self>
     + Sum
     + PartialEq
+    + PartialOrd
     + Copy
     + Send
     + Sync
@@ -41,6 +43,8 @@ pub trait CType:
     const ONE: Self;
 
     type Float: Float;
+
+    fn from_f64(float: f64) -> Self;
 
     fn from_float(float: Self::Float) -> Self;
 
@@ -53,6 +57,7 @@ pub trait CType:
     + Sub<Output = Self>
     + Sum
     + PartialEq
+    + PartialOrd
     + Copy
     + Send
     + Sync
@@ -67,6 +72,8 @@ pub trait CType:
     const ONE: Self;
 
     type Float: Float;
+
+    fn from_f64(float: f64) -> Self;
 
     fn from_float(float: Self::Float) -> Self;
 
@@ -83,6 +90,10 @@ macro_rules! c_type {
             const ONE: Self = $one;
 
             type Float = $float;
+
+            fn from_f64(float: f64) -> Self {
+                float as $t
+            }
 
             fn from_float(float: $float) -> Self {
                 float as $t
@@ -108,17 +119,27 @@ c_type!(u64, "ulong", 1, 0, f64);
 
 pub trait Float: CType {
     fn ln(self) -> Self;
+
+    fn to_f64(self) -> f64;
 }
 
 impl Float for f32 {
     fn ln(self) -> Self {
         f32::ln(self)
     }
+
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
 }
 
 impl Float for f64 {
     fn ln(self) -> Self {
         f64::ln(self)
+    }
+
+    fn to_f64(self) -> f64 {
+        self
     }
 }
 
@@ -182,9 +203,11 @@ pub type Shape = SmallVec<[usize; 8]>;
 
 pub type Strides = SmallVec<[usize; 8]>;
 
-pub type Array<T> = array::Array<T, AccessBuffer<Buffer<T>>, Platform>;
+pub type Array<T> = array::Array<T, Accessor<T>, Platform>;
 
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
+
+pub type ArrayOp<T, O> = array::Array<T, AccessOp<O, Platform>, Platform>;
 
 /// Bounds on an individual array axis
 #[derive(Clone, Eq, PartialEq, Hash)]

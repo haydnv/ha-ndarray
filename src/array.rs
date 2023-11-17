@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{AxisRange, CType, Convert, Error, Range, Shape};
+use crate::{shape, AxisRange, CType, Convert, Error, Range, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -33,6 +33,7 @@ impl<T, A, P> Array<T, A, P> {
     }
 }
 
+// constructors
 impl<T, B, P> Array<T, AccessBuffer<B>, P>
 where
     T: CType,
@@ -57,7 +58,67 @@ where
             )))
         }
     }
+}
 
+// op constructors
+impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
+where
+    P: Construct<T>,
+{
+    pub fn range(start: T, stop: T, size: usize) -> Result<Self, Error> {
+        let platform = P::select(size);
+        let shape = shape![size];
+
+        platform.range(start, stop, size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<P: PlatformInstance> Array<f32, AccessOp<P::Normal, P>, P>
+where
+    P: Random,
+{
+    pub fn random_normal(size: usize) -> Result<Self, Error> {
+        let platform = P::select(size);
+        let shape = shape![size];
+
+        platform.random_normal(size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<P: PlatformInstance> Array<f32, AccessOp<P::Uniform, P>, P>
+where
+    P: Random,
+{
+    pub fn random_uniform(size: usize) -> Result<Self, Error> {
+        let platform = P::select(size);
+        let shape = shape![size];
+
+        platform.random_uniform(size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+// references
+impl<T, B, P> Array<T, AccessBuffer<B>, P>
+where
+    T: CType,
+    B: BufferInstance<T>,
+    P: PlatformInstance,
+{
     pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuffer<&mut RB>, P>
     where
         B: BorrowMut<RB>,
@@ -83,12 +144,25 @@ where
     }
 }
 
+// references
 impl<T, O, P> Array<T, AccessOp<O, P>, P>
 where
     T: CType,
     O: Enqueue<P>,
     P: PlatformInstance,
 {
+    pub fn as_mut<'a>(&'a mut self) -> Array<T, &'a mut AccessOp<O, P>, P>
+    where
+        O: Write<'a, P>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: &mut self.access,
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+
     pub fn as_ref(&self) -> Array<T, &AccessOp<O, P>, P> {
         Array {
             shape: Shape::from_slice(&self.shape),

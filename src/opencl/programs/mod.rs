@@ -4,6 +4,7 @@ use crate::Error;
 
 use super::OpenCL;
 
+pub mod constructors;
 pub mod elementwise;
 pub mod reduce;
 pub mod slice;

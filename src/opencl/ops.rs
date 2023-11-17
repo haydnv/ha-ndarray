@@ -2,13 +2,14 @@ use std::borrow::Borrow;
 use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel, Program};
+use rand::Rng;
 
 use crate::access::Access;
 use crate::ops::Write;
 use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Op, Range, Shape, Strides};
 
 use super::platform::OpenCL;
-use super::{programs, CLConverter};
+use super::{programs, CLConverter, WG_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -146,6 +147,154 @@ where
             .global_work_size(left.len())
             .arg(&*left)
             .arg(&*right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+pub struct Linear<T> {
+    start: T,
+    step: f64,
+    size: usize,
+    program: Program,
+}
+
+impl<T: CType> Linear<T> {
+    pub fn new(start: T, step: f64, size: usize) -> Result<Self, Error> {
+        programs::constructors::range(T::TYPE).map(|program| Self {
+            start,
+            step,
+            size,
+            program,
+        })
+    }
+}
+
+impl<T: Send + Sync> Op for Linear<T> {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl<T: CType> Enqueue<OpenCL> for Linear<T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let queue = OpenCL::queue(self.size, None, None)?;
+
+        let buffer = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.size)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("range")
+            .queue(queue)
+            .program(&self.program)
+            .global_work_size(self.size)
+            .arg(self.step)
+            .arg(&buffer)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(buffer)
+    }
+}
+
+pub struct RandomNormal {
+    program: Program,
+    size: usize,
+}
+
+impl RandomNormal {
+    pub fn new(size: usize) -> Result<Self, Error> {
+        programs::constructors::random_normal().map(|program| Self { program, size })
+    }
+}
+
+impl Op for RandomNormal {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl Enqueue<OpenCL> for RandomNormal {
+    type Buffer = Buffer<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let queue = OpenCL::queue(self.size, None, None)?;
+        let seed: u32 = rand::thread_rng().gen();
+
+        let buffer = Buffer::builder()
+            .queue(queue.clone())
+            .len(WG_SIZE * self.size().div_ceil(WG_SIZE))
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("random_normal")
+            .queue(queue.clone())
+            .program(&self.program)
+            .global_work_size(buffer.len())
+            .local_work_size(WG_SIZE)
+            .arg(u64::try_from(seed).expect("seed"))
+            .arg(&buffer)
+            .arg_local::<f32>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        if buffer.len() == self.size {
+            Ok(buffer)
+        } else {
+            let output = Buffer::builder().queue(queue).len(self.size).build()?;
+
+            buffer.copy(&output, Some(0), Some(self.size)).enq()?;
+
+            Ok(output)
+        }
+    }
+}
+
+pub struct RandomUniform {
+    program: Program,
+    size: usize,
+}
+
+impl RandomUniform {
+    pub fn new(size: usize) -> Result<Self, Error> {
+        programs::constructors::random_uniform().map(|program| Self { program, size })
+    }
+}
+
+impl Op for RandomUniform {
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl Enqueue<OpenCL> for RandomUniform {
+    type Buffer = Buffer<f32>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let queue = OpenCL::queue(self.size, None, None)?;
+        let seed: u32 = rand::thread_rng().gen();
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.size)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("random_uniform")
+            .queue(queue)
+            .program(&self.program)
+            .global_work_size(output.len())
+            .arg(seed as u64)
             .arg(&output)
             .build()?;
 
