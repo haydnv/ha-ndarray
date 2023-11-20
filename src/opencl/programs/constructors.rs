@@ -100,9 +100,9 @@ pub fn range(c_type: &'static str) -> Result<Program, Error> {
         r#"
         {LIB}
 
-        __kernel void range(const double step, __global {c_type}* output) {{
+        __kernel void range(const {c_type} start, const double step, __global {c_type}* output) {{
             const ulong offset = get_global_id(0);
-            output[offset] = offset * step;
+            output[offset] = start + (offset * step);
         }}
         "#,
     );

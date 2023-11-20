@@ -1,12 +1,13 @@
 use std::borrow::Borrow;
 use std::marker::PhantomData;
+use std::ops::{Add, Sub};
 
 use ocl::{Buffer, Kernel, Program};
-use rand::Rng;
+use rand::{random, Rng};
 
 use crate::access::Access;
-use crate::ops::Write;
-use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Op, Range, Shape, Strides};
+use crate::ops::{ReadValue, Write};
+use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Float, Op, Range, Shape, Strides};
 
 use super::platform::OpenCL;
 use super::{programs, CLConverter, WG_SIZE};
@@ -15,6 +16,7 @@ pub struct Compare<L, R, T> {
     left: L,
     right: R,
     program: Program,
+    op: fn(T, T) -> bool,
     dtype: PhantomData<T>,
 }
 
@@ -26,17 +28,13 @@ impl<L, R, T: CType> Compare<L, R, T> {
             left,
             right,
             program,
+            op: |l, r| l == r,
             dtype: PhantomData,
         })
     }
 }
 
-impl<L, R, T> Op for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
+impl<L: Access<T>, R: Access<T>, T: CType> Op for Compare<L, R, T> {
     fn size(&self) -> usize {
         self.left.size()
     }
@@ -78,10 +76,29 @@ where
     }
 }
 
+impl<L, R, T> ReadValue<OpenCL, u8> for Compare<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+        let l = self.left.read_value(offset)?;
+        let r = self.right.read_value(offset)?;
+
+        if (self.op)(l, r) {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
 pub struct Dual<L, R, T> {
     left: L,
     right: R,
     program: Program,
+    op: fn(T, T) -> T,
     dtype: PhantomData<T>,
 }
 
@@ -93,6 +110,7 @@ impl<L, R, T: CType> Dual<L, R, T> {
             left,
             right,
             program,
+            op: Add::add,
             dtype: PhantomData,
         })
     }
@@ -104,6 +122,7 @@ impl<L, R, T: CType> Dual<L, R, T> {
             left,
             right,
             program,
+            op: Sub::sub,
             dtype: PhantomData,
         })
     }
@@ -156,6 +175,19 @@ where
     }
 }
 
+impl<L, R, T> ReadValue<OpenCL, T> for Dual<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let l = self.left.read_value(offset)?;
+        let r = self.right.read_value(offset)?;
+        Ok((self.op)(l, r))
+    }
+}
+
 pub struct Linear<T> {
     start: T,
     step: f64,
@@ -196,6 +228,7 @@ impl<T: CType> Enqueue<OpenCL> for Linear<T> {
             .queue(queue)
             .program(&self.program)
             .global_work_size(self.size)
+            .arg(self.start)
             .arg(self.step)
             .arg(&buffer)
             .build()?;
@@ -203,6 +236,12 @@ impl<T: CType> Enqueue<OpenCL> for Linear<T> {
         unsafe { kernel.enq()? }
 
         Ok(buffer)
+    }
+}
+
+impl<T: CType> ReadValue<OpenCL, T> for Linear<T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        Ok(self.start + T::from_f64((offset as f64) * self.step))
     }
 }
 
@@ -260,6 +299,14 @@ impl Enqueue<OpenCL> for RandomNormal {
     }
 }
 
+impl ReadValue<OpenCL, f32> for RandomNormal {
+    fn read_value(&self, _offset: usize) -> Result<f32, Error> {
+        Err(Error::Bounds(
+            "cannot read an individual value from a random normal distribution".to_string(),
+        ))
+    }
+}
+
 pub struct RandomUniform {
     program: Program,
     size: usize,
@@ -282,7 +329,7 @@ impl Enqueue<OpenCL> for RandomUniform {
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let queue = OpenCL::queue(self.size, None, None)?;
-        let seed: u32 = rand::thread_rng().gen();
+        let seed: u32 = random();
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -301,6 +348,12 @@ impl Enqueue<OpenCL> for RandomUniform {
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+impl ReadValue<OpenCL, f32> for RandomUniform {
+    fn read_value(&self, _offset: usize) -> Result<f32, Error> {
+        Ok(random())
     }
 }
 
@@ -348,11 +401,7 @@ impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     }
 }
 
-impl<A, T> Enqueue<OpenCL> for Slice<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Enqueue<OpenCL> for Slice<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -376,6 +425,12 @@ where
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        todo!("create a SliceSpec in the ops module and share it between host::ops & opencl::ops")
     }
 }
 
@@ -422,19 +477,18 @@ where
 pub struct Unary<A, IT, OT> {
     access: A,
     program: Program,
+    op: fn(IT) -> OT,
     dtype: PhantomData<(IT, OT)>,
 }
 
-impl<A, T> Unary<A, T, T>
-where
-    T: CType,
-{
+impl<A, T: CType> Unary<A, T, T> {
     pub fn ln(access: A) -> Result<Self, Error> {
         let program = programs::elementwise::unary(T::Float::TYPE, T::TYPE, T::TYPE, "_log")?;
 
         Ok(Self {
             access,
             program,
+            op: |n| T::from_float(n.to_float().ln()),
             dtype: PhantomData,
         })
     }
@@ -483,6 +537,12 @@ where
     }
 }
 
+impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<OpenCL, OT> for Unary<A, IT, OT> {
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        self.access.read_value(offset).map(|n| (self.op)(n))
+    }
+}
+
 pub struct View<A, T> {
     access: A,
     program: Program,
@@ -519,11 +579,7 @@ where
     }
 }
 
-impl<A, T> Enqueue<OpenCL> for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Enqueue<OpenCL> for View<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -548,5 +604,11 @@ where
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for View<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        todo!("move ViewSpec to the ops module and share it between host::ops and opencl::ops")
     }
 }

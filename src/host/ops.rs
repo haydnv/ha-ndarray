@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
-use crate::ops::Op;
+use crate::ops::{Op, ReadValue};
 use crate::{
     stackvec, strides_for, AxisRange, CType, Enqueue, Error, Float, Range, Shape, Strides,
 };
@@ -54,7 +54,7 @@ where
     type Buffer = StackVec<u8>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(&self.left, &self.right)?;
+        let (left, right) = try_join_read(&self.left, &self.right)?;
         exec_dual(self.cmp, left, right)
     }
 }
@@ -68,7 +68,7 @@ where
     type Buffer = Vec<u8>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(&self.left, &self.right)?;
+        let (left, right) = try_join_read(&self.left, &self.right)?;
         exec_dual_parallel(self.cmp, left, right)
     }
 }
@@ -87,6 +87,17 @@ where
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
         }
+    }
+}
+
+impl<L, R, T> ReadValue<Host, u8> for Compare<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+        try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.cmp)(l, r))
     }
 }
 
@@ -134,7 +145,7 @@ where
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(&self.left, &self.right)?;
+        let (left, right) = try_join_read(&self.left, &self.right)?;
         exec_dual(self.zip, left, right)
     }
 }
@@ -148,7 +159,7 @@ where
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join(&self.left, &self.right)?;
+        let (left, right) = try_join_read(&self.left, &self.right)?;
         exec_dual_parallel(self.zip, left, right)
     }
 }
@@ -170,6 +181,17 @@ where
     }
 }
 
+impl<L, R, T> ReadValue<Host, T> for Dual<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
+    }
+}
+
 pub struct Linear<T> {
     start: T,
     step: f64,
@@ -179,6 +201,14 @@ pub struct Linear<T> {
 impl<T> Linear<T> {
     pub fn new(start: T, step: f64, size: usize) -> Self {
         Self { start, step, size }
+    }
+
+    #[inline]
+    fn value_at(&self, offset: usize) -> T
+    where
+        T: CType,
+    {
+        self.start + T::from_f64((offset as f64) * self.step)
     }
 }
 
@@ -210,14 +240,9 @@ impl<T: CType> Enqueue<Heap> for Linear<T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let start = self.start.to_float().to_f64();
-
         let buffer = (0..self.size)
             .into_par_iter()
-            .map(|i| i as f64)
-            .map(|i| i * self.step)
-            .map(|o| start + o)
-            .map(T::from_f64)
+            .map(|offset| self.value_at(offset))
             .collect();
 
         Ok(buffer)
@@ -233,6 +258,12 @@ impl<T: CType> Enqueue<Host> for Linear<T> {
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
         }
+    }
+}
+
+impl<T: CType> ReadValue<Host, T> for Linear<T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        Ok(self.value_at(offset))
     }
 }
 
@@ -327,6 +358,14 @@ impl Enqueue<Host> for RandomNormal {
     }
 }
 
+impl ReadValue<Host, f32> for RandomNormal {
+    fn read_value(&self, _offset: usize) -> Result<f32, Error> {
+        Err(Error::Bounds(
+            "cannot calculate an individual value of a random normal distribution".to_string(),
+        ))
+    }
+}
+
 pub struct RandomUniform {
     size: usize,
 }
@@ -372,6 +411,12 @@ impl Enqueue<Host> for RandomUniform {
         } else {
             Enqueue::<Heap>::enqueue(self).map(Buffer::Heap)
         }
+    }
+}
+
+impl ReadValue<Host, f32> for RandomUniform {
+    fn read_value(&self, _offset: usize) -> Result<f32, Error> {
+        Ok(rand::thread_rng().gen())
     }
 }
 
@@ -523,6 +568,13 @@ impl<A: Access<T>, T: CType> Enqueue<Host> for Slice<A, T> {
     }
 }
 
+impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let offset = self.source_offset(offset);
+        self.access.read_value(offset)
+    }
+}
+
 impl<'a, B, T> crate::ops::Write<'a, Heap> for Slice<AccessBuffer<B>, T>
 where
     B: AsMut<[T]>,
@@ -640,6 +692,17 @@ where
     }
 }
 
+impl<A, IT, OT> ReadValue<Host, OT> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        self.access.read_value(offset).map(|n| (self.op)(n))
+    }
+}
+
 struct ViewSpec<T> {
     shape: Shape,
     strides: Strides,
@@ -690,6 +753,10 @@ impl<T: CType> ViewSpec<T> {
 
         Ok(buffer)
     }
+
+    fn read_value<A: Access<T>>(&self, source: &A, offset: usize) -> Result<T, Error> {
+        source.read_value(self.invert_offset(offset))
+    }
 }
 
 pub struct View<A, T> {
@@ -697,11 +764,7 @@ pub struct View<A, T> {
     spec: ViewSpec<T>,
 }
 
-impl<A, T> View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> View<A, T> {
     pub fn new(access: A, shape: Shape, broadcast: Shape) -> Self {
         let strides = strides_for(&shape, broadcast.len());
         let source_strides = strides_for(&shape, shape.len());
@@ -718,21 +781,13 @@ where
     }
 }
 
-impl<A, T> Op for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Op for View<A, T> {
     fn size(&self) -> usize {
         self.spec.shape.iter().product()
     }
 }
 
-impl<A, T> Enqueue<Stack> for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Enqueue<Stack> for View<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -740,11 +795,7 @@ where
     }
 }
 
-impl<A, T> Enqueue<Heap> for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Enqueue<Heap> for View<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -754,11 +805,7 @@ where
     }
 }
 
-impl<A, T> Enqueue<Host> for View<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Enqueue<Host> for View<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -770,15 +817,17 @@ where
     }
 }
 
-fn exec_dual<IT, OT>(
+impl<A: Access<T>, T: CType> ReadValue<Host, T> for View<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        self.spec.read_value(&self.access, offset)
+    }
+}
+
+fn exec_dual<IT: CType, OT: CType>(
     zip: fn(IT, IT) -> OT,
     left: BufferConverter<IT>,
     right: BufferConverter<IT>,
-) -> Result<StackVec<OT>, Error>
-where
-    IT: CType,
-    OT: CType,
-{
+) -> Result<StackVec<OT>, Error> {
     let left = left.to_slice()?;
     let right = right.to_slice()?;
 
@@ -792,15 +841,11 @@ where
     Ok(output)
 }
 
-fn exec_dual_parallel<IT, OT>(
+fn exec_dual_parallel<IT: CType, OT: CType>(
     zip: fn(IT, IT) -> OT,
     left: BufferConverter<IT>,
     right: BufferConverter<IT>,
-) -> Result<Vec<OT>, Error>
-where
-    IT: CType,
-    OT: CType,
-{
+) -> Result<Vec<OT>, Error> {
     let left = left.to_slice()?;
     let right = right.to_slice()?;
 
@@ -815,7 +860,7 @@ where
 }
 
 #[inline]
-fn try_join<'a, L, R, T>(
+fn try_join_read<'a, L, R, T>(
     left: &'a L,
     right: &'a R,
 ) -> Result<(BufferConverter<'a, T>, BufferConverter<'a, T>), Error>
@@ -825,6 +870,18 @@ where
     T: CType,
 {
     let (l, r) = join(|| left.read(), || right.read());
+
+    Ok((l?, r?))
+}
+
+#[inline]
+fn try_join_value<'a, L, R, T>(left: &'a L, right: &'a R, offset: usize) -> Result<(T, T), Error>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    let (l, r) = join(|| left.read_value(offset), || right.read_value(offset));
 
     Ok((l?, r?))
 }

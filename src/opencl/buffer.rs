@@ -16,7 +16,10 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
             let value = unsafe { slice.enq()? };
             Ok(value.get(0).copied().expect("value"))
         } else {
-            Err(Error::Bounds(format!("invalid offset {offset} for a buffer of length {}", self.len())))
+            Err(Error::Bounds(format!(
+                "invalid offset {offset} for a buffer of length {}",
+                self.len()
+            )))
         }
     }
 

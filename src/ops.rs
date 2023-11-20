@@ -15,6 +15,10 @@ pub trait Enqueue<P: PlatformInstance>: Op {
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
+pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P> {
+    fn read_value(&self, offset: usize) -> Result<T, Error>;
+}
+
 pub trait Write<'a, P: PlatformInstance>: Enqueue<P> {
     type Data;
 
@@ -123,11 +127,7 @@ impl<L, R, T> From<host::ops::Dual<L, R, T>> for Dual<L, R, T> {
 
 macro_rules! impl_view {
     ($op:ty, $t:ty) => {
-        impl<'a, A, T> Op for $op
-        where
-            A: Access<T>,
-            T: CType,
-        {
+        impl<A: Access<T>, T: CType> Op for $op {
             fn size(&self) -> usize {
                 match self {
                     #[cfg(feature = "opencl")]
@@ -137,11 +137,7 @@ macro_rules! impl_view {
             }
         }
 
-        impl<'a, A, T> Enqueue<Platform> for $op
-        where
-            A: Access<T>,
-            T: CType,
-        {
+        impl<A: Access<T>, T: CType> Enqueue<Platform> for $op {
             type Buffer = Buffer<$t>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -149,6 +145,16 @@ macro_rules! impl_view {
                     #[cfg(feature = "opencl")]
                     Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
                     Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                }
+            }
+        }
+
+        impl<A: Access<T>, T: CType> ReadValue<Platform, T> for $op {
+            fn read_value(&self, offset: usize) -> Result<T, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.read_value(offset),
+                    Self::Host(op) => op.read_value(offset),
                 }
             }
         }
@@ -157,7 +163,7 @@ macro_rules! impl_view {
 
 macro_rules! impl_dual {
     ($op:ty, $t:ty) => {
-        impl<'a, L, R, T> Op for $op
+        impl<L, R, T> Op for $op
         where
             L: Access<T>,
             R: Access<T>,
@@ -172,7 +178,7 @@ macro_rules! impl_dual {
             }
         }
 
-        impl<'a, L, R, T> Enqueue<Platform> for $op
+        impl<L, R, T> Enqueue<Platform> for $op
         where
             L: Access<T>,
             R: Access<T>,
@@ -185,6 +191,21 @@ macro_rules! impl_dual {
                     #[cfg(feature = "opencl")]
                     Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
                     Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                }
+            }
+        }
+
+        impl<L, R, T> ReadValue<Platform, $t> for $op
+        where
+            L: Access<T>,
+            R: Access<T>,
+            T: CType,
+        {
+            fn read_value(&self, offset: usize) -> Result<$t, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.read_value(offset),
+                    Self::Host(op) => op.read_value(offset),
                 }
             }
         }
@@ -231,6 +252,16 @@ impl<T: CType> Enqueue<Platform> for Linear<T> {
             #[cfg(feature = "opencl")]
             Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
             Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<T: CType> ReadValue<Platform, T> for Linear<T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
         }
     }
 }
@@ -293,6 +324,16 @@ macro_rules! impl_random {
                     #[cfg(feature = "opencl")]
                     Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
                     Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                }
+            }
+        }
+
+        impl ReadValue<Platform, f32> for $t {
+            fn read_value(&self, offset: usize) -> Result<f32, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.read_value(offset),
+                    Self::Host(op) => op.read_value(offset),
                 }
             }
         }
@@ -391,6 +432,21 @@ where
             #[cfg(feature = "opencl")]
             Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
             Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<A, IT, OT> ReadValue<Platform, OT> for Unary<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
         }
     }
 }

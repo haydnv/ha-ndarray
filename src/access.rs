@@ -2,12 +2,14 @@ use std::borrow::{Borrow, BorrowMut};
 use std::marker::PhantomData;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
-use crate::ops::{Enqueue, Write};
+use crate::ops::{ReadValue, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
 
 pub trait Access<T: CType>: Send + Sync {
     fn read(&self) -> Result<BufferConverter<T>, Error>;
+
+    fn read_value(&self, offset: usize) -> Result<T, Error>;
 
     fn size(&self) -> usize;
 }
@@ -61,6 +63,10 @@ where
         Ok(self.buffer.read())
     }
 
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        self.buffer.read_value(offset)
+    }
+
     fn size(&self) -> usize {
         self.buffer.size()
     }
@@ -108,12 +114,16 @@ impl<O, P> From<O> for AccessOp<O, P> {
 impl<O, P, T> Access<T> for AccessOp<O, P>
 where
     T: CType,
-    O: Enqueue<P>,
+    O: ReadValue<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
     fn read(&self) -> Result<BufferConverter<'static, T>, Error> {
         self.op.enqueue().map(BufferConverter::from)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        self.op.read_value(offset)
     }
 
     fn size(&self) -> usize {
@@ -124,12 +134,16 @@ where
 impl<'a, O, P, T> Access<T> for &'a AccessOp<O, P>
 where
     T: CType,
-    O: Enqueue<P>,
+    O: ReadValue<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
     fn read(&self) -> Result<BufferConverter<'static, T>, Error> {
         self.op.enqueue().map(BufferConverter::from)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        self.op.read_value(offset)
     }
 
     fn size(&self) -> usize {
@@ -140,7 +154,7 @@ where
 impl<'a, O, P, T> AccessMut<'a, T> for AccessOp<O, P>
 where
     T: CType,
-    O: Write<'a, P>,
+    O: ReadValue<P, T> + Write<'a, P>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
@@ -153,7 +167,7 @@ where
 
 pub enum Accessor<T: CType> {
     Buffer(Buffer<T>),
-    Op(Box<dyn Enqueue<Platform, Buffer = Buffer<T>>>),
+    Op(Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>>),
 }
 
 impl<T: CType> Access<T> for Accessor<T> {
@@ -161,6 +175,13 @@ impl<T: CType> Access<T> for Accessor<T> {
         match self {
             Self::Buffer(buf) => Ok(buf.read()),
             Self::Op(op) => op.enqueue().map(BufferConverter::from),
+        }
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            Self::Buffer(buf) => buf.read_value(offset),
+            Self::Op(op) => op.read_value(offset),
         }
     }
 
@@ -181,10 +202,10 @@ impl<T: CType, B: Into<Buffer<T>>> From<AccessBuffer<B>> for Accessor<T> {
 impl<T, O> From<AccessOp<O, Platform>> for Accessor<T>
 where
     T: CType,
-    O: Enqueue<Platform, Buffer = Buffer<T>> + Sized + 'static,
+    O: ReadValue<Platform, T, Buffer = Buffer<T>> + Sized + 'static,
 {
     fn from(access: AccessOp<O, Platform>) -> Self {
-        let op: Box<dyn Enqueue<Platform, Buffer = Buffer<T>>> = Box::new(access.op);
+        let op: Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>> = Box::new(access.op);
         Self::Op(op)
     }
 }
