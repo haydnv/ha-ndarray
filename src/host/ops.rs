@@ -9,10 +9,8 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
-use crate::ops::{Op, ReadValue};
-use crate::{
-    stackvec, strides_for, AxisRange, CType, Enqueue, Error, Float, Range, Shape, Strides,
-};
+use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec};
+use crate::{stackvec, strides_for, CType, Enqueue, Error, Float, Range, Shape};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -422,70 +420,28 @@ impl ReadValue<Host, f32> for RandomUniform {
 
 pub struct Slice<A, T> {
     access: A,
-    source_strides: Strides,
-    range: Range,
-    shape: Shape,
-    strides: Strides,
+    spec: SliceSpec,
     dtype: PhantomData<T>,
 }
 
 impl<A, T> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Self {
         let source_strides = strides_for(shape, shape.len());
-        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
-        let strides = strides_for(&shape, shape.len());
+        let spec = SliceSpec::new(range, source_strides);
 
         Self {
             access,
-            source_strides,
-            range,
-            shape,
-            strides,
+            spec,
             dtype: PhantomData,
         }
     }
 }
 
 impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
-    fn source_offset(&self, offset: usize) -> usize {
-        debug_assert!(!self.shape.is_empty());
-        debug_assert_eq!(self.shape.len(), self.strides.len());
-
-        let mut coord = self
-            .strides
-            .iter()
-            .copied()
-            .zip(&self.shape)
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            });
-
-        let mut offset = 0;
-        for (stride, bound) in self.source_strides.iter().zip(self.range.iter()) {
-            let i = match bound {
-                AxisRange::At(i) => *i,
-                AxisRange::In(start, stop, step) => {
-                    let i = start + (coord.next().expect("i") * step);
-                    debug_assert!(i < *stop);
-                    i
-                }
-                AxisRange::Of(indices) => indices[coord.next().expect("i")],
-            };
-
-            offset += i * stride;
-        }
-
-        offset
-    }
-
     fn read(&self, source: &[T]) -> Result<StackVec<T>, Error> {
         let output = (0..self.size())
             .into_iter()
-            .map(|offset_out| self.source_offset(offset_out))
+            .map(|offset_out| self.spec.source_offset(offset_out))
             .map(|offset_in| source[offset_in])
             .collect();
 
@@ -495,7 +451,7 @@ impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
     fn read_parallel(&self, source: &[T]) -> Result<Vec<T>, Error> {
         let output = (0..self.size())
             .into_par_iter()
-            .map(|offset_out| self.source_offset(offset_out))
+            .map(|offset_out| self.spec.source_offset(offset_out))
             .map(|offset_in| source[offset_in])
             .collect();
 
@@ -512,7 +468,7 @@ where
     fn overwrite(&mut self, data: &[T]) -> Result<(), Error> {
         if data.len() == self.size() {
             for (offset, value) in data.into_iter().copied().enumerate() {
-                let source_offset = self.source_offset(offset);
+                let source_offset = self.spec.source_offset(offset);
                 let source = self.access.as_mut().into_inner();
                 source.as_mut()[source_offset] = value;
             }
@@ -530,7 +486,7 @@ where
 
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     fn size(&self) -> usize {
-        self.shape.iter().product()
+        self.spec.size()
     }
 }
 
@@ -570,7 +526,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host> for Slice<A, T> {
 
 impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        let offset = self.source_offset(offset);
+        let offset = self.spec.source_offset(offset);
         self.access.read_value(offset)
     }
 }
@@ -703,65 +659,10 @@ where
     }
 }
 
-struct ViewSpec<T> {
-    shape: Shape,
-    strides: Strides,
-    source_strides: Strides,
-    dtype: PhantomData<T>,
-}
-
-impl<T: CType> ViewSpec<T> {
-    fn invert_offset(&self, offset: usize) -> usize {
-        debug_assert!(offset < self.shape.iter().product::<usize>());
-
-        self.strides
-            .iter()
-            .copied()
-            .zip(self.shape.iter().copied())
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            }) // coord
-            .zip(self.source_strides.iter().copied())
-            .map(|(i, source_stride)| i * source_stride) // source offset
-            .sum::<usize>()
-    }
-
-    fn read(&self, source: BufferConverter<T>) -> Result<StackVec<T>, Error> {
-        let source = source.to_slice()?;
-
-        let buffer = (0..self.shape.iter().product())
-            .into_iter()
-            .map(|offset| self.invert_offset(offset))
-            .map(|source_offset| source[source_offset])
-            .collect();
-
-        Ok(buffer)
-    }
-
-    fn read_parallel(&self, source: BufferConverter<T>) -> Result<Vec<T>, Error> {
-        let source = source.to_slice()?;
-
-        let buffer = (0..self.shape.iter().product())
-            .into_par_iter()
-            .map(|offset| self.invert_offset(offset))
-            .map(|source_offset| source[source_offset])
-            .collect();
-
-        Ok(buffer)
-    }
-
-    fn read_value<A: Access<T>>(&self, source: &A, offset: usize) -> Result<T, Error> {
-        source.read_value(self.invert_offset(offset))
-    }
-}
-
 pub struct View<A, T> {
     access: A,
-    spec: ViewSpec<T>,
+    spec: ViewSpec,
+    dtype: PhantomData<T>,
 }
 
 impl<A: Access<T>, T: CType> View<A, T> {
@@ -771,19 +672,15 @@ impl<A: Access<T>, T: CType> View<A, T> {
 
         Self {
             access,
-            spec: ViewSpec {
-                shape: broadcast,
-                strides,
-                source_strides,
-                dtype: PhantomData,
-            },
+            spec: ViewSpec::new(broadcast, strides, source_strides),
+            dtype: PhantomData,
         }
     }
 }
 
 impl<A: Access<T>, T: CType> Op for View<A, T> {
     fn size(&self) -> usize {
-        self.spec.shape.iter().product()
+        self.spec.size()
     }
 }
 
@@ -791,7 +688,15 @@ impl<A: Access<T>, T: CType> Enqueue<Stack> for View<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        self.access.read().and_then(|source| self.spec.read(source))
+        let source = self.access.read().and_then(|source| source.to_slice())?;
+
+        let buffer = (0..self.spec.size())
+            .into_iter()
+            .map(|offset| self.spec.source_offset(offset))
+            .map(|source_offset| source[source_offset])
+            .collect();
+
+        Ok(buffer)
     }
 }
 
@@ -799,9 +704,15 @@ impl<A: Access<T>, T: CType> Enqueue<Heap> for View<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        self.access
-            .read()
-            .and_then(|source| self.spec.read_parallel(source))
+        let source = self.access.read().and_then(|source| source.to_slice())?;
+
+        let buffer = (0..self.spec.size())
+            .into_par_iter()
+            .map(|offset| self.spec.source_offset(offset))
+            .map(|source_offset| source[source_offset])
+            .collect();
+
+        Ok(buffer)
     }
 }
 
@@ -819,7 +730,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host> for View<A, T> {
 
 impl<A: Access<T>, T: CType> ReadValue<Host, T> for View<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        self.spec.read_value(&self.access, offset)
+        self.access.read_value(self.spec.source_offset(offset))
     }
 }
 

@@ -1,26 +1,21 @@
 use memoize::memoize;
 use ocl::Program;
 
-use crate::{Error, Shape, Strides};
+use crate::ops::ViewSpec;
+use crate::Error;
 
 use super::{build, ArrayFormat};
 
 // TODO: support SharedCache
 #[memoize(Capacity: 1024)]
-pub fn view(
-    c_type: &'static str,
-    shape: Shape,
-    strides: Strides,
-    source_strides: Strides,
-) -> Result<Program, Error> {
-    let ndim = shape.len();
-    assert_eq!(strides.len(), ndim);
+pub fn view(c_type: &'static str, spec: ViewSpec) -> Result<Program, Error> {
+    let ndim = spec.shape.len();
 
-    let source_ndim = source_strides.len();
+    let source_ndim = spec.source_strides.len();
 
-    let dims = ArrayFormat::from(shape.as_slice());
-    let strides = ArrayFormat::from(strides.as_slice());
-    let source_strides = ArrayFormat::from(source_strides.as_slice());
+    let dims = ArrayFormat::from(spec.shape.as_slice());
+    let strides = ArrayFormat::from(spec.strides.as_slice());
+    let source_strides = ArrayFormat::from(spec.source_strides.as_slice());
 
     let src = format!(
         r#"

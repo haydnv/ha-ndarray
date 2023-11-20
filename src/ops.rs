@@ -3,7 +3,7 @@ use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, BufferConverter, CType, Error, Range, Shape};
+use crate::{host, strides_for, AxisRange, BufferConverter, CType, Error, Range, Shape, Strides};
 
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
@@ -343,6 +343,69 @@ macro_rules! impl_random {
 impl_random!(RandomNormal);
 impl_random!(RandomUniform);
 
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct SliceSpec {
+    pub range: Range,
+    pub shape: Shape,
+    pub strides: Strides,
+    pub source_strides: Strides,
+}
+
+impl SliceSpec {
+    pub fn new(range: Range, source_strides: Strides) -> Self {
+        assert_eq!(range.len(), source_strides.len());
+
+        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        let strides = strides_for(&shape, shape.len());
+
+        Self {
+            range,
+            shape,
+            strides,
+            source_strides,
+        }
+    }
+
+    pub fn source_offset(&self, offset: usize) -> usize {
+        debug_assert!(!self.shape.is_empty());
+        debug_assert_eq!(self.shape.len(), self.strides.len());
+
+        let mut coord = self
+            .strides
+            .iter()
+            .copied()
+            .zip(&self.shape)
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            });
+
+        let mut offset = 0;
+        for (stride, bound) in self.source_strides.iter().zip(self.range.iter()) {
+            let i = match bound {
+                AxisRange::At(i) => *i,
+                AxisRange::In(start, stop, step) => {
+                    let i = start + (coord.next().expect("i") * step);
+                    debug_assert!(i < *stop);
+                    i
+                }
+                AxisRange::Of(indices) => indices[coord.next().expect("i")],
+            };
+
+            offset += i * stride;
+        }
+
+        offset
+    }
+
+    pub fn size(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
 pub enum Slice<A, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::Slice<A, T>),
@@ -461,6 +524,48 @@ impl<A, IT, OT> From<host::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
 impl<A, IT, OT> From<opencl::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
     fn from(op: opencl::ops::Unary<A, IT, OT>) -> Self {
         Self::CL(op)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct ViewSpec {
+    pub shape: Shape,
+    pub strides: Strides,
+    pub source_strides: Strides,
+}
+
+impl ViewSpec {
+    pub fn new(shape: Shape, strides: Strides, source_strides: Strides) -> Self {
+        assert_eq!(shape.len(), strides.len());
+
+        Self {
+            shape,
+            strides,
+            source_strides,
+        }
+    }
+
+    pub fn source_offset(&self, offset: usize) -> usize {
+        debug_assert!(offset < self.size());
+
+        self.strides
+            .iter()
+            .copied()
+            .zip(self.shape.iter().copied())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            }) // coord
+            .zip(self.source_strides.iter().copied())
+            .map(|(i, source_stride)| i * source_stride) // source offset
+            .sum::<usize>()
+    }
+
+    pub fn size(&self) -> usize {
+        self.shape.iter().product()
     }
 }
 

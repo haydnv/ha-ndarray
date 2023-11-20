@@ -6,7 +6,7 @@ use ocl::{Buffer, Kernel, Program};
 use rand::{random, Rng};
 
 use crate::access::Access;
-use crate::ops::{ReadValue, Write};
+use crate::ops::{ReadValue, SliceSpec, ViewSpec, Write};
 use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Float, Op, Range, Shape, Strides};
 
 use super::platform::OpenCL;
@@ -359,10 +359,7 @@ impl ReadValue<OpenCL, f32> for RandomUniform {
 
 pub struct Slice<A, T> {
     access: A,
-    range: Range,
-    shape: Shape,
-    strides: Strides,
-    source_strides: Strides,
+    spec: SliceSpec,
     read: Program,
     write: Option<Program>,
     dtype: PhantomData<T>,
@@ -371,23 +368,13 @@ pub struct Slice<A, T> {
 impl<A, T: CType> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Result<Self, Error> {
         let source_strides = strides_for(shape, shape.len());
-        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
-        let strides = strides_for(&shape, shape.len());
+        let spec = SliceSpec::new(range, source_strides);
 
-        let read = programs::slice::read_slice(
-            T::TYPE,
-            shape.clone(),
-            strides.clone(),
-            range.clone(),
-            source_strides.clone(),
-        )?;
+        let read = programs::slice::read_slice(T::TYPE, spec.clone())?;
 
         Ok(Self {
             access,
-            range,
-            shape,
-            strides,
-            source_strides,
+            spec,
             read,
             write: None,
             dtype: PhantomData,
@@ -397,7 +384,7 @@ impl<A, T: CType> Slice<A, T> {
 
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     fn size(&self) -> usize {
-        self.shape.iter().product()
+        self.spec.size()
     }
 }
 
@@ -430,7 +417,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL> for Slice<A, T> {
 
 impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        todo!("create a SliceSpec in the ops module and share it between host::ops & opencl::ops")
+        self.access.read_value(self.spec.source_offset(offset))
     }
 }
 
@@ -448,13 +435,7 @@ where
         let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
 
         if self.write.is_none() {
-            let program = programs::slice::write_to_slice(
-                T::TYPE,
-                self.shape.clone(),
-                self.strides.clone(),
-                self.range.clone(),
-                self.source_strides.clone(),
-            )?;
+            let program = programs::slice::write_to_slice(T::TYPE, self.spec.clone())?;
 
             self.write = Some(program);
         }
@@ -547,6 +528,7 @@ pub struct View<A, T> {
     access: A,
     program: Program,
     size: usize,
+    spec: ViewSpec,
     dtype: PhantomData<T>,
 }
 
@@ -557,13 +539,15 @@ where
     pub fn new(access: A, shape: Shape, broadcast: Shape, strides: Strides) -> Result<Self, Error> {
         let size = broadcast.iter().product();
         let source_strides = strides_for(&shape, shape.len());
+        let spec = ViewSpec::new(broadcast, strides, source_strides);
 
-        let program = programs::view::view(T::TYPE, shape.clone(), strides, source_strides)?;
+        let program = programs::view::view(T::TYPE, spec.clone())?;
 
         Ok(Self {
             access,
             program,
             size,
+            spec,
             dtype: PhantomData,
         })
     }
@@ -609,6 +593,6 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL> for View<A, T> {
 
 impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for View<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        todo!("move ViewSpec to the ops module and share it between host::ops and opencl::ops")
+        self.access.read_value(self.spec.source_offset(offset))
     }
 }
