@@ -118,6 +118,94 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
+    type Op = CompareScalar<A, T>;
+
+    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.eq_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ge_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.gt_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.le_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.lt_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ne_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
+    type Op = CompareScalar<A, T>;
+
+    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.eq_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.eq_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.ge_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.ge_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.gt_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.gt_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.le_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.le_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.lt_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.lt_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.ne_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.ne_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<L, R, T> ElementwiseDual<L, R, T> for Platform
 where
     L: Access<T>,
@@ -234,7 +322,7 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for Platform {
 
     fn any(self, access: A) -> Result<bool, Error> {
         match Self::select(access.size()) {
-            Self::Host(host) => host.all(access),
+            Self::Host(host) => host.any(access),
         }
     }
 

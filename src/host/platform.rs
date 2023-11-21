@@ -3,7 +3,8 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Random, Reduce, Transform,
+    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
+    Random, Reduce, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{CType, Error, Float, Range, Shape};
@@ -147,6 +148,34 @@ where
     }
 }
 
+impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Host {
+    type Op = CompareScalar<A, T>;
+
+    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::eq(left, right).into())
+    }
+
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::ge(left, right).into())
+    }
+
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::gt(left, right).into())
+    }
+
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::le(left, right).into())
+    }
+
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::lt(left, right).into())
+    }
+
+    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(CompareScalar::ne(left, right).into())
+    }
+}
+
 impl<L, R, T> ElementwiseDual<L, R, T> for Host
 where
     L: Access<T>,
@@ -195,8 +224,8 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for Host {
 
     fn any(self, access: A) -> Result<bool, Error> {
         match self {
-            Self::Heap(heap) => heap.all(access),
-            Self::Stack(stack) => stack.all(access),
+            Self::Heap(heap) => heap.any(access),
+            Self::Stack(stack) => stack.any(access),
         }
     }
 

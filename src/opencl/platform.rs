@@ -7,7 +7,8 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseUnary, Random, Reduce, Transform,
+    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
+    Random, Reduce, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, CType, Error, Float, Range, Shape};
@@ -244,6 +245,34 @@ where
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Compare::eq(left, right).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for OpenCL {
+    type Op = CompareScalar<A, T>;
+
+    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::eq(left, right).map(AccessOp::from)
+    }
+
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::ge(left, right).map(AccessOp::from)
+    }
+
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::gt(left, right).map(AccessOp::from)
+    }
+
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::le(left, right).map(AccessOp::from)
+    }
+
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::lt(left, right).map(AccessOp::from)
+    }
+
+    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        CompareScalar::ne(left, right).map(AccessOp::from)
     }
 }
 

@@ -6,7 +6,9 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{shape, strides_for, AxisRange, BufferConverter, CType, Convert, Error, Range, Shape};
+use crate::{
+    shape, strides_for, AxisRange, BufferConverter, CType, Convert, Error, Platform, Range, Shape,
+};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -16,12 +18,42 @@ pub struct Array<T, A, P> {
 }
 
 impl<T, A, P> Array<T, A, P> {
+    fn apply<O, OT, Op>(self, op: Op) -> Result<Array<OT, AccessOp<O, P>, P>, Error>
+    where
+        P: Copy,
+        Op: Fn(P, A) -> Result<AccessOp<O, P>, Error>,
+    {
+        let access = (op)(self.platform, self.access)?;
+
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
+    }
+
     pub fn into_inner(self) -> A {
         self.access
     }
 }
 
 // constructors
+impl<T: CType> Array<T, Accessor<T>, Platform> {
+    pub fn from<A, P>(array: Array<T, A, P>) -> Self
+    where
+        Accessor<T>: From<A>,
+        Platform: From<P>,
+    {
+        Self {
+            shape: array.shape,
+            access: array.access.into(),
+            platform: array.platform.into(),
+            dtype: array.dtype,
+        }
+    }
+}
+
 impl<T, B, P> Array<T, AccessBuffer<B>, P>
 where
     T: CType,
@@ -377,6 +409,61 @@ where
             platform: self.platform,
             dtype: PhantomData,
         })
+    }
+}
+
+pub trait NDArrayCompareScalar: NDArray + Sized {
+    type Output: NDArray<DType = u8>;
+
+    /// Construct an equality comparison with the `other` value.
+    fn eq_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a greater-than comparison with the `other` value.
+    fn gt_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct an equal-or-greater-than comparison with the `other` value.
+    fn ge_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a less-than comparison with the `other` value.
+    fn lt_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct an equal-or-less-than comparison with the `other` value.
+    fn le_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct an not-equal comparison with the `other` value.
+    fn ne_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseScalarCompare<A, T>,
+{
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+
+    fn eq_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.eq_scalar(access, other))
+    }
+
+    fn gt_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.gt_scalar(access, other))
+    }
+
+    fn ge_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.ge_scalar(access, other))
+    }
+
+    fn lt_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.lt_scalar(access, other))
+    }
+
+    fn le_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.le_scalar(access, other))
+    }
+
+    fn ne_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.ne_scalar(access, other))
     }
 }
 

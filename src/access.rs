@@ -198,12 +198,14 @@ impl<T: CType, B: Into<Buffer<T>>> From<AccessBuffer<B>> for Accessor<T> {
     }
 }
 
-impl<T, O> From<AccessOp<O, Platform>> for Accessor<T>
+impl<T, O, P> From<AccessOp<O, P>> for Accessor<T>
 where
     T: CType,
     O: ReadValue<Platform, T, Buffer = Buffer<T>> + Sized + 'static,
+    Platform: From<P>,
 {
-    fn from(access: AccessOp<O, Platform>) -> Self {
+    fn from(access: AccessOp<O, P>) -> Self {
+        let access: AccessOp<O, Platform> = AccessOp::wrap(access);
         let op: Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>> = Box::new(access.op);
         Self::Op(op)
     }

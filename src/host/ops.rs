@@ -99,6 +99,142 @@ where
     }
 }
 
+pub struct CompareScalar<A, T> {
+    access: A,
+    scalar: T,
+    cmp: fn(T, T) -> bool,
+}
+
+impl<A, T> CompareScalar<A, T> {
+    pub fn eq(access: A, scalar: T) -> Self
+    where
+        T: PartialEq,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l == r,
+        }
+    }
+
+    pub fn ge(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l >= r,
+        }
+    }
+
+    pub fn gt(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l > r,
+        }
+    }
+
+    pub fn le(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l <= r,
+        }
+    }
+
+    pub fn lt(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l < r,
+        }
+    }
+
+    pub fn ne(access: A, scalar: T) -> Self
+    where
+        T: PartialEq,
+    {
+        Self {
+            access,
+            scalar,
+            cmp: |l, r| l != r,
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for CompareScalar<A, T> {
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Heap, u8> for CompareScalar<A, T> {
+    type Buffer = Vec<u8>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .as_ref()
+                    .into_par_iter()
+                    .copied()
+                    .map(|l| if (self.cmp)(l, self.scalar) { 1 } else { 0 })
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Stack, u8> for CompareScalar<A, T> {
+    type Buffer = StackVec<u8>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .as_ref()
+                    .into_iter()
+                    .copied()
+                    .map(|l| if (self.cmp)(l, self.scalar) { 1 } else { 0 })
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Host, u8> for CompareScalar<A, T> {
+    type Buffer = Buffer<u8>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack, u8>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap, u8>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<Host, u8> for CompareScalar<A, T> {
+    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+        self.access
+            .read_value(offset)
+            .map(|n| if (self.cmp)(n, self.scalar) { 1 } else { 0 })
+    }
+}
+
 pub struct Dual<L, R, T> {
     left: L,
     right: R,

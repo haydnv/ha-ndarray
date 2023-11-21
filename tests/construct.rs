@@ -19,10 +19,9 @@ fn test_random_normal() -> Result<(), Error> {
     let size = 1_000_000;
     let array = ArrayOp::random_normal(size)?;
 
-    // assert!(!array.as_ref().eq_scalar(0.)?.any()?);
     assert_eq!(array.as_ref().sum_all()? as usize / size, 0);
-    // assert!(array.as_ref().gt_scalar(1.)?.any()?);
-    // assert!(array.lt_scalar(-1.)?.any()?);
+    assert!(array.as_ref().gt_scalar(1.)?.any()?);
+    assert!(array.lt_scalar(-1.)?.any()?);
 
     Ok(())
 }
@@ -32,10 +31,9 @@ fn test_random_uniform() -> Result<(), Error> {
     let size = 1_000_000;
     let array = ArrayOp::random_uniform(size)?;
 
-    // assert!(!array.as_ref().eq_scalar(0.)?.any()?);
     assert_eq!(array.as_ref().sum_all()? as usize / size, 0);
-    // assert!(array.as_ref().ge_scalar(-1.)?.all()?);
-    // assert!(array.le_scalar(1.)?.all()?);
+    assert!(array.as_ref().ge_scalar(-1.)?.all()?);
+    assert!(array.le_scalar(1.)?.all()?);
 
     Ok(())
 }

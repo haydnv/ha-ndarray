@@ -9,8 +9,8 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    NDArray, NDArrayCompare, NDArrayMath, NDArrayRead, NDArrayReduceAll, NDArrayReduceBoolean,
-    NDArrayTransform, NDArrayUnary,
+    NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead, NDArrayReduceAll,
+    NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;

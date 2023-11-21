@@ -13,6 +13,26 @@ pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error>
             return left == right;
         }}
 
+        inline uchar ge(const {c_type} left, const {c_type} right) {{
+            return left >= right;
+        }}
+
+        inline uchar gt(const {c_type} left, const {c_type} right) {{
+            return left > right;
+        }}
+
+        inline uchar le(const {c_type} left, const {c_type} right) {{
+            return left <= right;
+        }}
+
+        inline uchar lt(const {c_type} left, const {c_type} right) {{
+            return left < right;
+        }}
+
+        inline uchar ne(const {c_type} left, const {c_type} right) {{
+            return left != right;
+        }}
+
         __kernel void compare(
             __global const {c_type}* restrict left,
             __global const {c_type}* restrict right,
@@ -21,7 +41,16 @@ pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error>
             const ulong offset = get_global_id(0);
             output[offset] = {op}(left[offset], right[offset]);
         }}
-        "#,
+
+        __kernel void compare_scalar(
+            __global const {c_type}* restrict left,
+            const {c_type} right,
+            __global uchar* restrict output)
+        {{
+            const ulong offset = get_global_id(0);
+            output[offset] = {op}(left[offset], right);
+        }}
+        "#
     );
 
     build(&src)

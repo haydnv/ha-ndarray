@@ -94,6 +94,101 @@ where
     }
 }
 
+pub struct CompareScalar<A, T> {
+    access: A,
+    scalar: T,
+    program: Program,
+    op: fn(T, T) -> bool,
+}
+
+impl<A, T> CompareScalar<A, T>
+where
+    T: CType,
+{
+    fn new(
+        access: A,
+        scalar: T,
+        program: &'static str,
+        op: fn(T, T) -> bool,
+    ) -> Result<Self, Error> {
+        programs::elementwise::compare(T::TYPE, program)
+            .map(|program| Self {
+                access,
+                scalar,
+                program,
+                op,
+            })
+            .map_err(Error::from)
+    }
+
+    pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "eq", |l, r| l == r)
+    }
+
+    pub fn ge(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "ge", |l, r| l >= r)
+    }
+
+    pub fn gt(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "gt", |l, r| l > r)
+    }
+
+    pub fn le(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "le", |l, r| l <= r)
+    }
+
+    pub fn lt(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "lt", |l, r| l < r)
+    }
+
+    pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "ne", |l, r| l != r)
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for CompareScalar<A, T> {
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, u8> for CompareScalar<A, T> {
+    type Buffer = Buffer<u8>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+
+        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("compare_scalar")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(input.len())
+            .arg(&*input)
+            .arg(self.scalar)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, u8> for CompareScalar<A, T> {
+    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+        self.access
+            .read_value(offset)
+            .map(|n| if (self.op)(n, self.scalar) { 1 } else { 0 })
+    }
+}
+
 pub struct Dual<L, R, T> {
     left: L,
     right: R,
