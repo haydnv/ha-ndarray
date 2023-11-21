@@ -322,15 +322,24 @@ where
     }
 }
 
-// unary ops
-impl<T, A, P> Array<T, A, P>
+/// Unary array operations
+pub trait NDArrayUnary: NDArray + Sized {
+    /// The return type of an `ln` operation.
+    type Log: NDArray<DType = Self::DType>;
+
+    /// Construct a natural logarithm operation.
+    fn ln(self) -> Result<Self::Log, Error>;
+}
+
+impl<T, A, P> NDArrayUnary for Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
-    P: PlatformInstance,
+    P: ElementwiseUnary<A, T>,
 {
-    // math
-    pub fn ln(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
+    type Log = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn ln(self) -> Result<Self::Log, Error>
     where
         P: ElementwiseUnary<A, T>,
     {
@@ -343,19 +352,23 @@ where
     }
 }
 
-// array-array ops
-impl<T, L, P> Array<T, L, P>
+/// Array comparison operations
+pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
+    type Output: NDArray<DType = u8>;
+
+    fn eq(self, other: O) -> Result<Self::Output, Error>;
+}
+
+impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
 where
     T: CType,
     L: Access<T>,
-    P: PlatformInstance,
+    R: Access<T>,
+    P: ElementwiseCompare<L, R, T>,
 {
-    // array-array comparison
-    pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Op, P>, P>, Error>
-    where
-        R: Access<T>,
-        P: ElementwiseCompare<L, R, T>,
-    {
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+
+    fn eq(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
         same_shape("compare", self.shape(), other.shape())?;
 
         Ok(Array {
@@ -365,54 +378,88 @@ where
             dtype: PhantomData,
         })
     }
+}
 
-    // array-array arithmetic
-    pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
-    where
-        R: Access<T>,
-        P: ElementwiseDual<L, R, T>,
-    {
-        same_shape("add", self.shape(), other.shape())?;
+/// Array arithmetic operations
+pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
+    type Output: NDArray<DType = Self::DType>;
+
+    /// Construct an addition operation with the given `rhs`.
+    fn add(self, rhs: O) -> Result<Self::Output, Error>;
+
+    /// Construct an array subtraction operation with the given `rhs`.
+    fn sub(self, rhs: O) -> Result<Self::Output, Error>;
+}
+
+impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: ElementwiseDual<L, R, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn add(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("add", self.shape(), rhs.shape())?;
 
         Ok(Array {
             shape: self.shape,
-            access: self.platform.add(self.access, other.access)?,
+            access: self.platform.add(self.access, rhs.access)?,
             platform: self.platform,
             dtype: PhantomData,
         })
     }
 
-    pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
-    where
-        R: Access<T>,
-        P: ElementwiseDual<L, R, T>,
-    {
-        same_shape("subtract", self.shape(), other.shape())?;
+    fn sub(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("subtract", self.shape(), rhs.shape())?;
 
         Ok(Array {
             shape: self.shape,
-            access: self.platform.sub(self.access, other.access)?,
+            access: self.platform.sub(self.access, rhs.access)?,
             platform: self.platform,
             dtype: PhantomData,
         })
     }
 }
 
-impl<'a, T, A, P> Array<T, A, P>
+/// Boolean array reduce operations
+pub trait NDArrayReduceBoolean: NDArrayRead {
+    /// Return `true` if this array contains only non-zero elements.
+    fn all(self) -> Result<bool, Error>;
+
+    /// Return `true` if this array contains any non-zero elements.
+    fn any(self) -> Result<bool, Error>;
+}
+
+impl<T, A, P> NDArrayReduceBoolean for Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
     P: Reduce<A, T>,
 {
-    pub fn all(self) -> Result<bool, Error> {
+    fn all(self) -> Result<bool, Error> {
         self.platform.all(self.access)
     }
 
-    pub fn any(self) -> Result<bool, Error> {
+    fn any(self) -> Result<bool, Error> {
         self.platform.any(self.access)
     }
+}
 
-    pub fn sum_all(self) -> Result<T, Error> {
+/// Array reduce operations
+pub trait NDArrayReduceAll: NDArrayRead {
+    /// Return the sum of all elements in this array.
+    fn sum_all(self) -> Result<Self::DType, Error>;
+}
+
+impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: Reduce<A, T>,
+{
+    fn sum_all(self) -> Result<T, Error> {
         self.platform.sum(self.access)
     }
 }

@@ -11,7 +11,9 @@ pub type Array<T> = crate::array::Array<T, AccessBuffer<Buffer<T>>, Host>;
 
 #[cfg(test)]
 mod tests {
-    use crate::{shape, slice, AxisRange, Error, NDArrayTransform};
+    use crate::{
+        shape, slice, AxisRange, Error, NDArrayCompare, NDArrayReduceBoolean, NDArrayTransform,
+    };
 
     use super::*;
 
