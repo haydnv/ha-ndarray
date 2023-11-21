@@ -9,51 +9,60 @@ pub trait Op: Send + Sync {
     fn size(&self) -> usize;
 }
 
-pub trait Enqueue<P: PlatformInstance>: Op {
-    type Buffer;
+pub trait Enqueue<P: PlatformInstance, T: CType>: Op {
+    type Buffer: Into<BufferConverter<'static, T>>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
-pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P> {
+pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 }
 
-pub trait Write<'a, P: PlatformInstance>: Enqueue<P> {
+pub trait Write<'a, P: PlatformInstance, T: CType>: Enqueue<P, T> {
     type Data;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
 }
 
 pub trait Construct<T: CType>: PlatformInstance {
-    type Range: Enqueue<Self>;
+    type Range: Enqueue<Self, T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
-    type Op: Enqueue<Self>;
+    type Op: Enqueue<Self, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-pub trait ElementwiseDual<L, R, T>: PlatformInstance {
-    type Op: Enqueue<Self>;
+pub trait ElementwiseDual<L, R, T>: PlatformInstance
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-pub trait ElementwiseUnary<A, T>: PlatformInstance {
-    type Op: Enqueue<Self>;
+pub trait ElementwiseUnary<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait Random: PlatformInstance {
-    type Normal: Enqueue<Self>;
-    type Uniform: Enqueue<Self>;
+    type Normal: Enqueue<Self, f32>;
+    type Uniform: Enqueue<Self, f32>;
 
     fn random_normal(self, size: usize) -> Result<AccessOp<Self::Normal, Self>, Error>;
 
@@ -68,9 +77,13 @@ pub trait Reduce<A, T>: PlatformInstance {
     fn sum(self, access: A) -> Result<T, Error>;
 }
 
-pub trait Transform<A, T>: PlatformInstance {
-    type Broadcast: Enqueue<Self>;
-    type Slice: Enqueue<Self>;
+pub trait Transform<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Broadcast: ReadValue<Self, T>;
+    type Slice: ReadValue<Self, T>;
 
     fn broadcast(
         self,
@@ -137,14 +150,14 @@ macro_rules! impl_view {
             }
         }
 
-        impl<A: Access<T>, T: CType> Enqueue<Platform> for $op {
+        impl<A: Access<T>, T: CType> Enqueue<Platform, T> for $op {
             type Buffer = Buffer<$t>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
                 match self {
                     #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                    Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
                 }
             }
         }
@@ -178,7 +191,7 @@ macro_rules! impl_dual {
             }
         }
 
-        impl<L, R, T> Enqueue<Platform> for $op
+        impl<L, R, T> Enqueue<Platform, $t> for $op
         where
             L: Access<T>,
             R: Access<T>,
@@ -189,8 +202,8 @@ macro_rules! impl_dual {
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
                 match self {
                     #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                    Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
                 }
             }
         }
@@ -244,14 +257,14 @@ impl<T: Send + Sync> Op for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<Platform> for Linear<T> {
+impl<T: CType> Enqueue<Platform, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
         }
     }
 }
@@ -316,14 +329,14 @@ macro_rules! impl_random {
             }
         }
 
-        impl Enqueue<Platform> for $t {
+        impl Enqueue<Platform, f32> for $t {
             type Buffer = Buffer<f32>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
                 match self {
                     #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+                    Self::CL(op) => Enqueue::<opencl::OpenCL, f32>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host, f32>::enqueue(op).map(Buffer::Host),
                 }
             }
         }
@@ -415,12 +428,12 @@ pub enum Slice<A, T> {
 impl_view!(Slice<A, T>, T);
 
 #[cfg(feature = "opencl")]
-impl<'a, A, T> Write<'a, Platform> for Slice<A, T>
+impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, Data = host::SliceConverter<'a, T>>,
-    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, Data = opencl::CLConverter<'a, T>>,
+    host::ops::Slice<A, T>: Write<'a, host::Host, T, Data = host::SliceConverter<'a, T>>,
+    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, T, Data = opencl::CLConverter<'a, T>>,
 {
     type Data = BufferConverter<'a, T>;
 
@@ -433,11 +446,11 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<'a, A, T> Write<'a, Platform> for Slice<A, T>
+impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, Data = host::SliceConverter<'a, T>>,
+    host::ops::Slice<A, T>: Write<'a, host::Host, T, Data = host::SliceConverter<'a, T>>,
 {
     type Data = BufferConverter<'a, T>;
 
@@ -482,7 +495,7 @@ where
     }
 }
 
-impl<A, IT, OT> Enqueue<Platform> for Unary<A, IT, OT>
+impl<A, IT, OT> Enqueue<Platform, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
     IT: CType,
@@ -493,8 +506,8 @@ where
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host>::enqueue(op).map(Buffer::Host),
+            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
         }
     }
 }

@@ -136,12 +136,12 @@ where
 impl<T, O, P> Array<T, AccessOp<O, P>, P>
 where
     T: CType,
-    O: Enqueue<P>,
+    O: Enqueue<P, T>,
     P: PlatformInstance,
 {
     pub fn as_mut<'a>(&'a mut self) -> Array<T, &'a mut AccessOp<O, P>, P>
     where
-        O: Write<'a, P>,
+        O: Write<'a, P, T>,
     {
         Array {
             shape: Shape::from_slice(&self.shape),

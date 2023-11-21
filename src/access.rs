@@ -116,10 +116,9 @@ where
     T: CType,
     O: ReadValue<P, T>,
     P: PlatformInstance,
-    BufferConverter<'static, T>: From<O::Buffer>,
 {
     fn read(&self) -> Result<BufferConverter<'static, T>, Error> {
-        self.op.enqueue().map(BufferConverter::from)
+        self.op.enqueue().map(|buffer| buffer.into())
     }
 
     fn read_value(&self, offset: usize) -> Result<T, Error> {
@@ -154,7 +153,7 @@ where
 impl<'a, O, P, T> AccessMut<'a, T> for AccessOp<O, P>
 where
     T: CType,
-    O: ReadValue<P, T> + Write<'a, P>,
+    O: ReadValue<P, T> + Write<'a, P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {

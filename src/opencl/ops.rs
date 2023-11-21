@@ -40,7 +40,7 @@ impl<L: Access<T>, R: Access<T>, T: CType> Op for Compare<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<OpenCL> for Compare<L, R, T>
+impl<L, R, T> Enqueue<OpenCL, u8> for Compare<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
@@ -139,7 +139,7 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<OpenCL> for Dual<L, R, T>
+impl<L, R, T> Enqueue<OpenCL, T> for Dual<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
@@ -212,7 +212,7 @@ impl<T: Send + Sync> Op for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<OpenCL> for Linear<T> {
+impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -262,7 +262,7 @@ impl Op for RandomNormal {
     }
 }
 
-impl Enqueue<OpenCL> for RandomNormal {
+impl Enqueue<OpenCL, f32> for RandomNormal {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -324,7 +324,7 @@ impl Op for RandomUniform {
     }
 }
 
-impl Enqueue<OpenCL> for RandomUniform {
+impl Enqueue<OpenCL, f32> for RandomUniform {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -388,7 +388,7 @@ impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL> for Slice<A, T> {
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Slice<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -421,7 +421,7 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
     }
 }
 
-impl<'a, B, T> Write<'a, OpenCL> for Slice<AccessBuffer<B>, T>
+impl<'a, B, T> Write<'a, OpenCL, T> for Slice<AccessBuffer<B>, T>
 where
     B: Borrow<Buffer<T>>,
     T: CType,
@@ -486,7 +486,7 @@ where
     }
 }
 
-impl<A, IT, OT> Enqueue<OpenCL> for Unary<A, IT, OT>
+impl<A, IT, OT> Enqueue<OpenCL, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
     IT: CType,
@@ -563,7 +563,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL> for View<A, T> {
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for View<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
