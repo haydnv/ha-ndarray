@@ -367,7 +367,7 @@ pub struct Slice<A, T> {
 
 impl<A, T: CType> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Result<Self, Error> {
-        let source_strides = strides_for(shape, shape.len());
+        let source_strides = strides_for(shape, shape.len()).collect();
         let spec = SliceSpec::new(range, source_strides);
 
         let read = programs::slice::read_slice(T::TYPE, spec.clone())?;
@@ -538,7 +538,7 @@ where
 {
     pub fn new(access: A, shape: Shape, broadcast: Shape, strides: Strides) -> Result<Self, Error> {
         let size = broadcast.iter().product();
-        let source_strides = strides_for(&shape, shape.len());
+        let source_strides = strides_for(&shape, shape.len()).collect();
         let spec = ViewSpec::new(broadcast, strides, source_strides);
 
         let program = programs::view::view(T::TYPE, spec.clone())?;

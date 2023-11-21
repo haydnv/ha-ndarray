@@ -356,7 +356,7 @@ impl SliceSpec {
         assert_eq!(range.len(), source_strides.len());
 
         let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
-        let strides = strides_for(&shape, shape.len());
+        let strides = strides_for(&shape, shape.len()).collect();
 
         Self {
             range,

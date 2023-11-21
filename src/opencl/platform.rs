@@ -442,7 +442,7 @@ where
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        let strides = strides_for(&shape, broadcast.len());
+        let strides = strides_for(&shape, broadcast.len()).collect();
         View::new(access, shape, broadcast, strides).map(AccessOp::from)
     }
 

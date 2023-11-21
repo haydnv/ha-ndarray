@@ -6,7 +6,7 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
-use crate::{shape, AxisRange, CType, Convert, Error, Range, Shape};
+use crate::{shape, strides_for, AxisRange, BufferConverter, CType, Convert, Error, Range, Shape};
 
 pub struct Array<T, A, P> {
     shape: Shape,
@@ -16,18 +16,6 @@ pub struct Array<T, A, P> {
 }
 
 impl<T, A, P> Array<T, A, P> {
-    pub fn ndim(&self) -> usize {
-        self.shape.len()
-    }
-
-    pub fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    pub fn size(&self) -> usize {
-        self.shape.iter().product()
-    }
-
     pub fn into_inner(self) -> A {
         self.access
     }
@@ -173,6 +161,72 @@ where
     }
 }
 
+// traits
+
+/// An n-dimensional array
+pub trait NDArray: Send + Sync {
+    /// The data type of the elements in this array
+    type DType: CType;
+
+    /// Return the number of dimensions in this array.
+    fn ndim(&self) -> usize {
+        self.shape().len()
+    }
+
+    /// Return the number of elements in this array.
+    fn size(&self) -> usize {
+        self.shape().iter().product()
+    }
+
+    /// Borrow the shape of this array.
+    fn shape(&self) -> &[usize];
+}
+
+impl<T, A, P> NDArray for Array<T, A, P>
+where
+    T: CType,
+    A: Send + Sync,
+    P: Send + Sync,
+{
+    type DType = T;
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+}
+
+/// Access methods for an [`NDArray`]
+pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
+    /// Read the value of this [`NDArray`].
+    fn read(&self) -> Result<BufferConverter<Self::DType>, Error>;
+
+    /// Read the value at one `coord` in this [`NDArray`].
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error>;
+}
+
+impl<T, A, P> NDArrayRead for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: PlatformInstance,
+{
+    fn read(&self) -> Result<BufferConverter<Self::DType>, Error> {
+        self.access.read()
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        let strides = strides_for(self.shape(), self.ndim());
+
+        let offset = coord
+            .iter()
+            .zip(strides)
+            .map(|(i, stride)| i * stride)
+            .sum();
+
+        self.access.read_value(offset)
+    }
+}
+
 // write ops
 impl<T, L, P> Array<T, L, P>
 where
@@ -196,7 +250,12 @@ where
 }
 
 // unary ops
-impl<T, A, P> Array<T, A, P> {
+impl<T, A, P> Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: PlatformInstance,
+{
     // transforms
     pub fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error>
     where
@@ -262,10 +321,16 @@ impl<T, A, P> Array<T, A, P> {
 }
 
 // array-array ops
-impl<T, L, P> Array<T, L, P> {
+impl<T, L, P> Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    P: PlatformInstance,
+{
     // array-array comparison
     pub fn eq<R>(self, other: Array<T, R, P>) -> Result<Array<u8, AccessOp<P::Op, P>, P>, Error>
     where
+        R: Access<T>,
         P: ElementwiseCompare<L, R, T>,
     {
         same_shape("compare", self.shape(), other.shape())?;
@@ -281,6 +346,7 @@ impl<T, L, P> Array<T, L, P> {
     // array-array arithmetic
     pub fn add<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
+        R: Access<T>,
         P: ElementwiseDual<L, R, T>,
     {
         same_shape("add", self.shape(), other.shape())?;
@@ -295,6 +361,7 @@ impl<T, L, P> Array<T, L, P> {
 
     pub fn sub<R>(self, other: Array<T, R, P>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
+        R: Access<T>,
         P: ElementwiseDual<L, R, T>,
     {
         same_shape("subtract", self.shape(), other.shape())?;

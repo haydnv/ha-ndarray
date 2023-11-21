@@ -8,6 +8,7 @@ pub use smallvec::smallvec as stackvec;
 use smallvec::SmallVec;
 
 pub use access::*;
+pub use array::{NDArray, NDArrayRead};
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
 pub use platform::*;
@@ -298,7 +299,7 @@ pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> 
 }
 
 #[inline]
-fn strides_for(shape: &[usize], ndim: usize) -> Strides {
+fn strides_for<'a>(shape: &'a [usize], ndim: usize) -> impl Iterator<Item = usize> + 'a {
     debug_assert!(ndim >= shape.len());
 
     let zeros = std::iter::repeat(0).take(ndim - shape.len());
@@ -311,5 +312,5 @@ fn strides_for(shape: &[usize], ndim: usize) -> Strides {
         }
     });
 
-    zeros.chain(strides).collect()
+    zeros.chain(strides)
 }

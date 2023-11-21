@@ -426,7 +426,7 @@ pub struct Slice<A, T> {
 
 impl<A, T> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Self {
-        let source_strides = strides_for(shape, shape.len());
+        let source_strides = strides_for(shape, shape.len()).collect();
         let spec = SliceSpec::new(range, source_strides);
 
         Self {
@@ -667,8 +667,8 @@ pub struct View<A, T> {
 
 impl<A: Access<T>, T: CType> View<A, T> {
     pub fn new(access: A, shape: Shape, broadcast: Shape) -> Self {
-        let strides = strides_for(&shape, broadcast.len());
-        let source_strides = strides_for(&shape, shape.len());
+        let strides = strides_for(&shape, broadcast.len()).collect();
+        let source_strides = strides_for(&shape, shape.len()).collect();
 
         Self {
             access,
