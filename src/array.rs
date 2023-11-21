@@ -249,18 +249,33 @@ where
     }
 }
 
-// unary ops
-impl<T, A, P> Array<T, A, P>
+// op traits
+
+/// Array transform operations
+pub trait NDArrayTransform: NDArray + fmt::Debug {
+    /// The type returned by `broadcast`
+    type Broadcast: NDArray<DType = Self::DType>;
+
+    /// The type returned by `slice`
+    type Slice: NDArray<DType = Self::DType>;
+
+    /// Broadcast this array into the given `shape`.
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error>;
+
+    /// Construct a slice of this array.
+    fn slice(self, range: Range) -> Result<Self::Slice, Error>;
+}
+
+impl<T, A, P> NDArrayTransform for Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
-    P: PlatformInstance,
+    P: Transform<A, T>,
 {
-    // transforms
-    pub fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error>
-    where
-        P: Transform<A, T>,
-    {
+    type Broadcast = Array<T, AccessOp<P::Broadcast, P>, P>;
+    type Slice = Array<T, AccessOp<P::Slice, P>, P>;
+
+    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
         if !can_broadcast(self.shape(), &shape) {
             return Err(Error::Bounds(format!(
                 "cannot broadcast {self:?} into {shape:?}"
@@ -279,7 +294,7 @@ where
         })
     }
 
-    pub fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error>
+    fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error>
     where
         P: Transform<A, T>,
     {
@@ -305,7 +320,15 @@ where
             dtype: PhantomData,
         })
     }
+}
 
+// unary ops
+impl<T, A, P> Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: PlatformInstance,
+{
     // math
     pub fn ln(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where

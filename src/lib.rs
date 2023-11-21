@@ -8,7 +8,7 @@ pub use smallvec::smallvec as stackvec;
 use smallvec::SmallVec;
 
 pub use access::*;
-pub use array::{NDArray, NDArrayRead};
+pub use array::{NDArray, NDArrayRead, NDArrayTransform};
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
 pub use platform::*;
