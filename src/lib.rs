@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 pub use access::*;
 pub use array::{
     NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead, NDArrayReduceAll,
-    NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary,
+    NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;

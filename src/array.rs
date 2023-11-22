@@ -247,6 +247,8 @@ where
     }
 
     fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+        valid_coord(coord, self.shape())?;
+
         let strides = strides_for(self.shape(), self.ndim());
 
         let offset = coord
@@ -259,25 +261,50 @@ where
     }
 }
 
+/// Access methods for a mutable [`NDArray`]
+pub trait NDArrayWrite<'a>: NDArray + fmt::Debug + Sized {
+    /// Overwrite this [`NDArray`] with the value of the `other` array.
+    fn write<O: NDArrayRead<DType = Self::DType>>(&'a mut self, other: &'a O) -> Result<(), Error>;
+
+    /// Overwrite this [`NDArray`] with a constant scalar `value`.
+    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error>;
+
+    /// Write the given `value` at the given `coord` of this [`NDArray`].
+    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
+}
+
 // write ops
-impl<T, L, P> Array<T, L, P>
+impl<'a, T, L, P> NDArrayWrite<'a> for Array<T, L, P>
 where
     T: CType,
+    L: AccessMut<'a, T>,
+    P: Convert<'a, T, Buffer = L::Data>,
 {
-    pub fn write<'a, R>(&'a mut self, other: &'a Array<T, R, P>) -> Result<(), Error>
+    fn write<O>(&'a mut self, other: &'a O) -> Result<(), Error>
     where
-        L: AccessMut<'a, T>,
-        R: Access<T> + 'a,
-        P: Convert<'a, T, Buffer = L::Data>,
+        O: NDArrayRead<DType = Self::DType>,
     {
         same_shape("write", self.shape(), other.shape())?;
 
-        let data = other
-            .access
-            .read()
-            .and_then(|buf| self.platform.convert(buf))?;
+        let data = other.read().and_then(|buf| self.platform.convert(buf))?;
 
         self.access.write(data)
+    }
+
+    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error> {
+        self.access.write_value(value)
+    }
+
+    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
+        valid_coord(coord, self.shape())?;
+
+        let offset = coord
+            .iter()
+            .zip(strides_for(self.shape(), self.ndim()))
+            .map(|(i, stride)| i * stride)
+            .sum();
+
+        self.access.write_value_at(offset, value)
     }
 }
 
@@ -592,4 +619,17 @@ fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<
             "cannot {op_name} arrays with shapes {left:?} and {right:?}"
         )))
     }
+}
+
+#[inline]
+fn valid_coord(coord: &[usize], shape: &[usize]) -> Result<(), Error> {
+    if coord.len() == shape.len() {
+        if coord.iter().zip(shape).all(|(i, dim)| i < dim) {
+            return Ok(());
+        }
+    }
+
+    Err(Error::Bounds(format!(
+        "invalid coordinate {coord:?} for shape {shape:?}"
+    )))
 }

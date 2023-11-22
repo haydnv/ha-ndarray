@@ -18,6 +18,10 @@ pub trait AccessMut<'a, T: CType>: Access<T> {
     type Data;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 pub struct AccessBuffer<B> {
@@ -81,6 +85,14 @@ where
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.buffer.write(data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.buffer.write_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.buffer.write_value_at(offset, value)
     }
 }
 
@@ -161,6 +173,14 @@ where
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.op.write(data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.op.write_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.op.write_value_at(offset, value)
     }
 }
 

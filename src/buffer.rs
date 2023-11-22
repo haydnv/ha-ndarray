@@ -19,6 +19,10 @@ pub trait BufferMut<'a, T: CType>: BufferInstance<T> {
     type Data;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 #[derive(Clone)]
@@ -60,6 +64,22 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
             Self::Host(buf) => buf.write(data.to_slice()?),
         }
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(buf) => buf.write_value(value),
+            Self::Host(buf) => buf.write_value(value),
+        }
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(buf) => buf.write_value_at(offset, value),
+            Self::Host(buf) => buf.write_value_at(offset, value),
+        }
+    }
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
@@ -94,7 +114,15 @@ impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
     type Data = BufferConverter<'a, T>;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        Buffer::<T>::write(self, data)
+        Buffer::<T>::write(*self, data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        Buffer::<T>::write_value(*self, value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        Buffer::<T>::write_value_at(*self, offset, value)
     }
 }
 
@@ -110,6 +138,40 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileReadGuardOwned
 
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         BufferInstance::read_value(&**self, offset)
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
+    fn read(&self) -> BufferConverter<T> {
+        BufferInstance::read(&**self)
+    }
+
+    fn size(&self) -> usize {
+        BufferInstance::size(&**self)
+    }
+
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        BufferInstance::read_value(&**self, offset)
+    }
+}
+
+#[cfg(feature = "freqfs")]
+impl<'a, FE: Send + Sync, T: CType> BufferMut<'a, T>
+    for freqfs::FileWriteGuardOwned<FE, Buffer<T>>
+{
+    type Data = BufferConverter<'a, T>;
+
+    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+        BufferMut::write(&mut **self, data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        BufferMut::write_value(&mut **self, value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        BufferMut::write_value_at(&mut **self, offset, value)
     }
 }
 

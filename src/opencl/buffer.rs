@@ -3,6 +3,7 @@ use std::ops::Deref;
 use ocl::Buffer;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
+use crate::opencl::OpenCL;
 use crate::{CType, Error};
 
 impl<T: CType> BufferInstance<T> for Buffer<T> {
@@ -42,6 +43,31 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
             )))
         }
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        let buf = Buffer::builder()
+            .context(OpenCL::context())
+            .len(self.len())
+            .fill_val(value)
+            .build()?;
+
+        *self = buf;
+        Ok(())
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        if offset < self.len() {
+            let slice = self.map().offset(offset).len(1).read();
+            let mut slice = unsafe { slice.enq()? };
+            slice.as_mut()[0] = value;
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "invalid offset {offset} for a buffer of length {}",
+                self.len()
+            )))
+        }
+    }
 }
 
 impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
@@ -77,6 +103,14 @@ impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         BufferMut::write(&mut **self, data.into())
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        BufferMut::write_value(&mut **self, value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        BufferMut::write_value_at(&mut **self, offset, value)
     }
 }
 

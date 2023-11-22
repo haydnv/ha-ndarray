@@ -1,13 +1,13 @@
-use std::borrow::Borrow;
+use std::borrow::BorrowMut;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use ocl::{Buffer, Kernel, Program};
 use rand::{random, Rng};
 
-use crate::access::Access;
-use crate::ops::{ReadValue, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, AccessBuffer, CType, Enqueue, Error, Float, Op, Range, Shape, Strides};
+use crate::access::{Access, AccessBuffer, AccessMut};
+use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec, Write};
+use crate::{strides_for, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
 use super::{programs, CLConverter, WG_SIZE};
@@ -457,6 +457,7 @@ pub struct Slice<A, T> {
     spec: SliceSpec,
     read: Program,
     write: Option<Program>,
+    write_value: Option<Program>,
     dtype: PhantomData<T>,
 }
 
@@ -472,6 +473,7 @@ impl<A, T: CType> Slice<A, T> {
             spec,
             read,
             write: None,
+            write_value: None,
             dtype: PhantomData,
         })
     }
@@ -518,9 +520,9 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
 
 impl<'a, B, T> Write<'a, OpenCL, T> for Slice<AccessBuffer<B>, T>
 where
-    B: Borrow<Buffer<T>>,
+    B: BorrowMut<Buffer<T>>,
     T: CType,
-    AccessBuffer<B>: Access<T>,
+    AccessBuffer<B>: AccessMut<'a, T>,
 {
     type Data = CLConverter<'a, T>;
 
@@ -531,7 +533,6 @@ where
 
         if self.write.is_none() {
             let program = programs::slice::write_to_slice(T::TYPE, self.spec.clone())?;
-
             self.write = Some(program);
         }
 
@@ -539,7 +540,7 @@ where
             .name("write_slice")
             .program(self.write.as_ref().expect("CL write op"))
             .queue(queue)
-            .global_work_size(data.size())
+            .global_work_size(source.len())
             .arg(source)
             .arg(&*data)
             .build()?;
@@ -547,6 +548,36 @@ where
         unsafe { kernel.enq()? }
 
         Ok(())
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        let size_hint = self.size();
+        let source = self.access.as_ref().into_inner();
+        let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
+
+        if self.write.is_none() {
+            let program = programs::slice::write_value_to_slice(T::TYPE, self.spec.clone())?;
+            self.write = Some(program);
+        }
+
+        let kernel = Kernel::builder()
+            .name("write_slice_value")
+            .program(self.write.as_ref().expect("CL write op"))
+            .queue(queue)
+            .global_work_size(source.len())
+            .arg(source)
+            .arg(value)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(())
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.access
+            .borrow_mut()
+            .write_value_at(self.spec.source_offset(offset), value)
     }
 }
 

@@ -13,6 +13,7 @@ pub type Array<T> = crate::array::Array<T, AccessBuffer<Buffer<T>>, Host>;
 mod tests {
     use crate::{
         shape, slice, AxisRange, Error, NDArrayCompare, NDArrayReduceBoolean, NDArrayTransform,
+        NDArrayWrite,
     };
 
     use super::*;

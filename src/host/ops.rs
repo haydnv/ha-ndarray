@@ -603,9 +603,10 @@ where
 {
     fn overwrite(&mut self, data: &[T]) -> Result<(), Error> {
         if data.len() == self.size() {
+            let source = self.access.as_mut().into_inner();
+
             for (offset, value) in data.into_iter().copied().enumerate() {
                 let source_offset = self.spec.source_offset(offset);
-                let source = self.access.as_mut().into_inner();
                 source.as_mut()[source_offset] = value;
             }
 
@@ -617,6 +618,24 @@ where
                 data.len(),
             )))
         }
+    }
+
+    fn overwrite_value(&mut self, value: T) -> Result<(), Error> {
+        let size = self.access.size();
+        let source = self.access.as_mut().into_inner();
+
+        for offset in 0..size {
+            let source_offset = self.spec.source_offset(offset);
+            source.as_mut()[source_offset] = value;
+        }
+
+        Ok(())
+    }
+
+    fn overwrite_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
+        let source_offset = self.spec.source_offset(offset);
+        self.access.as_mut().into_inner().as_mut()[source_offset] = value;
+        Ok(())
     }
 }
 
@@ -678,6 +697,14 @@ where
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.overwrite(data)
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.overwrite_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.overwrite_value_at(offset, value)
+    }
 }
 
 impl<'a, B, T> crate::ops::Write<'a, Stack, T> for Slice<AccessBuffer<B>, T>
@@ -691,6 +718,14 @@ where
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.overwrite(data)
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.overwrite_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.overwrite_value_at(offset, value)
+    }
 }
 
 impl<'a, B, T> crate::ops::Write<'a, Host, T> for Slice<AccessBuffer<B>, T>
@@ -703,6 +738,14 @@ where
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.overwrite(&*data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.overwrite_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.overwrite_value_at(offset, value)
     }
 }
 

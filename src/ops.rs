@@ -23,6 +23,10 @@ pub trait Write<'a, P: PlatformInstance, T: CType>: Enqueue<P, T> {
     type Data;
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 pub trait Construct<T: CType>: PlatformInstance {
@@ -480,6 +484,20 @@ where
             Self::Host(op) => Write::write(op, data.to_slice()?),
         }
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        match self {
+            Self::CL(op) => Write::write_value(op, value),
+            Self::Host(op) => Write::write_value(op, value),
+        }
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        match self {
+            Self::CL(op) => Write::write_value_at(op, offset, value),
+            Self::Host(op) => Write::write_value_at(op, offset, value),
+        }
+    }
 }
 
 #[cfg(not(feature = "opencl"))]
@@ -494,6 +512,18 @@ where
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         match self {
             Self::Host(op) => Write::write(op, data.to_slice()?),
+        }
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        match self {
+            Self::Host(op) => Write::write_value(op, value),
+        }
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        match self {
+            Self::Host(op) => Write::write_value_at(op, offset, value),
         }
     }
 }

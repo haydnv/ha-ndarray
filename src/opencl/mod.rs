@@ -30,7 +30,7 @@ pub type Array<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>
 mod tests {
     use crate::{
         shape, slice, AxisRange, Error, NDArrayCompare, NDArrayMath, NDArrayReduceBoolean,
-        NDArrayTransform,
+        NDArrayTransform, NDArrayWrite,
     };
 
     use super::*;

@@ -30,6 +30,14 @@ impl<'a, T: CType> BufferMut<'a, T> for StackVec<T> {
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.as_mut_slice().write_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.as_mut_slice().write_value_at(offset, value)
+    }
 }
 
 impl<T: CType> BufferInstance<T> for Vec<T> {
@@ -51,6 +59,14 @@ impl<'a, T: CType> BufferMut<'a, T> for Vec<T> {
 
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         self.as_mut_slice().write(data)
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.as_mut_slice().write_value(value)
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        self.as_mut_slice().write_value_at(offset, value)
     }
 }
 
@@ -99,6 +115,23 @@ impl<'a, T: CType> BufferMut<'a, T> for &'a mut [T] {
                 "cannot overwrite a buffer of size {} with one of size {}",
                 self.len(),
                 data.len()
+            )))
+        }
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        self.fill(value);
+        Ok(())
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        if offset < self.len() {
+            self[offset] = value;
+            Ok(())
+        } else {
+            Err(Error::Bounds(format!(
+                "invalid offset {offset} for a buffer of length {}",
+                self.len()
             )))
         }
     }
@@ -171,6 +204,20 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
         match self {
             Self::Heap(buf) => buf.write(data.as_ref()),
             Self::Stack(buf) => buf.write(data.as_ref()),
+        }
+    }
+
+    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+        match self {
+            Self::Heap(buf) => buf.write_value(value),
+            Self::Stack(buf) => buf.write_value(value),
+        }
+    }
+
+    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+        match self {
+            Self::Heap(buf) => buf.write_value_at(offset, value),
+            Self::Stack(buf) => buf.write_value_at(offset, value),
         }
     }
 }
