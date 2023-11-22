@@ -7,7 +7,8 @@ use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
-    shape, strides_for, AxisRange, BufferConverter, CType, Convert, Error, Platform, Range, Shape,
+    shape, strides_for, Axes, AxisRange, BufferConverter, CType, Convert, Error, Platform, Range,
+    Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -61,7 +62,7 @@ where
     P: PlatformInstance,
 {
     pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
-        if shape.iter().product::<usize>() == buffer.size() {
+        if !shape.is_empty() && shape.iter().product::<usize>() == buffer.size() {
             let platform = P::select(buffer.size());
             let access = buffer.into();
 
@@ -311,18 +312,35 @@ where
 // op traits
 
 /// Array transform operations
-pub trait NDArrayTransform: NDArray + fmt::Debug {
+pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
     /// The type returned by `broadcast`
     type Broadcast: NDArray<DType = Self::DType>;
 
     /// The type returned by `slice`
     type Slice: NDArray<DType = Self::DType>;
 
+    /// The type returned by `transpose`
+    type Transpose: NDArray<DType = Self::DType>;
+
     /// Broadcast this array into the given `shape`.
     fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error>;
 
+    /// Reshape this `array`.
+    fn reshape(self, shape: Shape) -> Result<Self, Error>;
+
     /// Construct a slice of this array.
     fn slice(self, range: Range) -> Result<Self::Slice, Error>;
+
+    /// Contract the given `axes` of this array.
+    /// This will return an error if any of the `axes` have dimension > 1.
+    fn squeeze(self, axes: Axes) -> Result<Self, Error>;
+
+    /// Expand the given `axes` of this array.
+    fn unsqueeze(self, axes: Axes) -> Result<Self, Error>;
+
+    /// Transpose this array according to the given `permutation`.
+    /// If no permutation is given, the array axes will be reversed.
+    fn transpose(self, permutation: Option<Axes>) -> Result<Self::Transpose, Error>;
 }
 
 impl<T, A, P> NDArrayTransform for Array<T, A, P>
@@ -333,6 +351,7 @@ where
 {
     type Broadcast = Array<T, AccessOp<P::Broadcast, P>, P>;
     type Slice = Array<T, AccessOp<P::Slice, P>, P>;
+    type Transpose = Array<T, AccessOp<P::Transpose, P>, P>;
 
     fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
         if !can_broadcast(self.shape(), &shape) {
@@ -349,14 +368,23 @@ where
             shape,
             access,
             platform,
-            dtype: PhantomData,
+            dtype: self.dtype,
         })
     }
 
-    fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error>
-    where
-        P: Transform<A, T>,
-    {
+    fn reshape(mut self, shape: Shape) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == self.size() {
+            self.shape = shape;
+            Ok(self)
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot reshape an array with shape {:?} into {shape:?}",
+                self.shape
+            )))
+        }
+    }
+
+    fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error> {
         for (dim, range) in self.shape.iter().zip(&range) {
             match range {
                 AxisRange::At(i) if i < dim => Ok(()),
@@ -376,7 +404,66 @@ where
             shape,
             access,
             platform,
-            dtype: PhantomData,
+            dtype: self.dtype,
+        })
+    }
+
+    fn squeeze(mut self, mut axes: Axes) -> Result<Self, Error> {
+        if axes.iter().copied().any(|x| x >= self.ndim()) {
+            return Err(Error::Bounds(format!("invalid contraction axes: {axes:?}")));
+        }
+
+        axes.sort();
+
+        for x in axes.into_iter().rev() {
+            self.shape.remove(x);
+        }
+
+        Ok(self)
+    }
+
+    fn unsqueeze(mut self, mut axes: Axes) -> Result<Self, Error> {
+        if axes.iter().copied().any(|x| x > self.ndim()) {
+            return Err(Error::Bounds(format!("invalid expansion axes: {axes:?}")));
+        }
+
+        axes.sort();
+
+        for x in axes.into_iter().rev() {
+            self.shape.insert(x, 1);
+        }
+
+        Ok(self)
+    }
+
+    fn transpose(self, permutation: Option<Axes>) -> Result<Self::Transpose, Error> {
+        let permutation = if let Some(axes) = permutation {
+            if axes.len() == self.ndim()
+                && axes.iter().copied().all(|x| x < self.ndim())
+                && !(1..axes.len())
+                    .into_iter()
+                    .any(|i| axes[i..].contains(&axes[i - 1]))
+            {
+                Ok(axes)
+            } else {
+                Err(Error::Bounds(format!(
+                    "invalid permutation for shape {:?}: {:?}",
+                    self.shape, axes
+                )))
+            }
+        } else {
+            Ok((0..self.ndim()).collect())
+        }?;
+
+        let shape = permutation.iter().copied().map(|x| self.shape[x]).collect();
+        let platform = self.platform;
+        let access = platform.transpose(self.access, self.shape, permutation)?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: self.dtype,
         })
     }
 }

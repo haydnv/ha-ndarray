@@ -11,7 +11,7 @@ use crate::ops::{
     Random, Reduce, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, CType, Error, Float, Range, Shape};
+use crate::{strides_for, Axes, CType, Error, Float, Range, Shape};
 
 use super::ops::*;
 use super::{programs, CLConverter};
@@ -464,6 +464,7 @@ where
 {
     type Broadcast = View<A, T>;
     type Slice = Slice<A, T>;
+    type Transpose = View<A, T>;
 
     fn broadcast(
         self,
@@ -472,7 +473,7 @@ where
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         let strides = strides_for(&shape, broadcast.len()).collect();
-        View::new(access, shape, broadcast, strides).map(AccessOp::from)
+        View::broadcast(access, shape, broadcast, strides).map(AccessOp::from)
     }
 
     fn slice(
@@ -482,5 +483,14 @@ where
         range: Range,
     ) -> Result<AccessOp<Self::Slice, Self>, Error> {
         Slice::new(access, shape, range).map(AccessOp::from)
+    }
+
+    fn transpose(
+        self,
+        access: A,
+        shape: Shape,
+        permutation: Axes,
+    ) -> Result<AccessOp<Self::Transpose, Self>, Error> {
+        View::transpose(access, shape, permutation).map(AccessOp::from)
     }
 }

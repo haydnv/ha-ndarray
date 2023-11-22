@@ -3,7 +3,7 @@ use crate::buffer::BufferConverter;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, CType, Error, Range, Shape};
+use crate::{host, Axes, CType, Error, Range, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -368,6 +368,7 @@ where
 {
     type Broadcast = View<A, T>;
     type Slice = Slice<A, T>;
+    type Transpose = View<A, T>;
 
     fn broadcast(
         self,
@@ -392,6 +393,21 @@ where
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.slice(access, shape, range).map(AccessOp::wrap),
             Self::Host(host) => host.slice(access, shape, range).map(AccessOp::wrap),
+        }
+    }
+
+    fn transpose(
+        self,
+        access: A,
+        shape: Shape,
+        permutation: Axes,
+    ) -> Result<AccessOp<Self::Transpose, Self>, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.transpose(access, shape, permutation).map(AccessOp::wrap),
+            Self::Host(host) => host
+                .transpose(access, shape, permutation)
+                .map(AccessOp::wrap),
         }
     }
 }

@@ -3,7 +3,9 @@ use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
-use crate::{host, strides_for, AxisRange, BufferConverter, CType, Error, Range, Shape, Strides};
+use crate::{
+    host, strides_for, Axes, AxisRange, BufferConverter, CType, Error, Range, Shape, Strides,
+};
 
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
@@ -140,6 +142,7 @@ where
 {
     type Broadcast: ReadValue<Self, T>;
     type Slice: ReadValue<Self, T>;
+    type Transpose: ReadValue<Self, T>;
 
     fn broadcast(
         self,
@@ -154,6 +157,13 @@ where
         shape: &[usize],
         range: Range,
     ) -> Result<AccessOp<Self::Slice, Self>, Error>;
+
+    fn transpose(
+        self,
+        access: A,
+        shape: Shape,
+        permutation: Axes,
+    ) -> Result<AccessOp<Self::Transpose, Self>, Error>;
 }
 
 pub enum Compare<L, R, T> {

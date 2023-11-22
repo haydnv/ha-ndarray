@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessBuffer};
 use crate::buffer::BufferConverter;
 use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec};
-use crate::{stackvec, strides_for, CType, Enqueue, Error, Float, Range, Shape};
+use crate::{stackvec, strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -845,13 +845,25 @@ pub struct View<A, T> {
 }
 
 impl<A: Access<T>, T: CType> View<A, T> {
-    pub fn new(access: A, shape: Shape, broadcast: Shape) -> Self {
+    pub fn broadcast(access: A, shape: Shape, broadcast: Shape) -> Self {
         let strides = strides_for(&shape, broadcast.len()).collect();
         let source_strides = strides_for(&shape, shape.len()).collect();
 
         Self {
             access,
             spec: ViewSpec::new(broadcast, strides, source_strides),
+            dtype: PhantomData,
+        }
+    }
+
+    pub fn transpose(access: A, shape: Shape, axes: Axes) -> Self {
+        let source_strides = strides_for(&shape, shape.len()).collect();
+        let shape = axes.iter().copied().map(|x| shape[x]).collect::<Shape>();
+        let strides = strides_for(&shape, shape.len()).collect();
+
+        Self {
+            access,
+            spec: ViewSpec::new(shape, strides, source_strides),
             dtype: PhantomData,
         }
     }

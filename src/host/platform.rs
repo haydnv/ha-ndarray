@@ -7,7 +7,7 @@ use crate::ops::{
     Random, Reduce, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{CType, Error, Float, Range, Shape};
+use crate::{Axes, CType, Error, Float, Range, Shape};
 
 use super::buffer::SliceConverter;
 use super::ops::*;
@@ -244,6 +244,7 @@ where
 {
     type Broadcast = View<A, T>;
     type Slice = Slice<A, T>;
+    type Transpose = View<A, T>;
 
     fn broadcast(
         self,
@@ -251,7 +252,7 @@ where
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        Ok(View::new(array, shape, broadcast).into())
+        Ok(View::broadcast(array, shape, broadcast).into())
     }
 
     fn slice(
@@ -261,5 +262,14 @@ where
         range: Range,
     ) -> Result<AccessOp<Self::Slice, Self>, Error> {
         Ok(Slice::new(access, shape, range).into())
+    }
+
+    fn transpose(
+        self,
+        access: A,
+        shape: Shape,
+        permutation: Axes,
+    ) -> Result<AccessOp<Self::Transpose, Self>, Error> {
+        todo!()
     }
 }

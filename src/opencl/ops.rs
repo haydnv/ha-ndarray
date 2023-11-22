@@ -7,7 +7,7 @@ use rand::{random, Rng};
 
 use crate::access::{Access, AccessBuffer, AccessMut};
 use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, CType, Enqueue, Error, Float, Range, Shape, Strides};
+use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
 use super::{programs, CLConverter, WG_SIZE};
@@ -662,11 +662,8 @@ impl<A, T> View<A, T>
 where
     T: CType,
 {
-    pub fn new(access: A, shape: Shape, broadcast: Shape, strides: Strides) -> Result<Self, Error> {
-        let size = broadcast.iter().product();
-        let source_strides = strides_for(&shape, shape.len()).collect();
-        let spec = ViewSpec::new(broadcast, strides, source_strides);
-
+    fn new(access: A, spec: ViewSpec) -> Result<Self, Error> {
+        let size = spec.shape.iter().product();
         let program = programs::view::view(T::TYPE, spec.clone())?;
 
         Ok(Self {
@@ -676,6 +673,25 @@ where
             spec,
             dtype: PhantomData,
         })
+    }
+
+    pub fn broadcast(
+        access: A,
+        shape: Shape,
+        broadcast: Shape,
+        strides: Strides,
+    ) -> Result<Self, Error> {
+        let source_strides = strides_for(&shape, shape.len()).collect();
+        let spec = ViewSpec::new(broadcast, strides, source_strides);
+        Self::new(access, spec)
+    }
+
+    pub fn transpose(access: A, shape: Shape, axes: Axes) -> Result<Self, Error> {
+        let source_strides = strides_for(&shape, shape.len()).collect();
+        let shape = axes.iter().copied().map(|x| shape[x]).collect::<Shape>();
+        let strides = strides_for(&shape, shape.len()).collect();
+        let spec = ViewSpec::new(shape, strides, source_strides);
+        Self::new(access, spec)
     }
 }
 
