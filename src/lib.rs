@@ -1,7 +1,9 @@
+use std::cmp::Ordering;
 use std::fmt;
-use std::iter::Sum;
-use std::ops::{Add, Sub};
+use std::iter::{Product, Sum};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
+pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as slice;
 pub use smallvec::smallvec as shape;
 pub use smallvec::smallvec as stackvec;
@@ -9,8 +11,8 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead, NDArrayReduceAll,
-    NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWrite,
+    NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead, NDArrayReduce,
+    NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
@@ -29,7 +31,11 @@ mod platform;
 pub trait CType:
     ocl::OclPrm
     + Add<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
     + Sub<Output = Self>
+    + Rem<Output = Self>
+    + Product
     + Sum
     + PartialEq
     + PartialOrd
@@ -42,6 +48,10 @@ pub trait CType:
 {
     const TYPE: &'static str;
 
+    const MAX: Self;
+
+    const MIN: Self;
+
     const ZERO: Self;
 
     const ONE: Self;
@@ -51,6 +61,10 @@ pub trait CType:
     fn from_f64(float: f64) -> Self;
 
     fn from_float(float: Self::Float) -> Self;
+
+    fn min(l: Self, r: Self) -> Self;
+
+    fn max(l: Self, r: Self) -> Self;
 
     fn to_float(self) -> Self::Float;
 }
@@ -58,7 +72,11 @@ pub trait CType:
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
     Add<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
     + Sub<Output = Self>
+    + Rem<Output = Self>
+    + Product
     + Sum
     + PartialEq
     + PartialOrd
@@ -71,6 +89,10 @@ pub trait CType:
 {
     const TYPE: &'static str;
 
+    const MAX: Self;
+
+    const MIN: Self;
+
     const ZERO: Self;
 
     const ONE: Self;
@@ -81,13 +103,21 @@ pub trait CType:
 
     fn from_float(float: Self::Float) -> Self;
 
+    fn min(l: Self, r: Self) -> Self;
+
+    fn max(l: Self, r: Self) -> Self;
+
     fn to_float(self) -> Self::Float;
 }
 
 macro_rules! c_type {
-    ($t:ty, $str:expr, $one:expr, $zero:expr, $float:ty) => {
+    ($t:ty, $str:expr, $one:expr, $zero:expr, $float:ty, $cmp_max:expr, $cmp_min:expr) => {
         impl CType for $t {
             const TYPE: &'static str = $str;
+
+            const MAX: Self = <$t>::MAX;
+
+            const MIN: Self = <$t>::MIN;
 
             const ZERO: Self = $zero;
 
@@ -103,6 +133,14 @@ macro_rules! c_type {
                 float as $t
             }
 
+            fn min(l: Self, r: Self) -> Self {
+                $cmp_min(l, r)
+            }
+
+            fn max(l: Self, r: Self) -> Self {
+                $cmp_max(l, r)
+            }
+
             fn to_float(self) -> $float {
                 self as $float
             }
@@ -110,16 +148,48 @@ macro_rules! c_type {
     };
 }
 
-c_type!(f32, "float", 1.0, 0.0, Self);
-c_type!(f64, "double", 1.0, 0.0, Self);
-c_type!(i8, "char", 1, 0, f32);
-c_type!(i16, "short", 1, 0, f32);
-c_type!(i32, "int", 1, 0, f32);
-c_type!(i64, "long", 1, 0, f64);
-c_type!(u8, "uchar", 1, 0, f32);
-c_type!(u16, "ushort", 1, 0, f32);
-c_type!(u32, "uint", 1, 0, f32);
-c_type!(u64, "ulong", 1, 0, f64);
+c_type!(f32, "float", 1.0, 0.0, Self, max_f32, min_f32);
+c_type!(f64, "double", 1.0, 0.0, Self, max_f64, min_f64);
+c_type!(i8, "char", 1, 0, f32, Ord::max, Ord::min);
+c_type!(i16, "short", 1, 0, f32, Ord::max, Ord::min);
+c_type!(i32, "int", 1, 0, f32, Ord::max, Ord::min);
+c_type!(i64, "long", 1, 0, f64, Ord::max, Ord::min);
+c_type!(u8, "uchar", 1, 0, f32, Ord::max, Ord::min);
+c_type!(u16, "ushort", 1, 0, f32, Ord::max, Ord::min);
+c_type!(u32, "uint", 1, 0, f32, Ord::max, Ord::min);
+c_type!(u64, "ulong", 1, 0, f64, Ord::max, Ord::min);
+
+fn max_f32(l: f32, r: f32) -> f32 {
+    match l.total_cmp(&r) {
+        Ordering::Less => r,
+        Ordering::Equal => l,
+        Ordering::Greater => l,
+    }
+}
+
+fn min_f32(l: f32, r: f32) -> f32 {
+    match l.total_cmp(&r) {
+        Ordering::Less => l,
+        Ordering::Equal => l,
+        Ordering::Greater => r,
+    }
+}
+
+fn max_f64(l: f64, r: f64) -> f64 {
+    match l.total_cmp(&r) {
+        Ordering::Less => r,
+        Ordering::Equal => l,
+        Ordering::Greater => l,
+    }
+}
+
+fn min_f64(l: f64, r: f64) -> f64 {
+    match l.total_cmp(&r) {
+        Ordering::Less => l,
+        Ordering::Equal => l,
+        Ordering::Greater => r,
+    }
+}
 
 pub trait Float: CType {
     fn ln(self) -> Self;
@@ -171,6 +241,10 @@ impl Clone for Error {
 #[cfg(feature = "opencl")]
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
+        #[cfg(debug_assertions)]
+        panic!("OpenCL error: {:?}", cause);
+
+        #[cfg(not(debug_assertions))]
         Self::OCL(std::sync::Arc::new(cause))
     }
 }

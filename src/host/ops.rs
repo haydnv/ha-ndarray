@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 use std::iter;
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 
 use rand::Rng;
 use rayon::join;
@@ -551,6 +551,131 @@ impl Enqueue<Host, f32> for RandomUniform {
 impl ReadValue<Host, f32> for RandomUniform {
     fn read_value(&self, _offset: usize) -> Result<f32, Error> {
         Ok(rand::thread_rng().gen())
+    }
+}
+
+pub struct Reduce<A, T> {
+    access: A,
+    stride: usize,
+    reduce: fn(T, T) -> T,
+    id: T,
+}
+
+impl<A, T> Reduce<A, T>
+where
+    T: CType,
+{
+    pub fn max(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: CType::max,
+            id: T::MIN,
+        }
+    }
+
+    pub fn min(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: CType::min,
+            id: T::MAX,
+        }
+    }
+
+    pub fn product(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Mul::mul,
+            id: T::ONE,
+        }
+    }
+
+    pub fn sum(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Add::add,
+            id: T::ZERO,
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for Reduce<A, T> {
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.access.size() % self.stride, 0);
+        self.access.size() / self.stride
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Reduce<A, T> {
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .chunks_exact(self.stride)
+                    .map(|chunk| {
+                        chunk
+                            // encourage the compiler to vectorize
+                            .par_chunks(8)
+                            .map(|chunk| {
+                                chunk.iter().copied().reduce(self.reduce).expect("reduced")
+                            })
+                            .reduce(|| self.id, self.reduce)
+                    })
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Reduce<A, T> {
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .chunks_exact(self.stride)
+                    .map(|chunk| chunk.iter().copied().reduce(self.reduce).expect("reduced"))
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Host, T> for Reduce<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.stride < VEC_MIN_SIZE && self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<Host, T> for Reduce<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let offset = offset * self.stride;
+
+        if offset < self.access.size() {
+            (offset..(offset + self.stride))
+                .into_par_iter()
+                .map(|offset| self.access.read_value(offset))
+                .try_reduce(|| self.id, |r, v| Ok((self.reduce)(r, v)))
+        } else {
+            Err(Error::Bounds(format!(
+                "invalid offset {offset} for a reduce op with size {}",
+                self.size()
+            )))
+        }
     }
 }
 

@@ -34,6 +34,46 @@ impl<T, A, P> Array<T, A, P> {
         })
     }
 
+    fn reduce_axis<O, Op>(
+        self,
+        op: Op,
+        axis: usize,
+        keepdims: bool,
+    ) -> Result<Array<T, AccessOp<O, P>, P>, Error>
+    where
+        T: CType,
+        A: Access<T>,
+        P: PlatformInstance,
+        Op: Fn(P, A, usize) -> Result<AccessOp<O, P>, Error>,
+    {
+        if axis >= self.ndim() {
+            return Err(Error::Bounds(format!(
+                "invalid axis {axis} for array with shape {:?}",
+                self.shape
+            )));
+        }
+
+        let mut shape = Shape::with_capacity(self.ndim());
+        shape.extend_from_slice(&self.shape[..axis]);
+
+        if keepdims {
+            shape.push(1);
+        }
+
+        if axis < self.ndim() - 1 {
+            shape.extend_from_slice(&self.shape[(axis + 1)..]);
+        }
+
+        let access = (op)(self.platform, self.access, self.shape[axis])?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform: self.platform,
+            dtype: self.dtype,
+        })
+    }
+
     pub fn into_inner(self) -> A {
         self.access
     }
@@ -310,6 +350,48 @@ where
 }
 
 // op traits
+
+/// Axis-wise array reduce operations
+pub trait NDArrayReduce: NDArray + fmt::Debug {
+    type Output: NDArray<DType = Self::DType>;
+
+    /// Construct a max-reduce operation over the given `axis`.
+    fn max(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+
+    /// Construct a min-reduce operation over the given `axis`.
+    fn min(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+
+    /// Construct a product-reduce operation over the given `axis`.
+    fn product(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+
+    /// Construct a sum-reduce operation over the given `axes`.
+    fn sum(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayReduce for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ReduceAxis<A, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn max(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axis(P::max, axis, keepdims)
+    }
+
+    fn min(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axis(P::min, axis, keepdims)
+    }
+
+    fn product(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axis(P::product, axis, keepdims)
+    }
+
+    fn sum(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axis(P::sum, axis, keepdims)
+    }
+}
 
 /// Array transform operations
 pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
@@ -637,7 +719,7 @@ impl<T, A, P> NDArrayReduceBoolean for Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
-    P: Reduce<A, T>,
+    P: ReduceAll<A, T>,
 {
     fn all(self) -> Result<bool, Error> {
         self.platform.all(self.access)
@@ -658,7 +740,7 @@ impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
-    P: Reduce<A, T>,
+    P: ReduceAll<A, T>,
 {
     fn sum_all(self) -> Result<T, Error> {
         self.platform.sum(self.access)

@@ -8,7 +8,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    Random, Reduce, Transform,
+    Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, Axes, CType, Error, Float, Range, Shape};
@@ -314,7 +314,7 @@ impl Random for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
+impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
 
@@ -381,87 +381,52 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for OpenCL {
         Ok(result == [1])
     }
 
-    fn sum(self, access: A) -> Result<T, Error> {
-        const MIN_SIZE: usize = 8192;
-
+    fn max(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "max", T::MIN)?;
+        Ok(result.into_par_iter().reduce(|| T::MIN, T::max))
+    }
 
-        let min_size = MIN_SIZE * num_cpus::get();
+    fn min(self, access: A) -> Result<T, Error> {
+        let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "min", T::MAX)?;
+        Ok(result.into_par_iter().reduce(|| T::MAX, T::min))
+    }
 
-        if input.len() < min_size {
-            let mut result = vec![T::ZERO; input.len()];
-            input.read(&mut result).enq()?;
-            return Ok(result.into_par_iter().sum());
-        }
+    fn product(self, access: A) -> Result<T, Error> {
+        let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "mul", T::ONE)?;
+        Ok(result.into_par_iter().product())
+    }
 
-        let queue = Self::queue(input.size(), input.default_queue(), None)?;
-
-        let program = programs::reduce::reduce(T::TYPE, "add")?;
-
-        let mut buffer = {
-            let output = Buffer::builder()
-                .queue(queue.clone())
-                .len(input.len().div_ceil(WG_SIZE))
-                .fill_val(T::ZERO)
-                .build()?;
-
-            let kernel = Kernel::builder()
-                .name("reduce")
-                .program(&program)
-                .queue(queue.clone())
-                .local_work_size(WG_SIZE)
-                .global_work_size(WG_SIZE * output.len())
-                .arg(input.len() as u64)
-                .arg(&*input)
-                .arg(&output)
-                .arg_local::<T>(WG_SIZE)
-                .build()?;
-
-            unsafe { kernel.enq()? };
-
-            output
-        };
-
-        while buffer.len() >= min_size {
-            let input = buffer;
-
-            let output = Buffer::builder()
-                .queue(queue.clone())
-                .len(input.len().div_ceil(WG_SIZE))
-                .fill_val(T::ZERO)
-                .build()?;
-
-            let kernel = Kernel::builder()
-                .name("reduce")
-                .program(&program)
-                .queue(queue.clone())
-                .local_work_size(WG_SIZE)
-                .global_work_size(WG_SIZE * output.len())
-                .arg(input.len() as u64)
-                .arg(&input)
-                .arg(&output)
-                .arg_local::<T>(WG_SIZE)
-                .build()?;
-
-            unsafe { kernel.enq()? }
-
-            buffer = output;
-        }
-
-        let mut result = vec![T::ZERO; buffer.len()];
-        buffer.read(&mut result).enq()?;
-
-        queue.finish()?;
-
+    fn sum(self, access: A) -> Result<T, Error> {
+        let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "add", T::ZERO)?;
         Ok(result.into_par_iter().sum())
     }
 }
 
-impl<A, T> Transform<A, T> for OpenCL
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> ReduceAxis<A, T> for OpenCL {
+    type Op = Reduce<A, T>;
+
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Reduce::max(access, stride).map(AccessOp::from)
+    }
+
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Reduce::min(access, stride).map(AccessOp::from)
+    }
+
+    fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Reduce::product(access, stride).map(AccessOp::from)
+    }
+
+    fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Reduce::sum(access, stride).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
     type Broadcast = View<A, T>;
     type Slice = Slice<A, T>;
     type Transpose = View<A, T>;
@@ -493,4 +458,74 @@ where
     ) -> Result<AccessOp<Self::Transpose, Self>, Error> {
         View::transpose(access, shape, permutation).map(AccessOp::from)
     }
+}
+
+fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Result<Vec<T>, Error> {
+    const MIN_SIZE: usize = 8192;
+
+    let min_size = MIN_SIZE * num_cpus::get();
+
+    let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+    if input.len() < min_size {
+        let mut result = vec![id; input.len()];
+        input.read(&mut result).queue(&queue).enq()?;
+        return Ok(result);
+    }
+
+    let program = programs::reduce::reduce(T::TYPE, reduce)?;
+
+    let mut buffer = {
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len().div_ceil(WG_SIZE))
+            .fill_val(id)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("reduce")
+            .program(&program)
+            .queue(queue.clone())
+            .local_work_size(WG_SIZE)
+            .global_work_size(WG_SIZE * output.len())
+            .arg(input.len() as u64)
+            .arg(&*input)
+            .arg(&output)
+            .arg_local::<u64>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        output
+    };
+
+    while buffer.len() >= min_size {
+        let input = buffer;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len().div_ceil(WG_SIZE))
+            .fill_val(id)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("reduce")
+            .program(&program)
+            .queue(queue.clone())
+            .local_work_size(WG_SIZE)
+            .global_work_size(WG_SIZE * output.len())
+            .arg(input.len() as u64)
+            .arg(&input)
+            .arg(&output)
+            .arg_local::<u64>(WG_SIZE)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        buffer = output;
+    }
+
+    let mut result = vec![id; buffer.len()];
+    buffer.read(&mut result).enq()?;
+    Ok(result)
 }

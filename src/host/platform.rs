@@ -4,7 +4,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    Random, Reduce, Transform,
+    Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Error, Float, Range, Shape};
@@ -23,7 +23,7 @@ impl PlatformInstance for Stack {
     }
 }
 
-impl<A, T> Reduce<A, T> for Stack
+impl<A, T> ReduceAll<A, T> for Stack
 where
     A: Access<T>,
     T: CType,
@@ -40,6 +40,27 @@ where
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.iter().copied().any(|n| n != T::ZERO))
+    }
+
+    fn max(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.iter().copied().reduce(T::max).expect("max"))
+    }
+
+    fn min(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.iter().copied().reduce(T::min).expect("min"))
+    }
+
+    fn product(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.iter().copied().product())
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
@@ -59,7 +80,7 @@ impl PlatformInstance for Heap {
     }
 }
 
-impl<A, T> Reduce<A, T> for Heap
+impl<A, T> ReduceAll<A, T> for Heap
 where
     A: Access<T>,
     T: CType,
@@ -76,6 +97,27 @@ where
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.into_par_iter().copied().any(|n| n != T::ZERO))
+    }
+
+    fn max(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.into_par_iter().copied().reduce(|| T::MIN, T::max))
+    }
+
+    fn min(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.into_par_iter().copied().reduce(|| T::MAX, T::min))
+    }
+
+    fn product(self, access: A) -> Result<T, Error> {
+        access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| slice.into_par_iter().copied().product())
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
@@ -214,7 +256,7 @@ impl Random for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> Reduce<A, T> for Host {
+impl<A: Access<T>, T: CType> ReduceAll<A, T> for Host {
     fn all(self, access: A) -> Result<bool, Error> {
         match self {
             Self::Heap(heap) => heap.all(access),
@@ -229,11 +271,52 @@ impl<A: Access<T>, T: CType> Reduce<A, T> for Host {
         }
     }
 
+    fn max(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Heap(heap) => heap.max(access),
+            Self::Stack(stack) => stack.max(access),
+        }
+    }
+
+    fn min(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Heap(heap) => heap.min(access),
+            Self::Stack(stack) => stack.min(access),
+        }
+    }
+
+    fn product(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Heap(heap) => heap.product(access),
+            Self::Stack(stack) => stack.product(access),
+        }
+    }
+
     fn sum(self, access: A) -> Result<T, Error> {
         match self {
             Self::Heap(heap) => heap.sum(access),
             Self::Stack(stack) => stack.sum(access),
         }
+    }
+}
+
+impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Host {
+    type Op = Reduce<A, T>;
+
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Reduce::max(access, stride).into())
+    }
+
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Reduce::min(access, stride).into())
+    }
+
+    fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Reduce::product(access, stride).into())
+    }
+
+    fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Reduce::sum(access, stride).into())
     }
 }
 
@@ -248,11 +331,11 @@ where
 
     fn broadcast(
         self,
-        array: A,
+        access: A,
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        Ok(View::broadcast(array, shape, broadcast).into())
+        Ok(View::broadcast(access, shape, broadcast).into())
     }
 
     fn slice(
@@ -270,6 +353,6 @@ where
         shape: Shape,
         permutation: Axes,
     ) -> Result<AccessOp<Self::Transpose, Self>, Error> {
-        todo!()
+        Ok(View::transpose(access, shape, permutation).into())
     }
 }

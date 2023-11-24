@@ -2,11 +2,11 @@ use std::borrow::BorrowMut;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
-use ocl::{Buffer, Kernel, Program};
+use ocl::{Buffer, Kernel, Program, Queue};
 use rand::{random, Rng};
 
 use crate::access::{Access, AccessBuffer, AccessMut};
-use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec, Write};
+use crate::ops::{Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
@@ -223,7 +223,7 @@ impl<L, R, T: CType> Dual<L, R, T> {
     }
 }
 
-impl<'a, L, R, T> Op for Dual<L, R, T>
+impl<L, R, T> Op for Dual<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
@@ -452,6 +452,190 @@ impl ReadValue<OpenCL, f32> for RandomUniform {
     }
 }
 
+pub struct Reduce<A, T: CType> {
+    access: A,
+    stride: usize,
+    fold: Program,
+    reduce: Program,
+    reduce_all: fn(OpenCL, AccessBuffer<Buffer<T>>) -> Result<T, Error>,
+    id: T,
+}
+
+impl<A, T: CType> Reduce<A, T> {
+    fn new(
+        access: A,
+        stride: usize,
+        reduce: &'static str,
+        reduce_all: fn(OpenCL, AccessBuffer<Buffer<T>>) -> Result<T, Error>,
+        id: T,
+    ) -> Result<Self, Error> {
+        let fold = programs::reduce::fold_axis(T::TYPE, reduce)?;
+        let reduce = programs::reduce::reduce_axis(T::TYPE, reduce)?;
+
+        Ok(Self {
+            access,
+            stride,
+            fold,
+            reduce,
+            reduce_all,
+            id,
+        })
+    }
+
+    pub fn max(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "max",
+            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::max,
+            T::MIN,
+        )
+    }
+
+    pub fn min(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "min",
+            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::min,
+            T::MAX,
+        )
+    }
+
+    pub fn product(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "mul",
+            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::product,
+            T::ONE,
+        )
+    }
+
+    pub fn sum(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "add",
+            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::sum,
+            T::ZERO,
+        )
+    }
+
+    fn fold(
+        &self,
+        queue: Queue,
+        input: &Buffer<T>,
+        reduce_dim: usize,
+        target_dim: usize,
+    ) -> Result<Buffer<T>, Error> {
+        let output_size = (input.len() / reduce_dim) * target_dim;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(output_size)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("fold_axis")
+            .program(&self.fold)
+            .queue(queue)
+            .global_work_size(output_size)
+            .arg(reduce_dim as u64)
+            .arg(target_dim as u64)
+            .arg(self.id)
+            .arg(input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+
+    fn reduce(
+        &self,
+        queue: Queue,
+        input: &Buffer<T>,
+        stride: usize,
+        wg_size: usize,
+    ) -> Result<Buffer<T>, Error> {
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len() / stride)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("reduce_axis")
+            .program(&self.reduce)
+            .queue(queue.clone())
+            .local_work_size(wg_size)
+            .global_work_size(input.len())
+            .arg(self.id)
+            .arg(input)
+            .arg(&output)
+            .arg_local::<u64>(wg_size)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for Reduce<A, T> {
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.access.size() % self.stride, 0);
+        self.access.size() / self.stride
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+        let output_size = input.len() / self.stride;
+
+        let mut stride = self.stride;
+
+        if stride < WG_SIZE {
+            return self.fold(queue, &*input, stride, 1);
+        }
+
+        let log = (stride as f32).log(WG_SIZE as f32).fract();
+        let target_dim = WG_SIZE.pow(log as u32);
+        let mut buffer = self.fold(queue.clone(), &*input, stride, target_dim)?;
+
+        stride = target_dim;
+        debug_assert_eq!(output_size * stride, buffer.len());
+
+        while buffer.len() > output_size {
+            let wg_size = if stride < WG_SIZE {
+                stride
+            } else {
+                debug_assert_eq!(stride % WG_SIZE, 0);
+                WG_SIZE
+            };
+
+            buffer = self.reduce(queue.clone(), &buffer, stride, wg_size)?;
+            stride /= wg_size;
+            debug_assert_eq!(output_size * stride, buffer.len());
+        }
+
+        Ok(buffer)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Reduce<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let input = self.access.read()?.to_cl()?;
+        let slice = input.create_sub_buffer(None, offset, offset + self.stride)?;
+        (self.reduce_all)(OpenCL, AccessBuffer::from(slice))
+    }
+}
+
 pub struct Slice<A, T> {
     access: A,
     spec: SliceSpec,
@@ -557,12 +741,12 @@ where
 
         if self.write.is_none() {
             let program = programs::slice::write_value_to_slice(T::TYPE, self.spec.clone())?;
-            self.write = Some(program);
+            self.write_value = Some(program);
         }
 
         let kernel = Kernel::builder()
             .name("write_slice_value")
-            .program(self.write.as_ref().expect("CL write op"))
+            .program(self.write_value.as_ref().expect("CL write op"))
             .queue(queue)
             .global_work_size(source.len())
             .arg(source)

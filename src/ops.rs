@@ -127,19 +127,33 @@ pub trait Random: PlatformInstance {
     fn random_uniform(self, size: usize) -> Result<AccessOp<Self::Uniform, Self>, Error>;
 }
 
-pub trait Reduce<A, T>: PlatformInstance {
+pub trait ReduceAll<A, T>: PlatformInstance {
     fn all(self, access: A) -> Result<bool, Error>;
 
     fn any(self, access: A) -> Result<bool, Error>;
 
+    fn max(self, access: A) -> Result<T, Error>;
+
+    fn min(self, access: A) -> Result<T, Error>;
+
+    fn product(self, access: A) -> Result<T, Error>;
+
     fn sum(self, access: A) -> Result<T, Error>;
 }
 
-pub trait Transform<A, T>: PlatformInstance
-where
-    A: Access<T>,
-    T: CType,
-{
+pub trait ReduceAxis<A: Access<T>, T: CType>: PlatformInstance {
+    type Op: ReadValue<Self, T>;
+
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     type Broadcast: ReadValue<Self, T>;
     type Slice: ReadValue<Self, T>;
     type Transpose: ReadValue<Self, T>;
@@ -406,6 +420,27 @@ macro_rules! impl_random {
 
 impl_random!(RandomNormal);
 impl_random!(RandomUniform);
+
+pub enum Reduce<A, T: CType> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Reduce<A, T>),
+    Host(host::ops::Reduce<A, T>),
+}
+
+impl_unary!(Reduce<A, T>, T);
+
+impl<A, T: CType> From<host::ops::Reduce<A, T>> for Reduce<A, T> {
+    fn from(op: host::ops::Reduce<A, T>) -> Self {
+        Self::Host(op)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T: CType> From<opencl::ops::Reduce<A, T>> for Reduce<A, T> {
+    fn from(op: opencl::ops::Reduce<A, T>) -> Self {
+        Self::CL(op)
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct SliceSpec {

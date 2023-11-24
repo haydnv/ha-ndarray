@@ -313,59 +313,156 @@ impl Random for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> Reduce<A, T> for Platform {
+impl<A: Access<T>, T: CType> ReduceAll<A, T> for Platform {
     fn all(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
+        match self {
             Self::Host(host) => host.all(access),
         }
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
+        match self {
             Self::Host(host) => host.any(access),
         }
     }
 
+    fn max(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Host(host) => ReduceAll::max(host, access),
+        }
+    }
+
+    fn min(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Host(host) => ReduceAll::min(host, access),
+        }
+    }
+
+    fn product(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::Host(host) => ReduceAll::product(host, access),
+        }
+    }
+
     fn sum(self, access: A) -> Result<T, Error> {
-        match Self::select(access.size()) {
-            Self::Host(host) => host.sum(access),
+        match self {
+            Self::Host(host) => ReduceAll::sum(host, access),
         }
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<A, T> Reduce<A, T> for Platform
+impl<A, T> ReduceAll<A, T> for Platform
 where
     A: Access<T>,
     T: CType,
 {
     fn all(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
+        match self {
             Self::CL(cl) => cl.all(access),
             Self::Host(host) => host.all(access),
         }
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        match Self::select(access.size()) {
+        match self {
             Self::CL(cl) => cl.all(access),
             Self::Host(host) => host.all(access),
         }
     }
 
+    fn max(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::CL(cl) => ReduceAll::max(cl, access),
+            Self::Host(host) => ReduceAll::max(host, access),
+        }
+    }
+
+    fn min(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::CL(cl) => ReduceAll::min(cl, access),
+            Self::Host(host) => ReduceAll::min(host, access),
+        }
+    }
+
+    fn product(self, access: A) -> Result<T, Error> {
+        match self {
+            Self::CL(cl) => ReduceAll::product(cl, access),
+            Self::Host(host) => ReduceAll::product(host, access),
+        }
+    }
+
     fn sum(self, access: A) -> Result<T, Error> {
-        match Self::select(access.size()) {
-            Self::CL(cl) => cl.sum(access),
-            Self::Host(host) => host.sum(access),
+        match self {
+            Self::CL(cl) => ReduceAll::sum(cl, access),
+            Self::Host(host) => ReduceAll::sum(host, access),
         }
     }
 }
 
-impl<A, T> Transform<A, T> for Platform
-where
-    A: Access<T>,
-    T: CType,
-{
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Platform {
+    type Op = Reduce<A, T>;
+
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => ReduceAxis::max(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => ReduceAxis::min(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => ReduceAxis::product(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => ReduceAxis::sum(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Platform {
+    type Op = Reduce<A, T>;
+
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => ReduceAxis::max(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxis::max(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => ReduceAxis::min(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxis::min(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => ReduceAxis::product(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxis::product(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+
+    fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => ReduceAxis::sum(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxis::sum(host, access, stride).map(AccessOp::wrap),
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Transform<A, T> for Platform {
     type Broadcast = View<A, T>;
     type Slice = Slice<A, T>;
     type Transpose = View<A, T>;
