@@ -118,6 +118,16 @@ macro_rules! impl_unary {
     };
 }
 
+pub trait LinAlgDual<L, R, T>: PlatformInstance
+where
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
+
+    fn matmul(self, left: L, right: R, dims: [usize; 4])
+        -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait Random: PlatformInstance {
     type Normal: Enqueue<Self, f32>;
     type Uniform: Enqueue<Self, f32>;
@@ -341,6 +351,27 @@ impl<T: CType> ReadValue<Platform, T> for Linear<T> {
             Self::CL(op) => op.read_value(offset),
             Self::Host(op) => op.read_value(offset),
         }
+    }
+}
+
+pub enum MatMul<L, R, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::MatMul<L, R, T>),
+    Host(host::ops::MatMul<L, R, T>),
+}
+
+impl_dual!(MatMul<L, R, T>, T);
+
+#[cfg(feature = "opencl")]
+impl<L, R, T> From<opencl::ops::MatMul<L, R, T>> for MatMul<L, R, T> {
+    fn from(op: opencl::ops::MatMul<L, R, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<L, R, T> From<host::ops::MatMul<L, R, T>> for MatMul<L, R, T> {
+    fn from(op: host::ops::MatMul<L, R, T>) -> Self {
+        Self::Host(op)
     }
 }
 

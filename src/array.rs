@@ -758,6 +758,52 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
     }
 }
 
+/// Matrix operations
+pub trait MatrixMath<O>: NDArray + fmt::Debug
+where
+    O: NDArray<DType = Self::DType> + fmt::Debug,
+{
+    type MatMul: NDArray<DType = Self::DType>;
+
+    /// Construct an operation to multiply this matrix or batch of matrices with the `other`.
+    fn matmul(self, other: O) -> Result<Self::MatMul, Error>;
+}
+
+impl<T, L, R, P> MatrixMath<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: LinAlgDual<L, R, T>,
+{
+    type MatMul = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn matmul(self, other: Array<T, R, P>) -> Result<Self::MatMul, Error> {
+        let [batch_size, a, b, c] = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
+            Error::Bounds(format!(
+                "invalid dimensions for matrix multiply: {:?} and {:?}",
+                self.shape, other.shape
+            ))
+        })?;
+
+        let mut shape = Shape::with_capacity(self.ndim());
+        shape.extend(self.shape.iter().rev().skip(2).rev().copied());
+        shape.push(a);
+        shape.push(c);
+
+        let access = self
+            .platform
+            .matmul(self.access, other.access, [batch_size, a, b, c])?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform: self.platform,
+            dtype: self.dtype,
+        })
+    }
+}
+
 #[inline]
 fn can_broadcast(left: &[usize], right: &[usize]) -> bool {
     if left.len() < right.len() {
@@ -773,6 +819,33 @@ fn can_broadcast(left: &[usize], right: &[usize]) -> bool {
     }
 
     true
+}
+
+#[inline]
+fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
+    let mut left = left.into_iter().copied().rev();
+    let mut right = right.into_iter().copied().rev();
+
+    let b = left.next()?;
+    let a = left.next()?;
+
+    let c = right.next()?;
+    if right.next()? != b {
+        return None;
+    }
+
+    let mut batch_size = 1;
+    loop {
+        match (left.next(), right.next()) {
+            (Some(l), Some(r)) if l == r => {
+                batch_size *= l;
+            }
+            (None, None) => break,
+            _ => return None,
+        }
+    }
+
+    Some([batch_size, a, b, c])
 }
 
 #[inline]

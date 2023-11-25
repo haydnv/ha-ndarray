@@ -8,7 +8,6 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
-use crate::buffer::BufferConverter;
 use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{stackvec, strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape};
 
@@ -398,6 +397,169 @@ impl<T: CType> Enqueue<Host, T> for Linear<T> {
 impl<T: CType> ReadValue<Host, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         Ok(self.value_at(offset))
+    }
+}
+
+pub struct MatMul<L, R, T> {
+    left: L,
+    right: R,
+    batch_size: usize,
+    dims: [usize; 3],
+    dtype: PhantomData<T>,
+}
+
+impl<L, R, T> MatMul<L, R, T> {
+    pub fn new(left: L, right: R, dims: [usize; 4]) -> Self {
+        let [batch_size, a, b, c] = dims;
+
+        Self {
+            left,
+            right,
+            batch_size,
+            dims: [a, b, c],
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<L, R, T> Op for MatMul<L, R, T>
+where
+    L: Send + Sync,
+    R: Send + Sync,
+    T: Send + Sync,
+{
+    fn size(&self) -> usize {
+        self.batch_size * self.dims[0] * self.dims[2]
+    }
+}
+
+impl<L, R, T> Enqueue<Stack, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let left = self.left.read()?.to_slice()?;
+        let right = self.right.read()?.to_slice()?;
+
+        let [a, b, c] = self.dims;
+
+        let mut product = StackVec::with_capacity(self.batch_size * a * c);
+
+        for _batch in 0..self.batch_size {
+            for x in 0..a {
+                for z in 0..c {
+                    let mut sum = T::ZERO;
+
+                    for y in 0..b {
+                        let l_offset = (x * b) + y;
+                        let r_offset = (y * c) + z;
+                        sum += left[l_offset] * right[r_offset];
+                    }
+
+                    product.push(sum)
+                }
+            }
+        }
+
+        debug_assert_eq!(product.len(), self.size());
+
+        Ok(product)
+    }
+}
+
+impl<L, R, T> Enqueue<Heap, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let [a, b, c] = self.dims;
+
+        let (left, right) = try_join_read(&self.left, &self.right)?;
+
+        // transpose the right matrices
+        let right_size = b * c;
+        let right_matrices = right.par_chunks_exact(right_size).map(|right| {
+            let mut right_t = vec![T::ZERO; right_size];
+            transpose::transpose(right, &mut right_t[..], c, b);
+            right_t
+        });
+
+        let left_size = a * b;
+        let left_matrices = left.par_chunks_exact(left_size);
+
+        let output_size = a * c;
+        let mut output = Vec::<T>::with_capacity(self.batch_size * output_size);
+        let output_matrices = left_matrices
+            .zip(right_matrices)
+            .map(|(lm, rm)| {
+                let mut out = Vec::<T>::with_capacity(output_size);
+
+                let product = lm
+                    .par_chunks_exact(b)
+                    .map(|row| {
+                        rm.par_chunks_exact(b).map(move |col| {
+                            // chunk the dot product to encourage the compiler to vectorize
+                            let col = col.par_chunks(8).map(|cc| cc.into_iter().copied());
+
+                            row.par_chunks(8)
+                                .zip(col)
+                                .map(|(rc, cc)| {
+                                    rc.into_iter().copied().zip(cc).map(|(r, c)| r * c).sum()
+                                })
+                                .sum::<T>()
+                        })
+                    })
+                    .flatten();
+
+                out.par_extend(product);
+                out
+            })
+            .flatten();
+
+        output.par_extend(output_matrices);
+
+        debug_assert_eq!(output.len(), self.batch_size * output_size);
+
+        Ok(output)
+    }
+}
+
+impl<L, R, T> Enqueue<Host, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.left.size() < VEC_MIN_SIZE && self.right.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+impl<L, R, T> ReadValue<Host, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, _offset: usize) -> Result<T, Error> {
+        Err(Error::Bounds(
+            "reading an individual value from a matrix multiplication is not implemented"
+                .to_string(),
+        ))
     }
 }
 
@@ -1052,12 +1214,9 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for View<A, T> {
 
 fn exec_dual<IT: CType, OT: CType>(
     zip: fn(IT, IT) -> OT,
-    left: BufferConverter<IT>,
-    right: BufferConverter<IT>,
+    left: SliceConverter<IT>,
+    right: SliceConverter<IT>,
 ) -> Result<StackVec<OT>, Error> {
-    let left = left.to_slice()?;
-    let right = right.to_slice()?;
-
     let output = left
         .into_iter()
         .copied()
@@ -1070,12 +1229,9 @@ fn exec_dual<IT: CType, OT: CType>(
 
 fn exec_dual_parallel<IT: CType, OT: CType>(
     zip: fn(IT, IT) -> OT,
-    left: BufferConverter<IT>,
-    right: BufferConverter<IT>,
+    left: SliceConverter<IT>,
+    right: SliceConverter<IT>,
 ) -> Result<Vec<OT>, Error> {
-    let left = left.to_slice()?;
-    let right = right.to_slice()?;
-
     let output = left
         .into_par_iter()
         .copied()
@@ -1090,13 +1246,16 @@ fn exec_dual_parallel<IT: CType, OT: CType>(
 fn try_join_read<'a, L, R, T>(
     left: &'a L,
     right: &'a R,
-) -> Result<(BufferConverter<'a, T>, BufferConverter<'a, T>), Error>
+) -> Result<(SliceConverter<'a, T>, SliceConverter<'a, T>), Error>
 where
     L: Access<T>,
     R: Access<T>,
     T: CType,
 {
-    let (l, r) = join(|| left.read(), || right.read());
+    let (l, r) = join(
+        || left.read().and_then(|buf| buf.to_slice()),
+        || right.read().and_then(|buf| buf.to_slice()),
+    );
 
     Ok((l?, r?))
 }

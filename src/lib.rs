@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::iter::{Product, Sum};
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
 pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as slice;
@@ -11,8 +11,9 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead, NDArrayReduce,
-    NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWrite,
+    MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead,
+    NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary,
+    NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
@@ -31,12 +32,17 @@ mod platform;
 pub trait CType:
     ocl::OclPrm
     + Add<Output = Self>
-    + Mul<Output = Self>
-    + Div<Output = Self>
-    + Sub<Output = Self>
-    + Rem<Output = Self>
-    + Product
+    + AddAssign
     + Sum
+    + Mul<Output = Self>
+    + MulAssign
+    + Product
+    + Div<Output = Self>
+    + DivAssign
+    + Sub<Output = Self>
+    + SubAssign
+    + Rem<Output = Self>
+    + RemAssign
     + PartialEq
     + PartialOrd
     + Copy
@@ -72,12 +78,17 @@ pub trait CType:
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
     Add<Output = Self>
-    + Mul<Output = Self>
-    + Div<Output = Self>
-    + Sub<Output = Self>
-    + Rem<Output = Self>
-    + Product
+    + AddAssign
     + Sum
+    + Mul<Output = Self>
+    + MulAssign
+    + Product
+    + Div<Output = Self>
+    + DivAssign
+    + Sub<Output = Self>
+    + SubAssign
+    + Rem<Output = Self>
+    + RemAssign
     + PartialEq
     + PartialOrd
     + Copy

@@ -8,7 +8,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    Random, ReduceAll, ReduceAxis, Transform,
+    LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, Axes, CType, Error, Float, Range, Shape};
@@ -37,10 +37,6 @@ impl Default for DeviceList {
 }
 
 impl DeviceList {
-    fn is_empty(&self) -> bool {
-        self.devices.is_empty()
-    }
-
     fn next(&self) -> Option<Device> {
         if self.devices.is_empty() {
             None
@@ -67,7 +63,6 @@ impl FromIterator<Device> for DeviceList {
 }
 
 pub struct CLPlatform {
-    cl_platform: Platform,
     cl_context: Context,
     cl_cpus: DeviceList,
     cl_gpus: DeviceList,
@@ -129,7 +124,7 @@ impl TryFrom<Platform> for CLPlatform {
 
     fn try_from(cl_platform: Platform) -> Result<Self, Self::Error> {
         let devices = Device::list(cl_platform, None)?;
-        let cl_context = ocl::builders::ContextBuilder::new()
+        let cl_context = Context::builder()
             .platform(cl_platform)
             .devices(&devices)
             .build()?;
@@ -143,7 +138,6 @@ impl TryFrom<Platform> for CLPlatform {
             cl_gpus: cl_gpus.into(),
             cl_accs: cl_accs.into(),
             cl_context,
-            cl_platform,
         })
     }
 }
@@ -298,6 +292,24 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::ln(access).map(AccessOp::from)
+    }
+}
+
+impl<L, R, T> LinAlgDual<L, R, T> for OpenCL
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = MatMul<L, R, T>;
+
+    fn matmul(
+        self,
+        left: L,
+        right: R,
+        dims: [usize; 4],
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        MatMul::new(left, right, dims).map(AccessOp::from)
     }
 }
 
@@ -491,7 +503,7 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
             .arg(input.len() as u64)
             .arg(&*input)
             .arg(&output)
-            .arg_local::<u64>(WG_SIZE)
+            .arg_local::<T>(WG_SIZE)
             .build()?;
 
         unsafe { kernel.enq()? };
@@ -517,7 +529,7 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
             .arg(input.len() as u64)
             .arg(&input)
             .arg(&output)
-            .arg_local::<u64>(WG_SIZE)
+            .arg_local::<T>(WG_SIZE)
             .build()?;
 
         unsafe { kernel.enq()? }

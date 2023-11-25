@@ -4,7 +4,7 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    Random, ReduceAll, ReduceAxis, Transform,
+    LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Error, Float, Range, Shape};
@@ -240,6 +240,24 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::ln(access).into())
+    }
+}
+
+impl<L, R, T> LinAlgDual<L, R, T> for Host
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = MatMul<L, R, T>;
+
+    fn matmul(
+        self,
+        left: L,
+        right: R,
+        dims: [usize; 4],
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(MatMul::new(left, right, dims).into())
     }
 }
 

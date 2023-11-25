@@ -2,10 +2,11 @@ use std::fmt;
 
 use crate::Error;
 
-use super::OpenCL;
+use super::{OpenCL, TILE_SIZE, WG_SIZE};
 
 pub mod constructors;
 pub mod elementwise;
+pub mod linalg;
 pub mod reduce;
 pub mod slice;
 pub mod view;

@@ -10,7 +10,7 @@ use crate::ops::{Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
-use super::{programs, CLConverter, WG_SIZE};
+use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
 
 pub struct Compare<L, R, T> {
     left: L,
@@ -280,6 +280,173 @@ where
         let l = self.left.read_value(offset)?;
         let r = self.right.read_value(offset)?;
         Ok((self.op)(l, r))
+    }
+}
+
+pub struct MatMul<L, R, T> {
+    left: L,
+    right: R,
+    batch_size: usize,
+    dims: [usize; 3],
+    padded: [usize; 3],
+    pad_matrices: Program,
+    matmul: Program,
+    dtype: PhantomData<T>,
+}
+
+impl<L, R, T> MatMul<L, R, T>
+where
+    T: CType,
+{
+    pub fn new(left: L, right: R, dims: [usize; 4]) -> Result<Self, Error> {
+        let pad_matrices = programs::linalg::pad_matrices(T::TYPE)?;
+        let matmul = programs::linalg::matmul(T::TYPE)?;
+
+        let [batch_size, a, b, c] = dims;
+        assert!(batch_size > 0);
+
+        let dims = [a, b, c];
+
+        let padded = [
+            pad_dim(a, TILE_SIZE),
+            pad_dim(b, TILE_SIZE),
+            pad_dim(c, TILE_SIZE),
+        ];
+
+        Ok(Self {
+            left,
+            right,
+            batch_size,
+            dims,
+            padded,
+            pad_matrices,
+            matmul,
+            dtype: PhantomData,
+        })
+    }
+
+    fn matmul(&self, left: &Buffer<T>, right: &Buffer<T>) -> Result<Buffer<T>, Error> {
+        let [a, b, c] = self.padded;
+
+        assert_eq!(self.batch_size * a * b, left.len());
+        assert_eq!(self.batch_size * b * c, right.len());
+
+        let queue = OpenCL::queue(
+            (self.batch_size * a * c) / (TILE_SIZE * TILE_SIZE), // global work size
+            left.default_queue(),
+            right.default_queue(),
+        )?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(a * c * self.batch_size)
+            .build()?;
+
+        let dims = [a as u64, b as u64, c as u64, self.batch_size as u64];
+
+        let kernel = Kernel::builder()
+            .name("matmul")
+            .program(&self.matmul)
+            .queue(queue)
+            .global_work_size((self.batch_size, a / TILE_SIZE, c / TILE_SIZE))
+            .arg(ocl::core::Ulong4::from(dims))
+            .arg(b / TILE_SIZE)
+            .arg(left)
+            .arg(right)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+
+    fn pad_matrices<'a>(
+        &self,
+        batch: &Buffer<T>,
+        dims_in: [usize; 2],
+        dims_out: [usize; 2],
+    ) -> Result<Buffer<T>, Error> {
+        if dims_in == dims_out {
+            return Ok(batch.clone());
+        }
+
+        assert_eq!(batch.len(), self.batch_size * dims_in[0] * dims_in[1]);
+
+        let queue = OpenCL::queue(batch.len(), batch.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.batch_size * dims_out[0] * dims_out[1])
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("pad_matrices")
+            .program(&self.pad_matrices)
+            .queue(queue)
+            .global_work_size(batch.len())
+            .arg(self.batch_size)
+            .arg(dims_in[1] as u64)
+            .arg(dims_out[1] as u64)
+            .arg(batch)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output.into())
+    }
+}
+
+impl<L, R, T> Op for MatMul<L, R, T>
+where
+    L: Send + Sync,
+    R: Send + Sync,
+    T: Send + Sync,
+{
+    fn size(&self) -> usize {
+        self.batch_size * self.dims[0] * self.dims[2]
+    }
+}
+
+impl<L, R, T> Enqueue<OpenCL, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let [a, b, c] = self.dims;
+        let [a_pad, b_pad, c_pad] = self.padded;
+
+        let left = self.left.read()?.to_cl()?;
+        let right = self.right.read()?.to_cl()?;
+
+        assert_eq!(self.batch_size * a * b, left.len());
+        assert_eq!(self.batch_size * b * c, right.len());
+
+        let left = self.pad_matrices(&*left, [a, b], [a_pad, b_pad])?;
+        let right = self.pad_matrices(&*right, [b, c], [b_pad, c_pad])?;
+
+        let product = self.matmul(&left, &right)?;
+
+        self.pad_matrices(&product, [a_pad, c_pad], [a, c])
+    }
+}
+
+impl<L, R, T> ReadValue<OpenCL, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, _offset: usize) -> Result<T, Error> {
+        Err(Error::Bounds(
+            "reading an individual value from a matrix multiplication is not implemented"
+                .to_string(),
+        ))
     }
 }
 
@@ -574,7 +741,7 @@ impl<A, T: CType> Reduce<A, T> {
             .arg(self.id)
             .arg(input)
             .arg(&output)
-            .arg_local::<u64>(wg_size)
+            .arg_local::<T>(wg_size)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -921,4 +1088,9 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for View<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         self.access.read_value(self.spec.source_offset(offset))
     }
+}
+
+#[inline]
+fn pad_dim(dim: usize, size: usize) -> usize {
+    size * dim.div_ceil(size)
 }

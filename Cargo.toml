@@ -32,3 +32,4 @@ ocl = { version = "0.19", optional = true }
 rand = "0.8"
 rayon = "1.8"
 smallvec = "1.11"
+transpose = "0.2"

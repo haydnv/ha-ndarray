@@ -275,6 +275,49 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<L, R, T> LinAlgDual<L, R, T> for Platform
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = MatMul<L, R, T>;
+
+    fn matmul(
+        self,
+        left: L,
+        right: R,
+        dims: [usize; 4],
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.matmul(left, right, dims).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<L, R, T> LinAlgDual<L, R, T> for Platform
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = MatMul<L, R, T>;
+
+    fn matmul(
+        self,
+        left: L,
+        right: R,
+        dims: [usize; 4],
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.matmul(left, right, dims).map(AccessOp::wrap),
+            Self::Host(host) => host.matmul(left, right, dims).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl Random for Platform {
     type Normal = RandomNormal;
     type Uniform = RandomUniform;
