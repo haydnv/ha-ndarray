@@ -11,7 +11,7 @@ use crate::ops::{
     ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, Axes, CType, Error, Float, Range, Shape};
+use crate::{strides_for, Axes, CType, Constant, Error, Float, Range, Shape};
 
 use super::ops::*;
 use super::{programs, CLConverter};
@@ -146,12 +146,6 @@ impl TryFrom<Platform> for CLPlatform {
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct OpenCL;
 
-impl PlatformInstance for OpenCL {
-    fn select(_size_hint: usize) -> Self {
-        Self
-    }
-}
-
 impl OpenCL {
     /// Borrow the OpenCL [`Context`] of this platform.
     pub fn context<'a>() -> &'a Context {
@@ -164,14 +158,6 @@ impl OpenCL {
             .len(data.len())
             .context(&CL_PLATFORM.cl_context)
             .copy_host_slice(data)
-            .build()
-    }
-
-    /// Create a new [`Buffer`].
-    pub fn create_buffer<T: CType>(size: usize) -> Result<Buffer<T>, ocl::Error> {
-        ocl::builders::BufferBuilder::new()
-            .len(size)
-            .context(&CL_PLATFORM.cl_context)
             .build()
     }
 
@@ -205,6 +191,27 @@ impl OpenCL {
             .expect("OpenCL device");
 
         Queue::new(&CL_PLATFORM.cl_context, device, None)
+    }
+}
+
+impl PlatformInstance for OpenCL {
+    fn select(_size_hint: usize) -> Self {
+        Self
+    }
+}
+
+impl<T: CType> Constant<T> for OpenCL {
+    type Buffer = Buffer<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        let queue = Self::queue(size, None, None)?;
+
+        ocl::builders::BufferBuilder::new()
+            .len(size)
+            .fill_val(value)
+            .queue(queue)
+            .build()
+            .map_err(Error::from)
     }
 }
 
@@ -260,6 +267,26 @@ where
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::eq(left, right).map(AccessOp::from)
+    }
+
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::ge(left, right).map(AccessOp::from)
+    }
+
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::gt(left, right).map(AccessOp::from)
+    }
+
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::le(left, right).map(AccessOp::from)
+    }
+
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::lt(left, right).map(AccessOp::from)
+    }
+
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::ne(left, right).map(AccessOp::from)
     }
 }
 

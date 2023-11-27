@@ -51,6 +51,16 @@ pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
     type Op: Enqueue<Self, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait ElementwiseScalarCompare<A, T>: PlatformInstance {

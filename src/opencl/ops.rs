@@ -129,28 +129,29 @@ pub struct Dual<L, R, IT, OT> {
     op: fn(IT, IT) -> OT,
 }
 
+impl<L, R, IT, OT> Dual<L, R, IT, OT> {
+    fn new(left: L, right: R, program: Program, op: fn(IT, IT) -> OT) -> Result<Self, Error> {
+        Ok(Self {
+            left,
+            right,
+            program,
+            op,
+        })
+    }
+}
+
 // arithmetic
 impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: Add::add,
-        })
+        let op = Add::add;
+        Self::new(left, right, program, op)
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "sub")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: Sub::sub,
-        })
+        let op = Sub::sub;
+        Self::new(left, right, program, op)
     }
 }
 
@@ -158,41 +159,26 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
 impl<L, R, T: CType> Dual<L, R, T, u8> {
     pub fn and(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "and")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 },
-        })
+        let op = |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 };
+        Self::new(left, right, program, op)
     }
 
     pub fn or(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "or")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 },
-        })
+        let op = |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 };
+        Self::new(left, right, program, op)
     }
 
     pub fn xor(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "xor")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: |l, r| {
-                if (l != T::ZERO) ^ (r != T::ZERO) {
-                    1
-                } else {
-                    0
-                }
-            },
-        })
+        let op = |l, r| {
+            if (l != T::ZERO) ^ (r != T::ZERO) {
+                1
+            } else {
+                0
+            }
+        };
+        Self::new(left, right, program, op)
     }
 }
 
@@ -200,13 +186,38 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
 impl<L, R, T: CType> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "eq")?;
+        let op = |l, r| if l == r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
 
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: |l, r| if l == r { 1 } else { 0 },
-        })
+    pub fn ge(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "ge")?;
+        let op = |l, r| if l >= r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
+
+    pub fn gt(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "gt")?;
+        let op = |l, r| if l > r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
+
+    pub fn le(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "le")?;
+        let op = |l, r| if l <= r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
+
+    pub fn lt(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "lt")?;
+        let op = |l, r| if l < r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
+
+    pub fn ne(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "ne")?;
+        let op = |l, r| if l != r { 1 } else { 0 };
+        Self::new(left, right, program, op)
     }
 }
 

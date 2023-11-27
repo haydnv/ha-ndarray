@@ -2,14 +2,15 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
+use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare,
     ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{Axes, CType, Error, Float, Range, Shape};
+use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
 
-use super::buffer::SliceConverter;
+use super::buffer::{Buffer, SliceConverter};
 use super::ops::*;
 
 pub const VEC_MIN_SIZE: usize = 64;
@@ -20,6 +21,14 @@ pub struct Stack;
 impl PlatformInstance for Stack {
     fn select(_size_hint: usize) -> Self {
         Self
+    }
+}
+
+impl<T: CType> Constant<T> for Stack {
+    type Buffer = StackVec<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        Ok(stackvec![value; size])
     }
 }
 
@@ -77,6 +86,14 @@ pub struct Heap;
 impl PlatformInstance for Heap {
     fn select(_size_hint: usize) -> Self {
         Self
+    }
+}
+
+impl<T: CType> Constant<T> for Heap {
+    type Buffer = Vec<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        Ok(vec![value; size])
     }
 }
 
@@ -140,6 +157,17 @@ impl PlatformInstance for Host {
             Self::Stack(Stack)
         } else {
             Self::Heap(Heap)
+        }
+    }
+}
+
+impl<T: CType> Constant<T> for Host {
+    type Buffer = Buffer<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        match self {
+            Self::Heap(heap) => heap.constant(value, size).map(Buffer::Heap),
+            Self::Stack(stack) => stack.constant(value, size).map(Buffer::Stack),
         }
     }
 }
@@ -208,6 +236,26 @@ where
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::eq(left, right).into())
+    }
+
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::ge(left, right).into())
+    }
+
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::gt(left, right).into())
+    }
+
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::le(left, right).into())
+    }
+
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::lt(left, right).into())
+    }
+
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::ne(left, right).into())
     }
 }
 

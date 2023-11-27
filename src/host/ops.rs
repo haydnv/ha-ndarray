@@ -237,6 +237,46 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
             zip: |l, r| if l == r { 1 } else { 0 },
         }
     }
+
+    pub fn ge(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l >= r { 1 } else { 0 },
+        }
+    }
+
+    pub fn gt(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l > r { 1 } else { 0 },
+        }
+    }
+
+    pub fn le(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l <= r { 1 } else { 0 },
+        }
+    }
+
+    pub fn lt(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l < r { 1 } else { 0 },
+        }
+    }
+
+    pub fn ne(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l != r { 1 } else { 0 },
+        }
+    }
 }
 
 impl<L, R, IT, OT> Enqueue<Stack, OT> for Dual<L, R, IT, OT>

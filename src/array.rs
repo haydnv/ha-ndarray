@@ -7,8 +7,8 @@ use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
-    shape, strides_for, Axes, AxisRange, BufferConverter, CType, Convert, Error, Platform, Range,
-    Shape,
+    shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert, Error,
+    Platform, Range, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -138,6 +138,32 @@ where
                 "cannot construct an array with shape {shape:?} from a buffer of size {}",
                 buffer.size()
             )))
+        }
+    }
+}
+
+impl<T, P> Array<T, AccessBuffer<P::Buffer>, P>
+where
+    T: CType,
+    P: Constant<T>,
+{
+    pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
+        if !shape.is_empty() {
+            let size = shape.iter().product();
+            let platform = P::select(size);
+            let buffer = platform.constant(value, size)?;
+            let access = buffer.into();
+
+            Ok(Self {
+                shape,
+                access,
+                platform,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(
+                "cannot construct an array with an empty shape".to_string(),
+            ))
         }
     }
 }
@@ -648,6 +674,16 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     type Output: NDArray<DType = u8>;
 
     fn eq(self, other: O) -> Result<Self::Output, Error>;
+
+    fn ge(self, other: O) -> Result<Self::Output, Error>;
+
+    fn gt(self, other: O) -> Result<Self::Output, Error>;
+
+    fn le(self, other: O) -> Result<Self::Output, Error>;
+
+    fn lt(self, other: O) -> Result<Self::Output, Error>;
+
+    fn ne(self, other: O) -> Result<Self::Output, Error>;
 }
 
 impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
@@ -661,13 +697,32 @@ where
 
     fn eq(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
         same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.eq(left, right))
+    }
 
-        Ok(Array {
-            shape: self.shape,
-            access: self.platform.eq(self.access, other.access)?,
-            platform: self.platform,
-            dtype: PhantomData,
-        })
+    fn ge(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.ge(left, right))
+    }
+
+    fn gt(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.gt(left, right))
+    }
+
+    fn le(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.le(left, right))
+    }
+
+    fn lt(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.lt(left, right))
+    }
+
+    fn ne(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.ne(left, right))
     }
 }
 

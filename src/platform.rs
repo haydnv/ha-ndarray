@@ -1,5 +1,5 @@
 use crate::access::{Access, AccessOp};
-use crate::buffer::BufferConverter;
+use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
@@ -7,6 +7,12 @@ use crate::{host, Axes, CType, Error, Range, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
+}
+
+pub trait Constant<T: CType>: PlatformInstance {
+    type Buffer: BufferInstance<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error>;
 }
 
 pub trait Convert<'a, T: CType>: PlatformInstance {
@@ -58,6 +64,29 @@ impl<'a, T: CType> Convert<'a, T> for Platform {
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
         Ok(buffer)
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<T: CType> Constant<T> for Platform {
+    type Buffer = Buffer<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        match self {
+            Self::Host(host) => host.constant(value, size).map(Buffer::Host),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<T: CType> Constant<T> for Platform {
+    type Buffer = Buffer<T>;
+
+    fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
+        match self {
+            Self::CL(cl) => cl.constant(value, size).map(Buffer::CL),
+            Self::Host(host) => host.constant(value, size).map(Buffer::Host),
+        }
     }
 }
 
@@ -155,6 +184,36 @@ where
             Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
         }
     }
+
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ge(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.gt(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.le(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.lt(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ne(left, right).map(AccessOp::wrap),
+        }
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -170,6 +229,41 @@ where
         match self {
             Self::CL(cl) => cl.eq(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.eq(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.ge(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.ge(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.gt(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.gt(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.le(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.le(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.lt(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.lt(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.ne(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.ne(left, right).map(AccessOp::wrap),
         }
     }
 }
