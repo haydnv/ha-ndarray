@@ -4,7 +4,8 @@ use crate::buffer::Buffer;
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{
-    host, strides_for, Axes, AxisRange, BufferConverter, CType, Error, Range, Shape, Strides,
+    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, CType, Error, Range, Shape,
+    Strides,
 };
 
 pub trait Op: Send + Sync {
@@ -569,11 +570,14 @@ pub struct SliceSpec {
 }
 
 impl SliceSpec {
-    pub fn new(range: Range, source_strides: Strides) -> Self {
-        assert_eq!(range.len(), source_strides.len());
+    pub fn new(source_shape: &[usize], range: Range) -> Self {
+        debug_assert!(range.len() <= source_shape.len());
 
-        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        let shape = range_shape(source_shape, &range);
         let strides = strides_for(&shape, shape.len()).collect();
+        let source_strides = strides_for(source_shape, source_shape.len()).collect();
+
+        println!("for range {range:?} of {source_shape:?}, shape is {shape:?} and strides are {strides:?} (source strides are {source_strides:?})");
 
         Self {
             range,
@@ -586,6 +590,11 @@ impl SliceSpec {
     pub fn source_offset(&self, offset: usize) -> usize {
         debug_assert!(!self.shape.is_empty());
         debug_assert_eq!(self.shape.len(), self.strides.len());
+
+        println!(
+            "offset {offset}, strides {:?}, source strides {:?}",
+            self.strides, self.source_strides
+        );
 
         let mut coord = self
             .strides
@@ -778,8 +787,8 @@ pub struct ViewSpec {
 }
 
 impl ViewSpec {
-    pub fn new(shape: Shape, strides: Strides, source_strides: Strides) -> Self {
-        assert_eq!(shape.len(), strides.len());
+    pub fn new(shape: Shape, source_strides: Strides) -> Self {
+        let strides = strides_for(&shape, shape.len()).collect();
 
         Self {
             shape,
@@ -791,7 +800,8 @@ impl ViewSpec {
     pub fn source_offset(&self, offset: usize) -> usize {
         debug_assert!(offset < self.size());
 
-        self.strides
+        let source_offset = self
+            .strides
             .iter()
             .copied()
             .zip(self.shape.iter().copied())
@@ -804,7 +814,11 @@ impl ViewSpec {
             }) // coord
             .zip(self.source_strides.iter().copied())
             .map(|(i, source_stride)| i * source_stride) // source offset
-            .sum::<usize>()
+            .sum::<usize>();
+
+        println!("source offset for {offset} is {source_offset} (strides are {:?}, source strides are {:?})", self.strides, self.source_strides);
+
+        source_offset
     }
 
     pub fn size(&self) -> usize {

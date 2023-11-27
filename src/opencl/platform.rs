@@ -11,7 +11,7 @@ use crate::ops::{
     ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{strides_for, Axes, CType, Constant, Error, Float, Range, Shape};
+use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
 
 use super::ops::*;
 use super::{programs, CLConverter};
@@ -497,8 +497,7 @@ impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
-        let strides = strides_for(&shape, broadcast.len()).collect();
-        View::broadcast(access, shape, broadcast, strides).map(AccessOp::from)
+        View::broadcast(access, shape, broadcast).map(AccessOp::from)
     }
 
     fn slice(

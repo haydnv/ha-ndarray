@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::fmt;
 use std::ops::Deref;
 
 use smallvec::SmallVec;
@@ -334,5 +335,11 @@ impl<'a, T> Deref for SliceConverter<'a, T> {
             Self::Stack(data) => data.as_slice(),
             Self::Slice(slice) => slice,
         }
+    }
+}
+
+impl<'a, T: fmt::Debug> fmt::Debug for SliceConverter<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(self.deref(), f)
     }
 }

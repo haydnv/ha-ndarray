@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
 use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec};
-use crate::{stackvec, strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape};
+use crate::{stackvec, strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -863,8 +863,7 @@ pub struct Slice<A, T> {
 
 impl<A, T> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Self {
-        let source_strides = strides_for(shape, shape.len()).collect();
-        let spec = SliceSpec::new(range, source_strides);
+        let spec = SliceSpec::new(shape, range);
 
         Self {
             access,
@@ -1147,24 +1146,23 @@ pub struct View<A, T> {
 
 impl<A: Access<T>, T: CType> View<A, T> {
     pub fn broadcast(access: A, shape: Shape, broadcast: Shape) -> Self {
-        let strides = strides_for(&shape, broadcast.len()).collect();
         let source_strides = strides_for(&shape, shape.len()).collect();
 
         Self {
             access,
-            spec: ViewSpec::new(broadcast, strides, source_strides),
+            spec: ViewSpec::new(broadcast, source_strides),
             dtype: PhantomData,
         }
     }
 
     pub fn transpose(access: A, shape: Shape, axes: Axes) -> Self {
-        let source_strides = strides_for(&shape, shape.len()).collect();
-        let shape = axes.iter().copied().map(|x| shape[x]).collect::<Shape>();
-        let strides = strides_for(&shape, shape.len()).collect();
+        let strides = strides_for(&shape, shape.len()).collect::<Strides>();
+        let shape = axes.iter().copied().map(|x| shape[x]).collect::<Strides>();
+        let source_strides = axes.into_iter().map(|x| strides[x]).collect::<Strides>();
 
         Self {
             access,
-            spec: ViewSpec::new(shape, strides, source_strides),
+            spec: ViewSpec::new(shape, source_strides),
             dtype: PhantomData,
         }
     }

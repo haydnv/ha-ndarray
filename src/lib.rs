@@ -4,6 +4,7 @@ use std::iter::{Product, Sum};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
 pub use smallvec::smallvec as axes;
+pub use smallvec::smallvec as range;
 pub use smallvec::smallvec as slice;
 pub use smallvec::smallvec as shape;
 pub use smallvec::smallvec as stackvec;
@@ -384,6 +385,12 @@ pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> 
     debug_assert!(!shape.iter().any(|dim| *dim == 0));
 
     Ok(shape)
+}
+
+#[inline]
+fn range_shape(source_shape: &[usize], range: &[AxisRange]) -> Shape {
+    debug_assert_eq!(source_shape.len(), range.len());
+    range.iter().filter_map(|ar| ar.size()).collect()
 }
 
 #[inline]

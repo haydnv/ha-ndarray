@@ -7,8 +7,8 @@ use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
-    shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert, Error,
-    Platform, Range, Shape,
+    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert,
+    Error, Platform, Range, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -173,9 +173,9 @@ impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
     P: Construct<T>,
 {
-    pub fn range(start: T, stop: T, size: usize) -> Result<Self, Error> {
+    pub fn range(start: T, stop: T, shape: Shape) -> Result<Self, Error> {
+        let size = shape.iter().product();
         let platform = P::select(size);
-        let shape = shape![size];
 
         platform.range(start, stop, size).map(|access| Self {
             shape,
@@ -513,7 +513,7 @@ where
         }
     }
 
-    fn slice(self, range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error> {
+    fn slice(self, mut range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error> {
         for (dim, range) in self.shape.iter().zip(&range) {
             match range {
                 AxisRange::At(i) if i < dim => Ok(()),
@@ -525,7 +525,11 @@ where
             }?;
         }
 
-        let shape = range.iter().filter_map(|ar| ar.size()).collect::<Shape>();
+        for dim in self.shape.iter().skip(range.len()).copied() {
+            range.push(AxisRange::In(0, dim, 1));
+        }
+
+        let shape = range_shape(self.shape(), &range);
         let platform = P::select(shape.iter().product());
         let access = platform.slice(self.access, &self.shape, range)?;
 
@@ -581,7 +585,7 @@ where
                 )))
             }
         } else {
-            Ok((0..self.ndim()).collect())
+            Ok((0..self.ndim()).into_iter().rev().collect())
         }?;
 
         let shape = permutation.iter().copied().map(|x| self.shape[x]).collect();

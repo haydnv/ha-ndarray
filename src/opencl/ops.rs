@@ -815,8 +815,7 @@ pub struct Slice<A, T> {
 
 impl<A, T: CType> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Result<Self, Error> {
-        let source_strides = strides_for(shape, shape.len()).collect();
-        let spec = SliceSpec::new(range, source_strides);
+        let spec = SliceSpec::new(shape, range);
 
         let read = programs::slice::read_slice(T::TYPE, spec.clone())?;
 
@@ -1027,22 +1026,17 @@ where
         })
     }
 
-    pub fn broadcast(
-        access: A,
-        shape: Shape,
-        broadcast: Shape,
-        strides: Strides,
-    ) -> Result<Self, Error> {
-        let source_strides = strides_for(&shape, shape.len()).collect();
-        let spec = ViewSpec::new(broadcast, strides, source_strides);
+    pub fn broadcast(access: A, shape: Shape, broadcast: Shape) -> Result<Self, Error> {
+        let strides = strides_for(&shape, shape.len()).collect();
+        let spec = ViewSpec::new(broadcast, strides);
         Self::new(access, spec)
     }
 
     pub fn transpose(access: A, shape: Shape, axes: Axes) -> Result<Self, Error> {
-        let source_strides = strides_for(&shape, shape.len()).collect();
+        let strides = strides_for(&shape, shape.len()).collect::<Strides>();
         let shape = axes.iter().copied().map(|x| shape[x]).collect::<Shape>();
-        let strides = strides_for(&shape, shape.len()).collect();
-        let spec = ViewSpec::new(shape, strides, source_strides);
+        let strides = axes.into_iter().map(|x| strides[x]).collect::<Strides>();
+        let spec = ViewSpec::new(shape, strides);
         Self::new(access, spec)
     }
 }

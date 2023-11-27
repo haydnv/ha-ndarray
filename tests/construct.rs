@@ -2,14 +2,21 @@ use ha_ndarray::*;
 
 #[test]
 fn test_range() -> Result<(), Error> {
-    let size = 1_000_000;
-    let array = ArrayOp::range(0f32, 500_000f32, size)?;
-    let buffer = array.into_inner();
+    use rayon::prelude::*;
 
-    for (i, a) in buffer.read()?.to_slice()?.into_iter().copied().enumerate() {
-        let e = (i as f32) / 2.0;
-        assert_eq!(e, a);
-    }
+    let size = 1_000_000;
+
+    let expected = ArrayBuf::new(
+        (0..size)
+            .into_par_iter()
+            .map(|n| n as f32 * 0.5)
+            .collect::<Vec<f32>>(),
+        shape![size],
+    )?;
+
+    let actual = ArrayOp::range(0f32, 500_000f32, shape![1_000_000])?;
+
+    assert!(expected.eq(actual)?.all()?);
 
     Ok(())
 }

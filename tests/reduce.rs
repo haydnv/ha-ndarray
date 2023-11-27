@@ -24,12 +24,10 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
     ];
 
     for shape in shapes {
-        let size = shape.iter().product();
-        let array = ArrayBuf::new(vec![1; size], shape.clone())?;
+        let array = ArrayBuf::constant(1u32, shape.clone())?;
 
         for x in 0..shape.len() {
-            let array: ArrayBuf<u32, &[u32]> = array.as_ref();
-            let sum = array.sum(x, false)?;
+            let sum = array.as_ref().sum(x, false)?;
             let eq = sum.eq_scalar(shape[x] as u32)?;
             assert!(eq.all()?);
         }
