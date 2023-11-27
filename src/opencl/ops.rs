@@ -29,7 +29,7 @@ where
         program: &'static str,
         op: fn(T, T) -> bool,
     ) -> Result<Self, Error> {
-        programs::elementwise::compare(T::TYPE, program)
+        programs::elementwise::dual_boolean(T::TYPE, program)
             .map(|program| Self {
                 access,
                 scalar,
@@ -114,6 +114,7 @@ pub struct Dual<L, R, IT, OT> {
     op: fn(IT, IT) -> OT,
 }
 
+// arithmetic
 impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
@@ -138,9 +139,52 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
     }
 }
 
+// boolean operations
+impl<L, R, T: CType> Dual<L, R, T, u8> {
+    pub fn and(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "and")?;
+
+        Ok(Self {
+            left,
+            right,
+            program,
+            op: |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 },
+        })
+    }
+
+    pub fn or(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "or")?;
+
+        Ok(Self {
+            left,
+            right,
+            program,
+            op: |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 },
+        })
+    }
+
+    pub fn xor(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual_boolean(T::TYPE, "xor")?;
+
+        Ok(Self {
+            left,
+            right,
+            program,
+            op: |l, r| {
+                if (l != T::ZERO) ^ (r != T::ZERO) {
+                    1
+                } else {
+                    0
+                }
+            },
+        })
+    }
+}
+
+// comparison
 impl<L, R, T: CType> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::compare(T::TYPE, "eq")?;
+        let program = programs::elementwise::dual_boolean(T::TYPE, "eq")?;
 
         Ok(Self {
             left,

@@ -79,6 +79,27 @@ impl<T, A, P> Array<T, A, P> {
     }
 }
 
+impl<T, L, P> Array<T, L, P> {
+    fn apply_dual<O, OT, R, Op>(
+        self,
+        other: Array<T, R, P>,
+        op: Op,
+    ) -> Result<Array<OT, AccessOp<O, P>, P>, Error>
+    where
+        P: Copy,
+        Op: Fn(P, L, R) -> Result<AccessOp<O, P>, Error>,
+    {
+        let access = (op)(self.platform, self.access, other.access)?;
+
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
 // constructors
 impl<T: CType> Array<T, Accessor<T>, Platform> {
     pub fn from<A, P>(array: Array<T, A, P>) -> Self
@@ -577,6 +598,48 @@ where
             platform: self.platform,
             dtype: self.dtype,
         })
+    }
+}
+
+/// Boolean array operations
+pub trait NDArrayBoolean<O>: NDArray + Sized
+where
+    O: NDArray<DType = Self::DType>,
+{
+    type Output: NDArray<DType = u8>;
+
+    /// Construct a boolean and comparison with the `other` array.
+    fn and(self, other: O) -> Result<Self::Output, Error>;
+
+    /// Construct a boolean or comparison with the `other` array.
+    fn or(self, other: O) -> Result<Self::Output, Error>;
+
+    /// Construct a boolean xor comparison with the `other` array.
+    fn xor(self, other: O) -> Result<Self::Output, Error>;
+}
+
+impl<T, L, R, P> NDArrayBoolean<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: ElementwiseBoolean<L, R, T>,
+{
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+
+    fn and(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("and", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.and(left, right))
+    }
+
+    fn or(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("or", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.or(left, right))
+    }
+
+    fn xor(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("xor", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.xor(left, right))
     }
 }
 

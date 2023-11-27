@@ -6,7 +6,7 @@ use crate::Error;
 use super::build;
 
 #[memoize]
-pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
+pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
         inline uchar eq(const {c_type} left, const {c_type} right) {{
@@ -31,6 +31,18 @@ pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error>
 
         inline uchar ne(const {c_type} left, const {c_type} right) {{
             return left != right;
+        }}
+
+        inline uchar and(const {c_type} left, const {c_type} right) {{
+            return (left != 0) && (right != 0);
+        }}
+
+        inline uchar or(const {c_type} left, const {c_type} right) {{
+            return (left != 0) || (right != 0);
+        }}
+
+        inline uchar xor(const {c_type} left, const {c_type} right) {{
+            return (left != 0) ^ (right != 0);
         }}
 
         __kernel void dual(

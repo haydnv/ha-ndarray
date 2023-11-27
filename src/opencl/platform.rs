@@ -7,8 +7,8 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare,
+    ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{strides_for, Axes, CType, Error, Float, Range, Shape};
@@ -226,6 +226,27 @@ impl<T: CType> Construct<T> for OpenCL {
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
         }
+    }
+}
+
+impl<T, L, R> ElementwiseBoolean<L, R, T> for OpenCL
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+{
+    type Op = Dual<L, R, T, u8>;
+
+    fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::and(left, right).map(AccessOp::from)
+    }
+
+    fn or(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::or(left, right).map(AccessOp::from)
+    }
+
+    fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::xor(left, right).map(AccessOp::from)
     }
 }
 

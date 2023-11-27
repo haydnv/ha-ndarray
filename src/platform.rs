@@ -85,6 +85,63 @@ impl<T: CType> Construct<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = Dual<L, R, T, u8>;
+
+    fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.and(left, right).map(AccessOp::wrap),
+        }
+    }
+    fn or(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.or(left, right).map(AccessOp::wrap),
+        }
+    }
+    fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.xor(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = Dual<L, R, T, u8>;
+
+    fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.and(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.and(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn or(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.or(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.or(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.xor(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.xor(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
     L: Access<T>,

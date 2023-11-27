@@ -3,8 +3,8 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary,
-    LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare,
+    ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Error, Float, Range, Shape};
@@ -174,6 +174,27 @@ impl<T: CType> Construct<T> for Host {
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
         }
+    }
+}
+
+impl<L, R, T> ElementwiseBoolean<L, R, T> for Host
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = Dual<L, R, T, u8>;
+
+    fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::and(left, right).into())
+    }
+
+    fn or(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::or(left, right).into())
+    }
+
+    fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::xor(left, right).into())
     }
 }
 
