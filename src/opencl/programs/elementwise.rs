@@ -33,7 +33,7 @@ pub fn compare(c_type: &'static str, op: &'static str) -> Result<Program, Error>
             return left != right;
         }}
 
-        __kernel void compare(
+        __kernel void dual(
             __global const {c_type}* restrict left,
             __global const {c_type}* restrict right,
             __global uchar* restrict output)

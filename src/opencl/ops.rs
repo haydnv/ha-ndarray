@@ -12,88 +12,6 @@ use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strid
 use super::platform::OpenCL;
 use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
 
-pub struct Compare<L, R, T> {
-    left: L,
-    right: R,
-    program: Program,
-    op: fn(T, T) -> bool,
-    dtype: PhantomData<T>,
-}
-
-impl<L, R, T: CType> Compare<L, R, T> {
-    pub fn eq(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::compare(T::TYPE, "eq")?;
-
-        Ok(Self {
-            left,
-            right,
-            program,
-            op: |l, r| l == r,
-            dtype: PhantomData,
-        })
-    }
-}
-
-impl<L: Access<T>, R: Access<T>, T: CType> Op for Compare<L, R, T> {
-    fn size(&self) -> usize {
-        self.left.size()
-    }
-}
-
-impl<L, R, T> Enqueue<OpenCL, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Buffer = Buffer<u8>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.to_cl()?;
-        let right = self.right.read()?.to_cl()?;
-        debug_assert_eq!(left.size(), right.size());
-
-        let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
-
-        let output = Buffer::builder()
-            .queue(queue.clone())
-            .len(left.len())
-            .build()?;
-
-        let kernel = Kernel::builder()
-            .name("compare")
-            .program(&self.program)
-            .queue(queue)
-            .global_work_size(left.len())
-            .arg(&*left)
-            .arg(&*right)
-            .arg(&output)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        Ok(output)
-    }
-}
-
-impl<L, R, T> ReadValue<OpenCL, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    fn read_value(&self, offset: usize) -> Result<u8, Error> {
-        let l = self.left.read_value(offset)?;
-        let r = self.right.read_value(offset)?;
-
-        if (self.op)(l, r) {
-            Ok(1)
-        } else {
-            Ok(0)
-        }
-    }
-}
-
 pub struct CompareScalar<A, T> {
     access: A,
     scalar: T,
@@ -189,15 +107,14 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, u8> for CompareScalar<A, T> {
     }
 }
 
-pub struct Dual<L, R, T> {
+pub struct Dual<L, R, IT, OT> {
     left: L,
     right: R,
     program: Program,
-    op: fn(T, T) -> T,
-    dtype: PhantomData<T>,
+    op: fn(IT, IT) -> OT,
 }
 
-impl<L, R, T: CType> Dual<L, R, T> {
+impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
 
@@ -206,7 +123,6 @@ impl<L, R, T: CType> Dual<L, R, T> {
             right,
             program,
             op: Add::add,
-            dtype: PhantomData,
         })
     }
 
@@ -218,29 +134,43 @@ impl<L, R, T: CType> Dual<L, R, T> {
             right,
             program,
             op: Sub::sub,
-            dtype: PhantomData,
         })
     }
 }
 
-impl<L, R, T> Op for Dual<L, R, T>
+impl<L, R, T: CType> Dual<L, R, T, u8> {
+    pub fn eq(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::compare(T::TYPE, "eq")?;
+
+        Ok(Self {
+            left,
+            right,
+            program,
+            op: |l, r| if l == r { 1 } else { 0 },
+        })
+    }
+}
+
+impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
     fn size(&self) -> usize {
         self.left.size()
     }
 }
 
-impl<L, R, T> Enqueue<OpenCL, T> for Dual<L, R, T>
+impl<L, R, IT, OT> Enqueue<OpenCL, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    type Buffer = Buffer<T>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?.to_cl()?;
@@ -270,13 +200,14 @@ where
     }
 }
 
-impl<L, R, T> ReadValue<OpenCL, T> for Dual<L, R, T>
+impl<L, R, IT, OT> ReadValue<OpenCL, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    fn read_value(&self, offset: usize) -> Result<T, Error> {
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
         let l = self.left.read_value(offset)?;
         let r = self.right.read_value(offset)?;
         Ok((self.op)(l, r))

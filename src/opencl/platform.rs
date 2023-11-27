@@ -235,10 +235,10 @@ where
     L: Access<T>,
     R: Access<T>,
 {
-    type Op = Compare<L, R, T>;
+    type Op = Dual<L, R, T, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Compare::eq(left, right).map(AccessOp::from)
+        Dual::eq(left, right).map(AccessOp::from)
     }
 }
 
@@ -276,7 +276,7 @@ where
     L: Access<T>,
     R: Access<T>,
 {
-    type Op = Dual<L, R, T>;
+    type Op = Dual<L, R, T, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::add(left, right).map(AccessOp::from)

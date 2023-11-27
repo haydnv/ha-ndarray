@@ -37,6 +37,16 @@ pub trait Construct<T: CType>: PlatformInstance {
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;
 }
 
+pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
+    type Op: Enqueue<Self, u8>;
+
+    fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn or(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
     type Op: Enqueue<Self, u8>;
 
@@ -190,25 +200,6 @@ pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     ) -> Result<AccessOp<Self::Transpose, Self>, Error>;
 }
 
-pub enum Compare<L, R, T> {
-    #[cfg(feature = "opencl")]
-    CL(opencl::ops::Compare<L, R, T>),
-    Host(host::ops::Compare<L, R, T>),
-}
-
-#[cfg(feature = "opencl")]
-impl<L, R, T> From<opencl::ops::Compare<L, R, T>> for Compare<L, R, T> {
-    fn from(op: opencl::ops::Compare<L, R, T>) -> Self {
-        Self::CL(op)
-    }
-}
-
-impl<L, R, T> From<host::ops::Compare<L, R, T>> for Compare<L, R, T> {
-    fn from(op: host::ops::Compare<L, R, T>) -> Self {
-        Self::Host(op)
-    }
-}
-
 pub enum CompareScalar<A, T> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::CompareScalar<A, T>),
@@ -230,78 +221,74 @@ impl<A, T> From<host::ops::CompareScalar<A, T>> for CompareScalar<A, T> {
     }
 }
 
-pub enum Dual<L, R, T> {
+pub enum Dual<L, R, IT, OT> {
     #[cfg(feature = "opencl")]
-    CL(opencl::ops::Dual<L, R, T>),
-    Host(host::ops::Dual<L, R, T>),
+    CL(opencl::ops::Dual<L, R, IT, OT>),
+    Host(host::ops::Dual<L, R, IT, OT>),
+}
+
+impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<L, R, IT, OT> Enqueue<Platform, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<L, R, IT, OT> ReadValue<Platform, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => ReadValue::read_value(op, offset),
+            Self::Host(op) => ReadValue::read_value(op, offset),
+        }
+    }
 }
 
 #[cfg(feature = "opencl")]
-impl<L, R, T> From<opencl::ops::Dual<L, R, T>> for Dual<L, R, T> {
-    fn from(op: opencl::ops::Dual<L, R, T>) -> Self {
+impl<L, R, IT, OT> From<opencl::ops::Dual<L, R, IT, OT>> for Dual<L, R, IT, OT> {
+    fn from(op: opencl::ops::Dual<L, R, IT, OT>) -> Self {
         Self::CL(op)
     }
 }
 
-impl<L, R, T> From<host::ops::Dual<L, R, T>> for Dual<L, R, T> {
-    fn from(op: host::ops::Dual<L, R, T>) -> Self {
+impl<L, R, IT, OT> From<host::ops::Dual<L, R, IT, OT>> for Dual<L, R, IT, OT> {
+    fn from(op: host::ops::Dual<L, R, IT, OT>) -> Self {
         Self::Host(op)
     }
 }
-
-macro_rules! impl_dual {
-    ($op:ty, $t:ty) => {
-        impl<L, R, T> Op for $op
-        where
-            L: Access<T>,
-            R: Access<T>,
-            T: CType,
-        {
-            fn size(&self) -> usize {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.size(),
-                    Self::Host(op) => op.size(),
-                }
-            }
-        }
-
-        impl<L, R, T> Enqueue<Platform, $t> for $op
-        where
-            L: Access<T>,
-            R: Access<T>,
-            T: CType,
-        {
-            type Buffer = Buffer<$t>;
-
-            fn enqueue(&self) -> Result<Self::Buffer, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
-                }
-            }
-        }
-
-        impl<L, R, T> ReadValue<Platform, $t> for $op
-        where
-            L: Access<T>,
-            R: Access<T>,
-            T: CType,
-        {
-            fn read_value(&self, offset: usize) -> Result<$t, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.read_value(offset),
-                    Self::Host(op) => op.read_value(offset),
-                }
-            }
-        }
-    };
-}
-
-impl_dual!(Compare<L, R, T>, u8);
-impl_dual!(Dual<L, R, T>, T);
 
 pub enum Linear<T> {
     #[cfg(feature = "opencl")]
@@ -360,7 +347,52 @@ pub enum MatMul<L, R, T> {
     Host(host::ops::MatMul<L, R, T>),
 }
 
-impl_dual!(MatMul<L, R, T>, T);
+impl<L, R, T> Op for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<L, R, T> Enqueue<Platform, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<L, R, T> ReadValue<Platform, T> for MatMul<L, R, T>
+where
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => ReadValue::read_value(op, offset),
+            Self::Host(op) => ReadValue::read_value(op, offset),
+        }
+    }
+}
 
 #[cfg(feature = "opencl")]
 impl<L, R, T> From<opencl::ops::MatMul<L, R, T>> for MatMul<L, R, T> {

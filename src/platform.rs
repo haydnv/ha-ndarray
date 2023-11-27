@@ -91,7 +91,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op = Compare<L, R, T>;
+    type Op = Dual<L, R, T, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
@@ -107,7 +107,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op = Compare<L, R, T>;
+    type Op = Dual<L, R, T, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
@@ -212,7 +212,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op = Dual<L, R, T>;
+    type Op = Dual<L, R, T, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
@@ -234,7 +234,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op = Dual<L, R, T>;
+    type Op = Dual<L, R, T, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {

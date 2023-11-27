@@ -15,89 +15,6 @@ use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
 use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
 
-pub struct Compare<L, R, T> {
-    left: L,
-    right: R,
-    cmp: fn(T, T) -> u8,
-}
-
-impl<L, R, T> Op for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    fn size(&self) -> usize {
-        self.left.size()
-    }
-}
-
-impl<L, R, T: CType> Compare<L, R, T> {
-    pub fn eq(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            cmp: |l, r| if l == r { 1 } else { 0 },
-        }
-    }
-}
-
-impl<L, R, T> Enqueue<Stack, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Buffer = StackVec<u8>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join_read(&self.left, &self.right)?;
-        exec_dual(self.cmp, left, right)
-    }
-}
-
-impl<L, R, T> Enqueue<Heap, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Buffer = Vec<u8>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join_read(&self.left, &self.right)?;
-        exec_dual_parallel(self.cmp, left, right)
-    }
-}
-
-impl<L, R, T> Enqueue<Host, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Buffer = Buffer<u8>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, u8>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, u8>::enqueue(self).map(Buffer::Heap)
-        }
-    }
-}
-
-impl<L, R, T> ReadValue<Host, u8> for Compare<L, R, T>
-where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    fn read_value(&self, offset: usize) -> Result<u8, Error> {
-        try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.cmp)(l, r))
-    }
-}
-
 pub struct CompareScalar<A, T> {
     access: A,
     scalar: T,
@@ -234,24 +151,25 @@ impl<A: Access<T>, T: CType> ReadValue<Host, u8> for CompareScalar<A, T> {
     }
 }
 
-pub struct Dual<L, R, T> {
+pub struct Dual<L, R, IT, OT> {
     left: L,
     right: R,
-    zip: fn(T, T) -> T,
+    zip: fn(IT, IT) -> OT,
 }
 
-impl<L, R, T> Op for Dual<L, R, T>
+impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
     fn size(&self) -> usize {
         self.left.size()
     }
 }
 
-impl<L, R, T: CType> Dual<L, R, T> {
+impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Self {
         Self {
             left,
@@ -269,13 +187,24 @@ impl<L, R, T: CType> Dual<L, R, T> {
     }
 }
 
-impl<L, R, T> Enqueue<Stack, T> for Dual<L, R, T>
+impl<L, R, T: CType> Dual<L, R, T, u8> {
+    pub fn eq(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l == r { 1 } else { 0 },
+        }
+    }
+}
+
+impl<L, R, IT, OT> Enqueue<Stack, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    type Buffer = StackVec<T>;
+    type Buffer = StackVec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let (left, right) = try_join_read(&self.left, &self.right)?;
@@ -283,13 +212,14 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<Heap, T> for Dual<L, R, T>
+impl<L, R, IT, OT> Enqueue<Heap, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    type Buffer = Vec<T>;
+    type Buffer = Vec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let (left, right) = try_join_read(&self.left, &self.right)?;
@@ -297,30 +227,32 @@ where
     }
 }
 
-impl<L, R, T> Enqueue<Host, T> for Dual<L, R, T>
+impl<L, R, IT, OT> Enqueue<Host, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    type Buffer = Buffer<T>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::from)
+            Enqueue::<Stack, OT>::enqueue(self).map(Buffer::from)
         } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::from)
+            Enqueue::<Heap, OT>::enqueue(self).map(Buffer::from)
         }
     }
 }
 
-impl<L, R, T> ReadValue<Host, T> for Dual<L, R, T>
+impl<L, R, IT, OT> ReadValue<Host, OT> for Dual<L, R, IT, OT>
 where
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: CType,
+    OT: CType,
 {
-    fn read_value(&self, offset: usize) -> Result<T, Error> {
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
         try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
     }
 }
