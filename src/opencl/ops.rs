@@ -12,22 +12,22 @@ use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strid
 use super::platform::OpenCL;
 use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
 
-pub struct CompareScalar<A, T> {
+pub struct Scalar<A, IT, OT> {
     access: A,
-    scalar: T,
+    scalar: IT,
     program: Program,
-    op: fn(T, T) -> bool,
+    op: fn(IT, IT) -> OT,
 }
 
-impl<A, T> CompareScalar<A, T>
+impl<A, T> Scalar<A, T, u8>
 where
     T: CType,
 {
-    fn new(
+    fn compare(
         access: A,
         scalar: T,
         program: &'static str,
-        op: fn(T, T) -> bool,
+        op: fn(T, T) -> u8,
     ) -> Result<Self, Error> {
         programs::elementwise::dual_boolean(T::TYPE, program)
             .map(|program| Self {
@@ -40,38 +40,48 @@ where
     }
 
     pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "eq", |l, r| l == r)
+        Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
     }
 
     pub fn ge(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "ge", |l, r| l >= r)
+        Self::compare(access, scalar, "ge", |l, r| if l >= r { 1 } else { 0 })
     }
 
     pub fn gt(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "gt", |l, r| l > r)
+        Self::compare(access, scalar, "gt", |l, r| if l > r { 1 } else { 0 })
     }
 
     pub fn le(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "le", |l, r| l <= r)
+        Self::compare(access, scalar, "le", |l, r| if l <= r { 1 } else { 0 })
     }
 
     pub fn lt(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "lt", |l, r| l < r)
+        Self::compare(access, scalar, "lt", |l, r| if l < r { 1 } else { 0 })
     }
 
     pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "ne", |l, r| l != r)
+        Self::compare(access, scalar, "ne", |l, r| if l != r { 1 } else { 0 })
     }
 }
 
-impl<A: Access<T>, T: CType> Op for CompareScalar<A, T> {
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
     fn size(&self) -> usize {
         self.access.size()
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, u8> for CompareScalar<A, T> {
-    type Buffer = Buffer<u8>;
+impl<A, IT, OT> Enqueue<OpenCL, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -84,7 +94,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, u8> for CompareScalar<A, T> {
             .build()?;
 
         let kernel = Kernel::builder()
-            .name("compare_scalar")
+            .name("dual_scalar")
             .program(&self.program)
             .queue(queue)
             .global_work_size(input.len())
@@ -99,11 +109,16 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, u8> for CompareScalar<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, u8> for CompareScalar<A, T> {
-    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+impl<A, IT, OT> ReadValue<OpenCL, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| if (self.op)(n, self.scalar) { 1 } else { 0 })
+            .map(|n| (self.op)(n, self.scalar))
     }
 }
 

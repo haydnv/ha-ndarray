@@ -264,30 +264,30 @@ where
 }
 
 impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for OpenCL {
-    type Op = CompareScalar<A, T>;
+    type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::eq(left, right).map(AccessOp::from)
+        Scalar::eq(left, right).map(AccessOp::from)
     }
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::ge(left, right).map(AccessOp::from)
+        Scalar::ge(left, right).map(AccessOp::from)
     }
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::gt(left, right).map(AccessOp::from)
+        Scalar::gt(left, right).map(AccessOp::from)
     }
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::le(left, right).map(AccessOp::from)
+        Scalar::le(left, right).map(AccessOp::from)
     }
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::lt(left, right).map(AccessOp::from)
+        Scalar::lt(left, right).map(AccessOp::from)
     }
 
     fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        CompareScalar::ne(left, right).map(AccessOp::from)
+        Scalar::ne(left, right).map(AccessOp::from)
     }
 }
 

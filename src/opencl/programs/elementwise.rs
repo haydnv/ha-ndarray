@@ -54,7 +54,7 @@ pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, E
             output[offset] = {op}(left[offset], right[offset]);
         }}
 
-        __kernel void compare_scalar(
+        __kernel void dual_scalar(
             __global const {c_type}* restrict left,
             const {c_type} right,
             __global uchar* restrict output)

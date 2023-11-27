@@ -15,88 +15,80 @@ use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
 use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
 
-pub struct CompareScalar<A, T> {
+pub struct Scalar<A, IT, OT> {
     access: A,
-    scalar: T,
-    cmp: fn(T, T) -> bool,
+    scalar: IT,
+    op: fn(IT, IT) -> OT,
 }
 
-impl<A, T> CompareScalar<A, T> {
+impl<A, IT, OT> Scalar<A, IT, OT> {
+    fn new(access: A, scalar: IT, op: fn(IT, IT) -> OT) -> Self {
+        Self { access, scalar, op }
+    }
+}
+
+impl<A, T> Scalar<A, T, u8> {
     pub fn eq(access: A, scalar: T) -> Self
     where
         T: PartialEq,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l == r,
-        }
+        Self::new(access, scalar, |l, r| if l == r { 1 } else { 0 })
     }
 
     pub fn ge(access: A, scalar: T) -> Self
     where
         T: PartialOrd,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l >= r,
-        }
+        Self::new(access, scalar, |l, r| if l >= r { 1 } else { 0 })
     }
 
     pub fn gt(access: A, scalar: T) -> Self
     where
         T: PartialOrd,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l > r,
-        }
+        Self::new(access, scalar, |l, r| if l > r { 1 } else { 0 })
     }
 
     pub fn le(access: A, scalar: T) -> Self
     where
         T: PartialOrd,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l <= r,
-        }
+        Self::new(access, scalar, |l, r| if l <= r { 1 } else { 0 })
     }
 
     pub fn lt(access: A, scalar: T) -> Self
     where
         T: PartialOrd,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l < r,
-        }
+        Self::new(access, scalar, |l, r| if l < r { 1 } else { 0 })
     }
 
     pub fn ne(access: A, scalar: T) -> Self
     where
         T: PartialEq,
     {
-        Self {
-            access,
-            scalar,
-            cmp: |l, r| l != r,
-        }
+        Self::new(access, scalar, |l, r| if l != r { 1 } else { 0 })
     }
 }
 
-impl<A: Access<T>, T: CType> Op for CompareScalar<A, T> {
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
     fn size(&self) -> usize {
         self.access.size()
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, u8> for CompareScalar<A, T> {
-    type Buffer = Vec<u8>;
+impl<A, IT, OT> Enqueue<Heap, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Vec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         self.access
@@ -107,14 +99,19 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, u8> for CompareScalar<A, T> {
                     .as_ref()
                     .into_par_iter()
                     .copied()
-                    .map(|l| if (self.cmp)(l, self.scalar) { 1 } else { 0 })
+                    .map(|l| (self.op)(l, self.scalar))
                     .collect()
             })
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, u8> for CompareScalar<A, T> {
-    type Buffer = StackVec<u8>;
+impl<A, IT, OT> Enqueue<Stack, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = StackVec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         self.access
@@ -125,29 +122,39 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, u8> for CompareScalar<A, T> {
                     .as_ref()
                     .into_iter()
                     .copied()
-                    .map(|l| if (self.cmp)(l, self.scalar) { 1 } else { 0 })
+                    .map(|l| (self.op)(l, self.scalar))
                     .collect()
             })
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, u8> for CompareScalar<A, T> {
-    type Buffer = Buffer<u8>;
+impl<A, IT, OT> Enqueue<Host, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, u8>::enqueue(self).map(Buffer::Stack)
+            Enqueue::<Stack, OT>::enqueue(self).map(Buffer::Stack)
         } else {
-            Enqueue::<Heap, u8>::enqueue(self).map(Buffer::Heap)
+            Enqueue::<Heap, OT>::enqueue(self).map(Buffer::Heap)
         }
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Host, u8> for CompareScalar<A, T> {
-    fn read_value(&self, offset: usize) -> Result<u8, Error> {
+impl<A, IT, OT> ReadValue<Host, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| if (self.cmp)(n, self.scalar) { 1 } else { 0 })
+            .map(|n| (self.op)(n, self.scalar))
     }
 }
 

@@ -212,30 +212,30 @@ where
 }
 
 impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Host {
-    type Op = CompareScalar<A, T>;
+    type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::eq(left, right).into())
+        Ok(Scalar::eq(left, right).into())
     }
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::ge(left, right).into())
+        Ok(Scalar::ge(left, right).into())
     }
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::gt(left, right).into())
+        Ok(Scalar::gt(left, right).into())
     }
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::le(left, right).into())
+        Ok(Scalar::le(left, right).into())
     }
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::lt(left, right).into())
+        Ok(Scalar::lt(left, right).into())
     }
 
     fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(CompareScalar::ne(left, right).into())
+        Ok(Scalar::ne(left, right).into())
     }
 }
 

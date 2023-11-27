@@ -176,7 +176,7 @@ where
 
 #[cfg(not(feature = "opencl"))]
 impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
-    type Op = CompareScalar<A, T>;
+    type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
@@ -217,7 +217,7 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
 
 #[cfg(feature = "opencl")]
 impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
-    type Op = CompareScalar<A, T>;
+    type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {

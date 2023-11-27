@@ -92,42 +92,6 @@ where
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-macro_rules! impl_unary {
-    ($op:ty, $t:ty) => {
-        impl<A: Access<T>, T: CType> Op for $op {
-            fn size(&self) -> usize {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.size(),
-                    Self::Host(op) => op.size(),
-                }
-            }
-        }
-
-        impl<A: Access<T>, T: CType> Enqueue<Platform, $t> for $op {
-            type Buffer = Buffer<$t>;
-
-            fn enqueue(&self) -> Result<Self::Buffer, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
-                }
-            }
-        }
-
-        impl<A: Access<T>, T: CType> ReadValue<Platform, $t> for $op {
-            fn read_value(&self, offset: usize) -> Result<$t, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.read_value(offset),
-                    Self::Host(op) => op.read_value(offset),
-                }
-            }
-        }
-    };
-}
-
 pub trait LinAlgDual<L, R, T>: PlatformInstance
 where
     T: CType,
@@ -200,23 +164,68 @@ pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     ) -> Result<AccessOp<Self::Transpose, Self>, Error>;
 }
 
-pub enum CompareScalar<A, T> {
+pub enum Scalar<A, IT, OT> {
     #[cfg(feature = "opencl")]
-    CL(opencl::ops::CompareScalar<A, T>),
-    Host(host::ops::CompareScalar<A, T>),
+    CL(opencl::ops::Scalar<A, IT, OT>),
+    Host(host::ops::Scalar<A, IT, OT>),
 }
 
-impl_unary!(CompareScalar<A, T>, u8);
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<A, IT, OT> Enqueue<Platform, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<A, IT, OT> ReadValue<Platform, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
+        }
+    }
+}
 
 #[cfg(feature = "opencl")]
-impl<A, T> From<opencl::ops::CompareScalar<A, T>> for CompareScalar<A, T> {
-    fn from(op: opencl::ops::CompareScalar<A, T>) -> Self {
+impl<A, IT, OT> From<opencl::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
+    fn from(op: opencl::ops::Scalar<A, IT, OT>) -> Self {
         Self::CL(op)
     }
 }
 
-impl<A, T> From<host::ops::CompareScalar<A, T>> for CompareScalar<A, T> {
-    fn from(op: host::ops::CompareScalar<A, T>) -> Self {
+impl<A, IT, OT> From<host::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
+    fn from(op: host::ops::Scalar<A, IT, OT>) -> Self {
         Self::Host(op)
     }
 }
@@ -483,6 +492,42 @@ macro_rules! impl_random {
 
 impl_random!(RandomNormal);
 impl_random!(RandomUniform);
+
+macro_rules! impl_unary {
+    ($op:ty, $t:ty) => {
+        impl<A: Access<T>, T: CType> Op for $op {
+            fn size(&self) -> usize {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.size(),
+                    Self::Host(op) => op.size(),
+                }
+            }
+        }
+
+        impl<A: Access<T>, T: CType> Enqueue<Platform, $t> for $op {
+            type Buffer = Buffer<$t>;
+
+            fn enqueue(&self) -> Result<Self::Buffer, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
+                    Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
+                }
+            }
+        }
+
+        impl<A: Access<T>, T: CType> ReadValue<Platform, $t> for $op {
+            fn read_value(&self, offset: usize) -> Result<$t, Error> {
+                match self {
+                    #[cfg(feature = "opencl")]
+                    Self::CL(op) => op.read_value(offset),
+                    Self::Host(op) => op.read_value(offset),
+                }
+            }
+        }
+    };
+}
 
 pub enum Reduce<A, T: CType> {
     #[cfg(feature = "opencl")]
