@@ -155,9 +155,11 @@ impl OpenCL {
 
     /// Copy the given `data` into a new [`Buffer`].
     pub fn copy_into_buffer<T: CType>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
+        let queue = Self::queue(data.len(), None, None)?;
+
         ocl::builders::BufferBuilder::new()
             .len(data.len())
-            .context(&CL_PLATFORM.cl_context)
+            .queue(queue)
             .copy_host_slice(data)
             .build()
     }
@@ -391,53 +393,15 @@ impl Random for OpenCL {
 
 impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.to_cl()?;
-
-        let program = programs::reduce::all(T::TYPE)?;
-
-        let flag = self.constant(1, 1)?;
-
-        let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
-
-        let kernel = Kernel::builder()
-            .name("all")
-            .program(&program)
-            .queue(queue.clone())
-            .global_work_size(buffer.len())
-            .arg(&flag)
-            .arg(&*buffer)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        let mut result = [1];
-        flag.read(result.as_mut_slice()).enq()?;
-        Ok(result == [1])
+        let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "and", T::ONE)?;
+        Ok(result.into_par_iter().all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
-        let buffer = access.read()?.to_cl()?;
-
-        let program = programs::reduce::any(T::TYPE)?;
-
-        let flag = self.constant(0, 1)?;
-
-        let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
-
-        let kernel = Kernel::builder()
-            .name("any")
-            .program(&program)
-            .queue(queue.clone())
-            .global_work_size(buffer.len())
-            .arg(&flag)
-            .arg(&*buffer)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        let mut result = [0];
-        flag.read(result.as_mut_slice()).enq()?;
-        Ok(result == [1])
+        let input = access.read()?.to_cl()?;
+        let result = reduce_all(&*input, "or", T::ZERO)?;
+        Ok(result.into_par_iter().any(|n| n != T::ZERO))
     }
 
     fn max(self, access: A) -> Result<T, Error> {
@@ -523,13 +487,13 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
 
     let min_size = MIN_SIZE * num_cpus::get();
 
-    let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
-
     if input.len() < min_size {
         let mut result = vec![id; input.len()];
-        input.read(&mut result).queue(&queue).enq()?;
+        input.read(result.as_mut_slice()).enq()?;
         return Ok(result);
     }
+
+    let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
 
     let program = programs::reduce::reduce(T::TYPE, reduce)?;
 

@@ -11,13 +11,13 @@ fn test_cond() -> Result<(), Error> {
 
     let cond = ArrayBuf::new(data, shape![size])?;
 
-    let left = ArrayBuf::constant(1, shape![size])?;
-    let right = ArrayBuf::constant(0, shape![size])?;
+    let then = ArrayBuf::constant(1, shape![size])?;
+    let or_else = ArrayBuf::constant(0, shape![size])?;
 
-    let result = cond.as_ref::<[u8]>().cond(left, right)?;
+    let actual = cond.as_ref::<[u8]>().cond(then, or_else)?;
 
     // let cond = cond.cast::<f32>()?;
-    let eq = result.eq(cond.as_ref::<[u8]>())?;
+    let eq = actual.eq(cond.as_ref::<[u8]>())?;
     assert!(eq.all()?);
 
     Ok(())

@@ -938,7 +938,7 @@ where
     type MatMul = Array<T, AccessOp<P::Op, P>, P>;
 
     fn matmul(self, other: Array<T, R, P>) -> Result<Self::MatMul, Error> {
-        let [batch_size, a, b, c] = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
+        let dims = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
             Error::Bounds(format!(
                 "invalid dimensions for matrix multiply: {:?} and {:?}",
                 self.shape, other.shape
@@ -947,17 +947,17 @@ where
 
         let mut shape = Shape::with_capacity(self.ndim());
         shape.extend(self.shape.iter().rev().skip(2).rev().copied());
-        shape.push(a);
-        shape.push(c);
+        shape.push(dims[1]);
+        shape.push(dims[3]);
 
-        let access = self
-            .platform
-            .matmul(self.access, other.access, [batch_size, a, b, c])?;
+        let platform = P::select(dims.iter().product());
+
+        let access = platform.matmul(self.access, other.access, dims)?;
 
         Ok(Array {
             shape,
             access,
-            platform: self.platform,
+            platform,
             dtype: self.dtype,
         })
     }

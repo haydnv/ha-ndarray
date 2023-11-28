@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 
-use crate::access::AccessBuffer;
+use crate::access::{AccessBuffer, AccessOp};
 use crate::host::VEC_MIN_SIZE;
 
 pub use buffer::*;
@@ -25,12 +25,13 @@ lazy_static! {
 }
 
 pub type ArrayBuf<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>;
+pub type ArrayOp<T, O> = crate::array::Array<T, AccessOp<O, OpenCL>, OpenCL>;
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        shape, slice, AxisRange, Error, NDArrayCompare, NDArrayMath, NDArrayReduceBoolean,
-        NDArrayTransform, NDArrayWrite,
+        shape, slice, AxisRange, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayMath,
+        NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite,
     };
 
     use super::*;
@@ -46,6 +47,48 @@ mod tests {
         let actual = left.add(right)?;
         let eq = actual.eq(expected)?;
 
+        assert!(eq.all()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_2x2() -> Result<(), Error> {
+        let l = ArrayOp::range(0, 4, shape![2, 2])?;
+        let r = ArrayOp::range(0, 4, shape![2, 2])?;
+
+        let actual = l.matmul(r)?;
+
+        let buffer = OpenCL::copy_into_buffer(&[2, 3, 6, 11])?;
+        let expected = ArrayBuf::new(buffer, shape![2, 2])?;
+
+        assert_eq!(actual.shape(), expected.shape());
+
+        let eq = actual.eq(expected)?;
+        assert!(eq.all()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_12x20() -> Result<(), Error> {
+        let buf = OpenCL::copy_into_buffer(&(0..12).into_iter().collect::<Vec<_>>())?;
+        let l = ArrayBuf::new(buf, shape![3, 4])?;
+
+        let buf = OpenCL::copy_into_buffer(&(0..20).into_iter().collect::<Vec<_>>())?;
+        let r = ArrayBuf::new(buf, shape![4, 5])?;
+
+        let actual = l.matmul(r)?;
+
+        let buf = OpenCL::copy_into_buffer(&[
+            70, 76, 82, 88, 94, 190, 212, 234, 256, 278, 310, 348, 386, 424, 462,
+        ])?;
+
+        let expected = ArrayBuf::new(buf, shape![3, 5])?;
+
+        assert_eq!(actual.shape(), expected.shape());
+
+        let eq = actual.eq(expected)?;
         assert!(eq.all()?);
 
         Ok(())

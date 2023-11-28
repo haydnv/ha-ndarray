@@ -6,42 +6,6 @@ use crate::Error;
 use super::build;
 
 #[memoize]
-pub fn all(c_type: &'static str) -> Result<Program, Error> {
-    let src = format!(
-        r#"
-        __kernel void all(
-                __global uchar* flag,
-                __global const {c_type}* input)
-        {{
-            if (input[get_global_id(0)] == 0) {{
-                flag[0] = 0;
-            }}
-        }}
-        "#
-    );
-
-    build(&src)
-}
-
-#[memoize]
-pub fn any(c_type: &'static str) -> Result<Program, Error> {
-    let src = format!(
-        r#"
-        __kernel void any(
-                __global uchar* flag,
-                __global const {c_type}* input)
-        {{
-            if (input[get_global_id(0)] != 0) {{
-                flag[0] = 1;
-            }}
-        }}
-        "#
-    );
-
-    build(&src)
-}
-
-#[memoize]
 pub fn fold_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
@@ -49,8 +13,24 @@ pub fn fold_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, 
             *left += right;
         }}
 
+        inline void and({c_type}* left, const {c_type} right) {{
+            if (left == 0) {{
+                // no-op
+            }} else if (right == 0) {{
+                *left = 0;
+            }}
+        }}
+
         inline void mul({c_type}* left, const {c_type} right) {{
             *left *= right;
+        }}
+
+        inline void or({c_type}* left, const {c_type} right) {{
+            if (left != 0) {{
+                // no-op
+            }} else if (right != 0) {{
+                *left = right;
+            }}
         }}
 
         __kernel void fold_axis(
@@ -93,8 +73,24 @@ pub fn reduce_axis(c_type: &'static str, reduce: &'static str) -> Result<Program
             *left += right;
         }}
 
+        inline void and({c_type}* left, const {c_type} right) {{
+            if (left == 0) {{
+                // no-op
+            }} else if (right == 0) {{
+                *left = 0;
+            }}
+        }}
+
         inline void mul({c_type}* left, const {c_type} right) {{
             *left *= right;
+        }}
+
+        inline void or({c_type}* left, const {c_type} right) {{
+            if (left != 0) {{
+                // no-op
+            }} else if (right != 0) {{
+                *left = right;
+            }}
         }}
 
         __kernel void reduce(
@@ -140,8 +136,24 @@ pub fn reduce(c_type: &'static str, reduce: &'static str) -> Result<Program, Err
             *left += right;
         }}
 
+        inline void and({c_type}* left, const {c_type} right) {{
+            if (left == 0) {{
+                // no-op
+            }} else if (right == 0) {{
+                *left = 0;
+            }}
+        }}
+
         inline void mul({c_type}* left, const {c_type} right) {{
             *left *= right;
+        }}
+
+        inline void or({c_type}* left, const {c_type} right) {{
+            if (left != 0) {{
+                // no-op
+            }} else if (right != 0) {{
+                *left = right;
+            }}
         }}
 
         __kernel void reduce(

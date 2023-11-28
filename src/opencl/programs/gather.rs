@@ -16,6 +16,7 @@ pub fn gather_cond(c_type: &'static str) -> Result<Program, Error> {
             __global {c_type}* restrict output)
         {{
             const ulong offset = get_global_id(0);
+
             if (cond[offset] != 0) {{
                 output[offset] = then[offset];
             }} else {{

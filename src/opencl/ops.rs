@@ -12,116 +12,6 @@ use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strid
 use super::platform::OpenCL;
 use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
 
-pub struct Scalar<A, IT, OT> {
-    access: A,
-    scalar: IT,
-    program: Program,
-    op: fn(IT, IT) -> OT,
-}
-
-impl<A, T> Scalar<A, T, u8>
-where
-    T: CType,
-{
-    fn compare(
-        access: A,
-        scalar: T,
-        program: &'static str,
-        op: fn(T, T) -> u8,
-    ) -> Result<Self, Error> {
-        programs::elementwise::dual_boolean(T::TYPE, program)
-            .map(|program| Self {
-                access,
-                scalar,
-                program,
-                op,
-            })
-            .map_err(Error::from)
-    }
-
-    pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
-    }
-
-    pub fn ge(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "ge", |l, r| if l >= r { 1 } else { 0 })
-    }
-
-    pub fn gt(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "gt", |l, r| if l > r { 1 } else { 0 })
-    }
-
-    pub fn le(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "le", |l, r| if l <= r { 1 } else { 0 })
-    }
-
-    pub fn lt(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "lt", |l, r| if l < r { 1 } else { 0 })
-    }
-
-    pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "ne", |l, r| if l != r { 1 } else { 0 })
-    }
-}
-
-impl<A, IT, OT> Op for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    fn size(&self) -> usize {
-        self.access.size()
-    }
-}
-
-impl<A, IT, OT> Enqueue<OpenCL, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    type Buffer = Buffer<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let input = self.access.read()?.to_cl()?;
-
-        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
-
-        let output = Buffer::builder()
-            .queue(queue.clone())
-            .len(input.len())
-            .build()?;
-
-        let kernel = Kernel::builder()
-            .name("dual_scalar")
-            .program(&self.program)
-            .queue(queue)
-            .global_work_size(input.len())
-            .arg(&*input)
-            .arg(self.scalar)
-            .arg(&output)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        Ok(output)
-    }
-}
-
-impl<A, IT, OT> ReadValue<OpenCL, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    fn read_value(&self, offset: usize) -> Result<OT, Error> {
-        self.access
-            .read_value(offset)
-            .map(|n| (self.op)(n, self.scalar))
-    }
-}
-
 pub struct Dual<L, R, IT, OT> {
     left: L,
     right: R,
@@ -333,12 +223,14 @@ where
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let cond = self.cond.read()?.to_cl()?;
-        let then = self.then.read()?.to_cl()?;
-        let or_else = self.then.read()?.to_cl()?;
+        let cond = self.cond.read()?;
+        let then = self.then.read()?;
+        let or_else = self.or_else.read()?;
 
-        debug_assert_eq!(cond.len(), then.len());
-        debug_assert_eq!(cond.len(), or_else.len());
+        debug_assert_eq!(cond.size(), then.size());
+        debug_assert_eq!(cond.size(), or_else.size());
+
+        let (cond, (then, or_else)) = (cond.to_cl()?, (then.to_cl()?, or_else.to_cl()?));
 
         let queue = OpenCL::queue(cond.len(), then.default_queue(), or_else.default_queue())?;
 
@@ -426,32 +318,42 @@ where
         })
     }
 
-    fn matmul(&self, left: &Buffer<T>, right: &Buffer<T>) -> Result<Buffer<T>, Error> {
-        let [a, b, c] = self.padded;
+    fn matmul(
+        &self,
+        left: &Buffer<T>,
+        right: &Buffer<T>,
+        dims: [usize; 3],
+    ) -> Result<Buffer<T>, Error> {
+        let [a, b, c] = dims;
 
         assert_eq!(self.batch_size * a * b, left.len());
         assert_eq!(self.batch_size * b * c, right.len());
 
         let queue = OpenCL::queue(
-            (self.batch_size * a * c) / (TILE_SIZE * TILE_SIZE), // global work size
+            self.batch_size * a * b * c,
             left.default_queue(),
             right.default_queue(),
         )?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
-            .len(a * c * self.batch_size)
+            .len(self.batch_size * a * c)
+            .fill_val(T::ZERO)
             .build()?;
 
-        let dims = [a as u64, b as u64, c as u64, self.batch_size as u64];
+        let dim4 = [a as u64, b as u64, c as u64, self.batch_size as u64];
 
         let kernel = Kernel::builder()
             .name("matmul")
             .program(&self.matmul)
             .queue(queue)
-            .global_work_size((self.batch_size, a / TILE_SIZE, c / TILE_SIZE))
-            .arg(ocl::core::Ulong4::from(dims))
-            .arg(b / TILE_SIZE)
+            .global_work_size((
+                self.batch_size,
+                a.div_ceil(TILE_SIZE),
+                c.div_ceil(TILE_SIZE),
+            ))
+            .arg(ocl::core::Ulong4::from(dim4))
+            .arg(b.div_ceil(TILE_SIZE))
             .arg(left)
             .arg(right)
             .arg(&output)
@@ -531,7 +433,7 @@ where
         let left = self.pad_matrices(&*left, [a, b], [a_pad, b_pad])?;
         let right = self.pad_matrices(&*right, [b, c], [b_pad, c_pad])?;
 
-        let product = self.matmul(&left, &right)?;
+        let product = self.matmul(&left, &right, self.padded)?;
 
         self.pad_matrices(&product, [a_pad, c_pad], [a, c])
     }
@@ -802,6 +704,7 @@ impl<A, T: CType> Reduce<A, T> {
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(output_size)
+            .fill_val(T::ZERO)
             .build()?;
 
         let kernel = Kernel::builder()
@@ -831,6 +734,7 @@ impl<A, T: CType> Reduce<A, T> {
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(input.len() / stride)
+            .fill_val(T::ZERO)
             .build()?;
 
         let kernel = Kernel::builder()
@@ -901,6 +805,116 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Reduce<A, T> {
         let input = self.access.read()?.to_cl()?;
         let slice = input.create_sub_buffer(None, offset, offset + self.stride)?;
         (self.reduce_all)(OpenCL, AccessBuffer::from(slice))
+    }
+}
+
+pub struct Scalar<A, IT, OT> {
+    access: A,
+    scalar: IT,
+    program: Program,
+    op: fn(IT, IT) -> OT,
+}
+
+impl<A, T> Scalar<A, T, u8>
+where
+    T: CType,
+{
+    fn compare(
+        access: A,
+        scalar: T,
+        program: &'static str,
+        op: fn(T, T) -> u8,
+    ) -> Result<Self, Error> {
+        programs::elementwise::dual_boolean(T::TYPE, program)
+            .map(|program| Self {
+                access,
+                scalar,
+                program,
+                op,
+            })
+            .map_err(Error::from)
+    }
+
+    pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
+    }
+
+    pub fn ge(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "ge", |l, r| if l >= r { 1 } else { 0 })
+    }
+
+    pub fn gt(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "gt", |l, r| if l > r { 1 } else { 0 })
+    }
+
+    pub fn le(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "le", |l, r| if l <= r { 1 } else { 0 })
+    }
+
+    pub fn lt(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "lt", |l, r| if l < r { 1 } else { 0 })
+    }
+
+    pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "ne", |l, r| if l != r { 1 } else { 0 })
+    }
+}
+
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A, IT, OT> Enqueue<OpenCL, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+
+        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("dual_scalar")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(input.len())
+            .arg(&*input)
+            .arg(self.scalar)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<A, IT, OT> ReadValue<OpenCL, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        self.access
+            .read_value(offset)
+            .map(|n| (self.op)(n, self.scalar))
     }
 }
 
@@ -1188,4 +1202,12 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for View<A, T> {
 #[inline]
 fn pad_dim(dim: usize, size: usize) -> usize {
     size * dim.div_ceil(size)
+}
+
+#[allow(unused)]
+fn inspect<T: CType>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
+    let mut inspect = vec![T::ZERO; buffer.len()];
+    buffer.read(inspect.as_mut_slice()).enq()?;
+    println!("{name}: {inspect:?}");
+    Ok(())
 }
