@@ -6,6 +6,7 @@ use super::{OpenCL, TILE_SIZE, WG_SIZE};
 
 pub mod constructors;
 pub mod elementwise;
+pub mod gather;
 pub mod linalg;
 pub mod reduce;
 pub mod slice;

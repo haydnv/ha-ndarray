@@ -284,6 +284,106 @@ where
     }
 }
 
+pub struct GatherCond<A, L, R, T> {
+    cond: A,
+    then: L,
+    or_else: R,
+    program: Program,
+    dtype: PhantomData<T>,
+}
+
+impl<A, L, R, T> GatherCond<A, L, R, T>
+where
+    T: CType,
+{
+    pub fn new(cond: A, then: L, or_else: R) -> Result<Self, Error> {
+        let program = programs::gather::gather_cond(T::TYPE)?;
+
+        Ok(Self {
+            cond,
+            then,
+            or_else,
+            program,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A, L, R, T> Op for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.cond.size(), self.then.size());
+        debug_assert_eq!(self.cond.size(), self.or_else.size());
+        self.cond.size()
+    }
+}
+
+impl<A, L, R, T> Enqueue<OpenCL, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let cond = self.cond.read()?.to_cl()?;
+        let then = self.then.read()?.to_cl()?;
+        let or_else = self.then.read()?.to_cl()?;
+
+        debug_assert_eq!(cond.len(), then.len());
+        debug_assert_eq!(cond.len(), or_else.len());
+
+        let queue = OpenCL::queue(cond.len(), then.default_queue(), or_else.default_queue())?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(cond.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("gather_cond")
+            .queue(queue)
+            .program(&self.program)
+            .global_work_size(cond.len())
+            .arg(&*cond)
+            .arg(&*then)
+            .arg(&*or_else)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<A, L, R, T> ReadValue<OpenCL, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let cond = self.cond.read_value(offset)?;
+        let then = self.then.read_value(offset)?;
+        let or_else = self.or_else.read_value(offset)?;
+
+        if cond != 0 {
+            Ok(then)
+        } else {
+            Ok(or_else)
+        }
+    }
+}
+
 pub struct MatMul<L, R, T> {
     left: L,
     right: R,

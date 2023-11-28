@@ -7,8 +7,9 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual, ElementwiseScalarCompare,
-    ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    Cond, Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual,
+    ElementwiseScalarCompare, ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis,
+    Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
@@ -233,6 +234,20 @@ impl<T: CType> Construct<T> for OpenCL {
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
         }
+    }
+}
+
+impl<A, L, R, T> Cond<A, L, R, T> for OpenCL
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = GatherCond<A, L, R, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        GatherCond::new(cond, then, or_else).map(AccessOp::from)
     }
 }
 

@@ -398,6 +398,43 @@ where
 
 // op traits
 
+/// Conditional selection (boolean logic) methods
+pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug {
+    type Output: NDArray<DType = T>;
+
+    /// Construct a boolean selection operation.
+    /// The resulting array will return values from `then` where `self` is `true`
+    /// and from `or_else` where `self` is `false`.
+    fn cond(self, then: L, or_else: R) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
+where
+    T: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    P: Cond<A, L, R, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn cond(self, then: Array<T, L, P>, or_else: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("cond", self.shape(), then.shape())?;
+        same_shape("cond", self.shape(), or_else.shape())?;
+
+        let access = self
+            .platform
+            .cond(self.access, then.access, or_else.access)?;
+
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
 /// Axis-wise array reduce operations
 pub trait NDArrayReduce: NDArray + fmt::Debug {
     type Output: NDArray<DType = Self::DType>;

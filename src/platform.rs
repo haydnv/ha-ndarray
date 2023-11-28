@@ -114,6 +114,41 @@ impl<T: CType> Construct<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A, L, R, T> Cond<A, L, R, T> for Platform
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = GatherCond<A, L, R, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, L, R, T> Cond<A, L, R, T> for Platform
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = GatherCond<A, L, R, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.cond(cond, then, or_else).map(AccessOp::wrap),
+            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
 where
     L: Access<T>,

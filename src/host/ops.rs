@@ -289,7 +289,8 @@ where
     type Buffer = StackVec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join_read(&self.left, &self.right)?;
+        let left = self.left.read()?.to_slice()?;
+        let right = self.right.read()?.to_slice()?;
         exec_dual(self.zip, left, right)
     }
 }
@@ -336,6 +337,160 @@ where
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
+    }
+}
+
+pub struct GatherCond<A, L, R, T> {
+    cond: A,
+    then: L,
+    or_else: R,
+    dtype: PhantomData<T>,
+}
+
+impl<A, L, R, T> GatherCond<A, L, R, T> {
+    pub fn new(cond: A, then: L, or_else: R) -> Self {
+        Self {
+            cond,
+            then,
+            or_else,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<A, L, R, T> Op for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.cond.size(), self.then.size());
+        debug_assert_eq!(self.cond.size(), self.or_else.size());
+        self.cond.size()
+    }
+}
+
+impl<A, L, R, T> Enqueue<Stack, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let cond = self.cond.read()?.to_slice()?;
+        let then = self.then.read()?.to_slice()?;
+        let or_else = self.or_else.read()?.to_slice()?;
+
+        let output = cond
+            .into_iter()
+            .copied()
+            .zip(then.into_iter().zip(or_else.into_iter()))
+            .map(
+                |(cond, (then, or_else))| {
+                    if cond != 0 {
+                        then
+                    } else {
+                        or_else
+                    }
+                },
+            )
+            .copied()
+            .collect();
+
+        Ok(output)
+    }
+}
+
+impl<A, L, R, T> Enqueue<Heap, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (cond, (then, or_else)) = join(
+            || self.cond.read().and_then(|buf| buf.to_slice()),
+            || {
+                join(
+                    || self.then.read().and_then(|buf| buf.to_slice()),
+                    || self.or_else.read().and_then(|buf| buf.to_slice()),
+                )
+            },
+        );
+
+        let (cond, (then, or_else)) = (cond?, (then?, or_else?));
+
+        let output = cond
+            .into_par_iter()
+            .copied()
+            .zip(then.into_par_iter().zip(or_else.into_par_iter()))
+            .map(
+                |(cond, (then, or_else))| {
+                    if cond != 0 {
+                        then
+                    } else {
+                        or_else
+                    }
+                },
+            )
+            .copied()
+            .collect();
+
+        Ok(output)
+    }
+}
+
+impl<A, L, R, T> Enqueue<Host, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        if self.size() < VEC_MIN_SIZE {
+            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
+        }
+    }
+}
+
+impl<A, L, R, T> ReadValue<Host, T> for GatherCond<A, L, R, T>
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let (cond, (then, or_else)) = join(
+            || self.cond.read_value(offset),
+            || {
+                join(
+                    || self.then.read_value(offset),
+                    || self.or_else.read_value(offset),
+                )
+            },
+        );
+
+        let (cond, (then, or_else)) = (cond?, (then?, or_else?));
+
+        if cond != 0 {
+            Ok(then)
+        } else {
+            Ok(or_else)
+        }
     }
 }
 

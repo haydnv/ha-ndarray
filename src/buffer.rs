@@ -239,6 +239,7 @@ impl<'a, T: CType> BufferConverter<'a, T> {
     }
 
     /// Ensure that this buffer is in host memory by making a copy if necessary.
+    #[inline]
     pub fn to_slice(self) -> Result<host::SliceConverter<'a, T>, Error> {
         match self {
             #[cfg(feature = "opencl")]

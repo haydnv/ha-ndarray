@@ -103,8 +103,22 @@ where
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait Cond<A, L, R, T>: PlatformInstance
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait LinAlgDual<L, R, T>: PlatformInstance
 where
+    L: Access<T>,
+    R: Access<T>,
     T: CType,
 {
     type Op: Enqueue<Self, T>;
@@ -175,17 +189,18 @@ pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     ) -> Result<AccessOp<Self::Transpose, Self>, Error>;
 }
 
-pub enum Scalar<A, IT, OT> {
+pub enum GatherCond<A, L, R, T> {
     #[cfg(feature = "opencl")]
-    CL(opencl::ops::Scalar<A, IT, OT>),
-    Host(host::ops::Scalar<A, IT, OT>),
+    CL(opencl::ops::GatherCond<A, L, R, T>),
+    Host(host::ops::GatherCond<A, L, R, T>),
 }
 
-impl<A, IT, OT> Op for Scalar<A, IT, OT>
+impl<A, L, R, T> Op for GatherCond<A, L, R, T>
 where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
 {
     fn size(&self) -> usize {
         match self {
@@ -196,30 +211,32 @@ where
     }
 }
 
-impl<A, IT, OT> Enqueue<Platform, OT> for Scalar<A, IT, OT>
+impl<A, L, R, T> Enqueue<Platform, T> for GatherCond<A, L, R, T>
 where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
 {
-    type Buffer = Buffer<OT>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
+            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
         }
     }
 }
 
-impl<A, IT, OT> ReadValue<Platform, OT> for Scalar<A, IT, OT>
+impl<A, L, R, T> ReadValue<Platform, T> for GatherCond<A, L, R, T>
 where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
 {
-    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(op) => op.read_value(offset),
@@ -228,16 +245,16 @@ where
     }
 }
 
-#[cfg(feature = "opencl")]
-impl<A, IT, OT> From<opencl::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
-    fn from(op: opencl::ops::Scalar<A, IT, OT>) -> Self {
-        Self::CL(op)
+impl<A, L, R, T> From<host::ops::GatherCond<A, L, R, T>> for GatherCond<A, L, R, T> {
+    fn from(op: host::ops::GatherCond<A, L, R, T>) -> Self {
+        Self::Host(op)
     }
 }
 
-impl<A, IT, OT> From<host::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
-    fn from(op: host::ops::Scalar<A, IT, OT>) -> Self {
-        Self::Host(op)
+#[cfg(feature = "opencl")]
+impl<A, L, R, T> From<opencl::ops::GatherCond<A, L, R, T>> for GatherCond<A, L, R, T> {
+    fn from(op: opencl::ops::GatherCond<A, L, R, T>) -> Self {
+        Self::CL(op)
     }
 }
 
@@ -291,8 +308,8 @@ where
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(op) => ReadValue::read_value(op, offset),
-            Self::Host(op) => ReadValue::read_value(op, offset),
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
         }
     }
 }
@@ -408,8 +425,8 @@ where
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(op) => ReadValue::read_value(op, offset),
-            Self::Host(op) => ReadValue::read_value(op, offset),
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
         }
     }
 }
@@ -629,6 +646,72 @@ impl SliceSpec {
 
     pub fn size(&self) -> usize {
         self.shape.iter().product()
+    }
+}
+
+pub enum Scalar<A, IT, OT> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Scalar<A, IT, OT>),
+    Host(host::ops::Scalar<A, IT, OT>),
+}
+
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.size(),
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<A, IT, OT> Enqueue<Platform, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<A, IT, OT> ReadValue<Platform, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => op.read_value(offset),
+            Self::Host(op) => op.read_value(offset),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, IT, OT> From<opencl::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
+    fn from(op: opencl::ops::Scalar<A, IT, OT>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<A, IT, OT> From<host::ops::Scalar<A, IT, OT>> for Scalar<A, IT, OT> {
+    fn from(op: host::ops::Scalar<A, IT, OT>) -> Self {
+        Self::Host(op)
     }
 }
 

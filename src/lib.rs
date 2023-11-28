@@ -14,7 +14,7 @@ pub use access::*;
 pub use array::{
     MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead,
     NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary,
-    NDArrayWrite,
+    NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
