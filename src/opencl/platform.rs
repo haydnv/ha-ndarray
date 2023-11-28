@@ -393,17 +393,9 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
 
-        let result = [1];
-
         let program = programs::reduce::all(T::TYPE)?;
 
-        let flag = unsafe {
-            Buffer::builder()
-                .context(Self::context())
-                .use_host_slice(&result)
-                .len(1)
-                .build()?
-        };
+        let flag = self.constant(1, 1)?;
 
         let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
 
@@ -418,25 +410,17 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
 
         unsafe { kernel.enq()? }
 
-        queue.finish()?;
-
+        let mut result = [1];
+        flag.read(result.as_mut_slice()).enq()?;
         Ok(result == [1])
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
         let buffer = access.read()?.to_cl()?;
 
-        let result = [0];
-
         let program = programs::reduce::any(T::TYPE)?;
 
-        let flag = unsafe {
-            Buffer::builder()
-                .context(Self::context())
-                .use_host_slice(&result)
-                .len(1)
-                .build()?
-        };
+        let flag = self.constant(0, 1)?;
 
         let queue = Self::queue(buffer.len(), buffer.default_queue(), None)?;
 
@@ -451,8 +435,8 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
 
         unsafe { kernel.enq()? }
 
-        queue.finish()?;
-
+        let mut result = [0];
+        flag.read(result.as_mut_slice()).enq()?;
         Ok(result == [1])
     }
 

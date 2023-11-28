@@ -595,8 +595,8 @@ where
 
     fn any(self, access: A) -> Result<bool, Error> {
         match self {
-            Self::CL(cl) => cl.all(access),
-            Self::Host(host) => host.all(access),
+            Self::CL(cl) => cl.any(access),
+            Self::Host(host) => host.any(access),
         }
     }
 
