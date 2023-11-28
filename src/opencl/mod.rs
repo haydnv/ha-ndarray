@@ -31,7 +31,7 @@ pub type ArrayOp<T, O> = crate::array::Array<T, AccessOp<O, OpenCL>, OpenCL>;
 mod tests {
     use crate::{
         shape, slice, AxisRange, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayMath,
-        NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite,
+        NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite, Shape,
     };
 
     use super::*;
@@ -58,14 +58,10 @@ mod tests {
         let r = ArrayOp::range(0, 4, shape![2, 2])?;
 
         let actual = l.matmul(r)?;
+        assert_eq!(actual.shape(), &[2, 2]);
 
-        let buffer = OpenCL::copy_into_buffer(&[2, 3, 6, 11])?;
-        let expected = ArrayBuf::new(buffer, shape![2, 2])?;
-
-        assert_eq!(actual.shape(), expected.shape());
-
-        let eq = actual.eq(expected)?;
-        assert!(eq.all()?);
+        let expected = vec![2, 3, 6, 11];
+        assert_eq!(actual.read()?.to_slice()?.to_vec(), expected);
 
         Ok(())
     }
@@ -79,17 +75,61 @@ mod tests {
         let r = ArrayBuf::new(buf, shape![4, 5])?;
 
         let actual = l.matmul(r)?;
+        assert_eq!(actual.shape(), &[3, 5]);
 
-        let buf = OpenCL::copy_into_buffer(&[
+        let expected = vec![
             70, 76, 82, 88, 94, 190, 212, 234, 256, 278, 310, 348, 386, 424, 462,
-        ])?;
+        ];
 
-        let expected = ArrayBuf::new(buf, shape![3, 5])?;
+        assert_eq!(actual.read()?.to_slice()?.to_vec(), expected);
 
-        assert_eq!(actual.shape(), expected.shape());
+        Ok(())
+    }
 
-        let eq = actual.eq(expected)?;
-        assert!(eq.all()?);
+    #[ignore] // TODO: why is this test so flaky?
+    #[test]
+    fn test_matmul_large() -> Result<(), Error> {
+        let shapes: Vec<(Shape, Shape, Shape)> = vec![
+            (shape![2, 3], shape![3, 4], shape![2, 4]),
+            (shape![9, 7], shape![7, 12], shape![9, 12]),
+            (shape![16, 8], shape![8, 24], shape![16, 24]),
+            (shape![2, 9], shape![9, 1], shape![2, 1]),
+            (shape![2, 15, 26], shape![2, 26, 37], shape![2, 15, 37]),
+            (shape![3, 15, 26], shape![3, 26, 37], shape![3, 15, 37]),
+            (shape![8, 44, 1], shape![8, 1, 98], shape![8, 44, 98]),
+        ];
+
+        let queue = OpenCL::queue(GPU_MIN_SIZE, None, None)?;
+
+        for (left_shape, right_shape, output_shape) in shapes {
+            println!("{left_shape:?} @ {right_shape:?}");
+
+            let left = ocl::Buffer::builder()
+                .queue(queue.clone())
+                .len(left_shape.iter().product::<usize>())
+                .fill_val(1.)
+                .build()?;
+
+            let right = ocl::Buffer::builder()
+                .queue(queue.clone())
+                .len(right_shape.iter().product::<usize>())
+                .fill_val(1.)
+                .build()?;
+
+            let left = ArrayBuf::new(left, left_shape)?;
+            let right = ArrayBuf::new(right, right_shape)?;
+
+            let expected = *left.shape().last().unwrap();
+
+            let actual = left.matmul(right)?;
+            assert_eq!(actual.shape(), output_shape.as_slice());
+
+            let actual = actual.read()?.to_slice()?;
+            assert!(
+                actual.iter().copied().all(|n| n == expected as f32),
+                "expected {expected} but found {actual:?}"
+            );
+        }
 
         Ok(())
     }

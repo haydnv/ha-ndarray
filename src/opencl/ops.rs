@@ -430,12 +430,14 @@ where
         assert_eq!(self.batch_size * a * b, left.len());
         assert_eq!(self.batch_size * b * c, right.len());
 
-        let left = self.pad_matrices(&*left, [a, b], [a_pad, b_pad])?;
-        let right = self.pad_matrices(&*right, [b, c], [b_pad, c_pad])?;
+        // let left = self.pad_matrices(&*left, [a, b], [a_pad, b_pad])?;
+        // let right = self.pad_matrices(&*right, [b, c], [b_pad, c_pad])?;
 
-        let product = self.matmul(&left, &right, self.padded)?;
+        let product = self.matmul(&left, &right, self.dims)?;
 
-        self.pad_matrices(&product, [a_pad, c_pad], [a, c])
+        Ok(product)
+
+        // self.pad_matrices(&product, [a_pad, c_pad], [a, c])
     }
 }
 

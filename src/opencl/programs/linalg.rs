@@ -74,11 +74,19 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
                 for (uint i = 0; i < {TILE_SIZE}; i++) {{
                     #pragma unroll
                     for (uint j = 0; j < {TILE_SIZE}; j++) {{
-                        ulong lto = left_offset + ((x_offset + i) * dims.y) + (y_offset + j);
-                        left_tile[i][j] = left[lto];
+                        if (x_offset + i < dims.x && y_offset + j < dims.y) {{
+                            ulong offset = left_offset + ((x_offset + i) * dims.y) + (y_offset + j);
+                            left_tile[i][j] = left[offset];
+                        }} else {{
+                            left_tile[i][j] = 0;
+                        }}
 
-                        ulong rto = right_offset + ((y_offset + i) * dims.z) + (z_offset + j);
-                        right_tile[i][j] = right[rto];
+                        if (y_offset + i < dims.y && z_offset + j < dims.z) {{
+                            ulong offset = right_offset + ((y_offset + i) * dims.z) + (z_offset + j);
+                            right_tile[i][j] = right[offset];
+                        }} else {{
+                            right_tile[i][j] = 0;
+                        }}
                     }}
                 }}
 
@@ -102,7 +110,9 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
             for (uint i = 0; i < {TILE_SIZE}; i++) {{
                 #pragma unroll
                 for (uint j = 0; j < {TILE_SIZE}; j++) {{
-                    output[offset + (i * dims.z) + j] = tile[i][j];
+                    if ((x_offset + i) < dims.x && (z_offset + j) < dims.z) {{
+                        output[offset + (i * dims.z) + j] = tile[i][j];
+                    }}
                 }}
             }}
         }}
