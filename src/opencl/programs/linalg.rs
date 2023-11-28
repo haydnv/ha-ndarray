@@ -59,11 +59,11 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
             const ulong left_offset = w * dims.x * dims.y;
             const ulong right_offset = w * dims.y * dims.z;
 
-            {c_type} tile[{TILE_SIZE}][{TILE_SIZE}];
+            {c_type} tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
 
             // initialize the local cache for the left and right tiles to zero
-            {c_type} left_tile[{TILE_SIZE}][{TILE_SIZE}];
-            {c_type} right_tile[{TILE_SIZE}][{TILE_SIZE}];
+            {c_type} left_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
+            {c_type} right_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
 
             // for each tile on the y axis
             for (ulong y_tile = 0; y_tile < reduce_tiles; y_tile++) {{
@@ -104,14 +104,15 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
             }}
 
             // write tile to output
-            ulong offset = (w * dims.x * dims.z) + (x_offset * dims.z) + z_offset;
+            ulong tile_offset = (w * dims.x * dims.z) + (x_offset * dims.z) + z_offset;
 
             #pragma unroll
             for (uint i = 0; i < {TILE_SIZE}; i++) {{
                 #pragma unroll
                 for (uint j = 0; j < {TILE_SIZE}; j++) {{
                     if ((x_offset + i) < dims.x && (z_offset + j) < dims.z) {{
-                        output[offset + (i * dims.z) + j] = tile[i][j];
+                        ulong offset = tile_offset + (i * dims.z) + j;
+                        output[offset] = tile[i][j];
                     }}
                 }}
             }}

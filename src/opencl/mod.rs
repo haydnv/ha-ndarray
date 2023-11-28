@@ -86,7 +86,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore] // TODO: why is this test so flaky?
     #[test]
     fn test_matmul_large() -> Result<(), Error> {
         let shapes: Vec<(Shape, Shape, Shape)> = vec![
@@ -94,6 +93,7 @@ mod tests {
             (shape![9, 7], shape![7, 12], shape![9, 12]),
             (shape![16, 8], shape![8, 24], shape![16, 24]),
             (shape![2, 9], shape![9, 1], shape![2, 1]),
+            (shape![16, 8], shape![8, 32], shape![16, 32]),
             (shape![2, 15, 26], shape![2, 26, 37], shape![2, 15, 37]),
             (shape![3, 15, 26], shape![3, 26, 37], shape![3, 15, 37]),
             (shape![8, 44, 1], shape![8, 1, 98], shape![8, 44, 98]),
@@ -129,6 +129,8 @@ mod tests {
                 actual.iter().copied().all(|n| n == expected as f32),
                 "expected {expected} but found {actual:?}"
             );
+
+            queue.flush()?;
         }
 
         Ok(())
