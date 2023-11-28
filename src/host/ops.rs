@@ -128,6 +128,16 @@ where
     }
 }
 
+macro_rules! host_enqueue {
+    ($this:expr, $cond:expr, $t:ty) => {
+        if $cond {
+            Enqueue::<Stack, $t>::enqueue($this).map(Buffer::Stack)
+        } else {
+            Enqueue::<Heap, $t>::enqueue($this).map(Buffer::Heap)
+        }
+    };
+}
+
 impl<A, IT, OT> Enqueue<Host, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
@@ -137,11 +147,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, OT>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, OT>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
     }
 }
 
@@ -320,11 +326,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, OT>::enqueue(self).map(Buffer::from)
-        } else {
-            Enqueue::<Heap, OT>::enqueue(self).map(Buffer::from)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
     }
 }
 
@@ -458,11 +460,7 @@ where
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
     }
 }
 
@@ -555,11 +553,7 @@ impl<T: CType> Enqueue<Host, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size < VEC_MIN_SIZE, T)
     }
 }
 
@@ -710,11 +704,11 @@ where
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.left.size() < VEC_MIN_SIZE && self.right.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(
+            self,
+            self.left.size() < VEC_MIN_SIZE && self.right.size() < VEC_MIN_SIZE,
+            T
+        )
     }
 }
 
@@ -815,11 +809,7 @@ impl Enqueue<Host, f32> for RandomNormal {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size < VEC_MIN_SIZE {
-            Enqueue::<Stack, f32>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, f32>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size < VEC_MIN_SIZE, f32)
     }
 }
 
@@ -871,11 +861,7 @@ impl Enqueue<Host, f32> for RandomUniform {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size < VEC_MIN_SIZE {
-            Enqueue::<Stack, f32>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, f32>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size < VEC_MIN_SIZE, f32)
     }
 }
 
@@ -984,11 +970,11 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for Reduce<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.stride < VEC_MIN_SIZE && self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(
+            self,
+            self.stride < VEC_MIN_SIZE && self.size() < VEC_MIN_SIZE,
+            T
+        )
     }
 }
 
@@ -1126,11 +1112,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for Slice<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
     }
 }
 
@@ -1274,11 +1256,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, OT>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, OT>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
     }
 }
 
@@ -1365,11 +1343,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for View<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        if self.size() < VEC_MIN_SIZE {
-            Enqueue::<Stack, T>::enqueue(self).map(Buffer::Stack)
-        } else {
-            Enqueue::<Heap, T>::enqueue(self).map(Buffer::Heap)
-        }
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
     }
 }
 

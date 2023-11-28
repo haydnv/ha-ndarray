@@ -8,6 +8,26 @@ use crate::{
     Strides,
 };
 
+macro_rules! op_dispatch {
+    ($this:expr, $op:ident, $call:expr) => {
+        match $this {
+            #[cfg(feature = "opencl")]
+            Self::CL($op) => $call,
+            Self::Host($op) => $call,
+        }
+    };
+}
+
+macro_rules! op_enqueue {
+    ($this:expr, $t:ty) => {
+        match $this {
+            #[cfg(feature = "opencl")]
+            Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
+            Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
+        }
+    };
+}
+
 pub trait Op: Send + Sync {
     fn size(&self) -> usize;
 }
@@ -203,11 +223,7 @@ where
     T: CType,
 {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -221,11 +237,7 @@ where
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, T)
     }
 }
 
@@ -237,11 +249,7 @@ where
     T: CType,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
@@ -272,11 +280,7 @@ where
     OT: CType,
 {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -290,11 +294,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, OT)
     }
 }
 
@@ -306,11 +306,7 @@ where
     OT: CType,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
@@ -348,11 +344,7 @@ impl<T> From<host::ops::Linear<T>> for Linear<T> {
 
 impl<T: Send + Sync> Op for Linear<T> {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -360,21 +352,13 @@ impl<T: CType> Enqueue<Platform, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, T)
     }
 }
 
 impl<T: CType> ReadValue<Platform, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
@@ -391,11 +375,7 @@ where
     T: CType,
 {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -408,11 +388,7 @@ where
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, T>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, T)
     }
 }
 
@@ -423,11 +399,7 @@ where
     T: CType,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
@@ -486,11 +458,7 @@ macro_rules! impl_random {
     ($t:ty) => {
         impl Op for $t {
             fn size(&self) -> usize {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.size(),
-                    Self::Host(op) => op.size(),
-                }
+                op_dispatch!(self, op, op.size())
             }
         }
 
@@ -498,21 +466,13 @@ macro_rules! impl_random {
             type Buffer = Buffer<f32>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL, f32>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host, f32>::enqueue(op).map(Buffer::Host),
-                }
+                op_enqueue!(self, f32)
             }
         }
 
         impl ReadValue<Platform, f32> for $t {
             fn read_value(&self, offset: usize) -> Result<f32, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.read_value(offset),
-                    Self::Host(op) => op.read_value(offset),
-                }
+                op_dispatch!(self, op, op.read_value(offset))
             }
         }
     };
@@ -525,11 +485,7 @@ macro_rules! impl_unary {
     ($op:ty, $t:ty) => {
         impl<A: Access<T>, T: CType> Op for $op {
             fn size(&self) -> usize {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.size(),
-                    Self::Host(op) => op.size(),
-                }
+                op_dispatch!(self, op, op.size())
             }
         }
 
@@ -537,21 +493,13 @@ macro_rules! impl_unary {
             type Buffer = Buffer<$t>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => Enqueue::<opencl::OpenCL, $t>::enqueue(op).map(Buffer::CL),
-                    Self::Host(op) => Enqueue::<host::Host, $t>::enqueue(op).map(Buffer::Host),
-                }
+                op_enqueue!(self, $t)
             }
         }
 
         impl<A: Access<T>, T: CType> ReadValue<Platform, $t> for $op {
             fn read_value(&self, offset: usize) -> Result<$t, Error> {
-                match self {
-                    #[cfg(feature = "opencl")]
-                    Self::CL(op) => op.read_value(offset),
-                    Self::Host(op) => op.read_value(offset),
-                }
+                op_dispatch!(self, op, op.read_value(offset))
             }
         }
     };
@@ -662,11 +610,7 @@ where
     OT: CType,
 {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -679,11 +623,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, OT)
     }
 }
 
@@ -694,11 +634,7 @@ where
     OT: CType,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
@@ -809,11 +745,7 @@ where
     OT: CType,
 {
     fn size(&self) -> usize {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.size(),
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -826,11 +758,7 @@ where
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => Enqueue::<opencl::OpenCL, OT>::enqueue(op).map(Buffer::CL),
-            Self::Host(op) => Enqueue::<host::Host, OT>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, OT)
     }
 }
 
@@ -841,11 +769,7 @@ where
     OT: CType,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
-        match self {
-            #[cfg(feature = "opencl")]
-            Self::CL(op) => op.read_value(offset),
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
     }
 }
 
