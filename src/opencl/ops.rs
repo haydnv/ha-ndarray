@@ -383,14 +383,23 @@ where
             .len(self.batch_size * dims_out[0] * dims_out[1])
             .build()?;
 
+        let gws = if dims_in.iter().product::<usize>() <= dims_out.iter().product::<usize>() {
+            (self.batch_size, dims_in[0], dims_in[1])
+        } else {
+            (self.batch_size, dims_out[0], dims_out[1])
+        };
+
+        let strides_in = [(dims_in[0] * dims_in[1]) as u64, dims_in[1] as u64];
+
+        let strides_out = [(dims_out[0] * dims_out[1]) as u64, dims_out[1] as u64];
+
         let kernel = Kernel::builder()
             .name("pad_matrices")
             .program(&self.pad_matrices)
             .queue(queue)
-            .global_work_size(batch.len())
-            .arg(self.batch_size)
-            .arg(dims_in[1] as u64)
-            .arg(dims_out[1] as u64)
+            .global_work_size(gws)
+            .arg(ocl::core::Ulong2::from(strides_in))
+            .arg(ocl::core::Ulong2::from(strides_out))
             .arg(batch)
             .arg(&output)
             .build()?;
@@ -430,14 +439,12 @@ where
         assert_eq!(self.batch_size * a * b, left.len());
         assert_eq!(self.batch_size * b * c, right.len());
 
-        // let left = self.pad_matrices(&*left, [a, b], [a_pad, b_pad])?;
-        // let right = self.pad_matrices(&*right, [b, c], [b_pad, c_pad])?;
+        let left = self.pad_matrices(&left, [a, b], [a_pad, b_pad])?;
+        let right = self.pad_matrices(&right, [b, c], [b_pad, c_pad])?;
 
-        let product = self.matmul(&left, &right, self.dims)?;
+        let product = self.matmul(&left, &right, self.padded)?;
 
-        Ok(product)
-
-        // self.pad_matrices(&product, [a_pad, c_pad], [a, c])
+        self.pad_matrices(&product, [a_pad, c_pad], [a, c])
     }
 }
 
