@@ -5,11 +5,12 @@ use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseUnary,
-    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
+    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll,
+    ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{stackvec, Axes, CType, Constant, Error, Range, Shape};
+use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
 
 use super::buffer::{Buffer, SliceConverter};
 use super::ops::*;
@@ -392,6 +393,18 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Host {
 
     fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Scalar::sub(left, right).into())
+    }
+}
+
+impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Host {
+    type Op = Unary<A, T, u8>;
+
+    fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::inf(access).into())
+    }
+
+    fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::nan(access).into())
     }
 }
 

@@ -166,6 +166,18 @@ where
     fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait ElementwiseNumeric<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, u8>;
+
+    fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseUnary<A, T>: PlatformInstance
 where
     A: Access<T>,

@@ -8,11 +8,12 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseUnary,
-    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
+    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll,
+    ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{Axes, CType, Constant, Error, Range, Shape};
+use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
 
 use super::ops::*;
 use super::{programs, CLConverter};
@@ -425,6 +426,18 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for OpenCL {
 
     fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Scalar::sub(left, right).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
+    type Op = Unary<A, T, u8>;
+
+    fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::inf(access).map(AccessOp::from)
+    }
+
+    fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::nan(access).map(AccessOp::from)
     }
 }
 

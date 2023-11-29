@@ -1262,6 +1262,16 @@ impl<A, T: CType> Unary<A, T, u8> {
     }
 }
 
+impl<A, T: Float> Unary<A, T, u8> {
+    pub fn inf(access: A) -> Result<Self, Error> {
+        Self::new(access, "isinf", |n| if n.is_inf() { 1 } else { 0 })
+    }
+
+    pub fn nan(access: A) -> Result<Self, Error> {
+        Self::new(access, "isnan", |n| if n.is_nan() { 1 } else { 0 })
+    }
+}
+
 impl<A, IT, OT> Op for Unary<A, IT, OT>
 where
     A: Access<IT>,

@@ -13,8 +13,8 @@ use smallvec::SmallVec;
 pub use access::*;
 pub use array::{
     MatrixMath, NDArray, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath,
-    NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform,
-    NDArrayUnary, NDArrayWhere, NDArrayWrite,
+    NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll,
+    NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
@@ -382,6 +382,10 @@ fn min_f64(l: f64, r: f64) -> f64 {
 pub trait Float: CType {
     fn exp(self) -> Self;
 
+    fn is_inf(self) -> bool;
+
+    fn is_nan(self) -> bool;
+
     fn ln(self) -> Self;
 
     fn log(self, base: Self) -> Self;
@@ -392,6 +396,14 @@ pub trait Float: CType {
 impl Float for f32 {
     fn exp(self) -> Self {
         f32::exp(self)
+    }
+
+    fn is_inf(self) -> bool {
+        self.is_infinite()
+    }
+
+    fn is_nan(self) -> bool {
+        f32::is_nan(self)
     }
 
     fn ln(self) -> Self {
@@ -410,6 +422,14 @@ impl Float for f32 {
 impl Float for f64 {
     fn exp(self) -> Self {
         f64::exp(self)
+    }
+
+    fn is_inf(self) -> bool {
+        self.is_infinite()
+    }
+
+    fn is_nan(self) -> bool {
+        f64::is_nan(self)
     }
 
     fn ln(self) -> Self {

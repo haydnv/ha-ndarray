@@ -8,7 +8,7 @@ use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
     range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert,
-    Error, Platform, Range, Shape,
+    Error, Float, Platform, Range, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -993,6 +993,37 @@ where
 
     fn sub_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
         self.apply(|platform, left| platform.sub_scalar(left, rhs))
+    }
+}
+
+/// Float-specific array methods
+pub trait NDArrayNumeric: NDArray + Sized
+where
+    Self::DType: Float,
+{
+    type Output: NDArray<DType = u8>;
+
+    /// Test which elements of this array are infinite.
+    fn is_inf(self) -> Result<Self::Output, Error>;
+
+    /// Test which elements of this array are not-a-number.
+    fn is_nan(self) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayNumeric for Array<T, A, P>
+where
+    T: Float,
+    A: Access<T>,
+    P: ElementwiseNumeric<A, T>,
+{
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+
+    fn is_inf(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.is_inf(access))
+    }
+
+    fn is_nan(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.is_nan(access))
     }
 }
 

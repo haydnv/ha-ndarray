@@ -1420,6 +1420,26 @@ where
     }
 }
 
+impl<A, T> Unary<A, T, u8>
+where
+    A: Access<T>,
+    T: Float,
+{
+    pub fn inf(access: A) -> Self {
+        Self {
+            access,
+            op: |n| if n.is_inf() { 1 } else { 0 },
+        }
+    }
+
+    pub fn nan(access: A) -> Self {
+        Self {
+            access,
+            op: |n| if n.is_nan() { 1 } else { 0 },
+        }
+    }
+}
+
 impl<A, IT, OT> Op for Unary<A, IT, OT>
 where
     A: Access<IT>,

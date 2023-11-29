@@ -3,7 +3,7 @@ use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, Axes, CType, Error, Range, Shape};
+use crate::{host, Axes, CType, Error, Float, Range, Shape};
 
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
     fn select(size_hint: usize) -> Self;
@@ -587,6 +587,42 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Platform {
         match self {
             Self::CL(cl) => cl.sub_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.sub_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Platform {
+    type Op = Unary<A, T, u8>;
+
+    fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.is_inf(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.is_nan(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Platform {
+    type Op = Unary<A, T, u8>;
+
+    fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.is_inf(access).map(AccessOp::wrap),
+            Self::Host(host) => host.is_inf(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.is_nan(access).map(AccessOp::wrap),
+            Self::Host(host) => host.is_nan(access).map(AccessOp::wrap),
         }
     }
 }
