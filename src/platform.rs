@@ -171,6 +171,53 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
+    type Op = Scalar<A, T, u8>;
+
+    fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.and_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+    fn or_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.or_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+    fn xor_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.xor_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
+    type Op = Scalar<A, T, u8>;
+
+    fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.and_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.and_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn or_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.or_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.or_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn xor_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.xor_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.xor_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platform {
     type Op = Cast<A, IT, OT>;
 

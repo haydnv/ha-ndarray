@@ -699,6 +699,41 @@ where
     }
 }
 
+/// Boolean array operations with a scalar argument
+pub trait NDArrayBooleanScalar: NDArray + Sized {
+    type Output: NDArray<DType = u8>;
+
+    /// Construct a boolean and operation with the `other` value.
+    fn and_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a boolean or operation with the `other` value.
+    fn or_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a boolean xor operation with the `other` value.
+    fn xor_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayBooleanScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseBooleanScalar<A, T>,
+{
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+
+    fn and_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.and_scalar(access, other))
+    }
+
+    fn or_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.or_scalar(access, other))
+    }
+
+    fn xor_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.xor_scalar(access, other))
+    }
+}
+
 /// Array comparison operations
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     type Output: NDArray<DType = u8>;

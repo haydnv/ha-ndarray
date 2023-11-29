@@ -4,9 +4,9 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
-    Construct, ElementwiseBoolean, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
-    ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random, ReduceAll,
-    ReduceAxis, Transform,
+    Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
+    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random,
+    ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Range, Shape};
@@ -246,6 +246,22 @@ where
 
     fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::xor(left, right).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Host {
+    type Op = Scalar<A, T, u8>;
+
+    fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::and(left, right).into())
+    }
+
+    fn or_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::or(left, right).into())
+    }
+
+    fn xor_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::xor(left, right).into())
     }
 }
 

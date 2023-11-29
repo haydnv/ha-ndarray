@@ -68,6 +68,16 @@ pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
     fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait ElementwiseBooleanScalar<A, T>: PlatformInstance {
+    type Op: Enqueue<Self, u8>;
+
+    fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn or_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn xor_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseCast<A, IT, OT>: PlatformInstance
 where
     A: Access<IT>,

@@ -7,9 +7,9 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseBoolean, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
-    ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random, ReduceAll,
-    ReduceAxis, Transform,
+    Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
+    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random,
+    ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Constant, Error, Range, Shape};
@@ -271,6 +271,22 @@ where
 
     fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::xor(left, right).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for OpenCL {
+    type Op = Scalar<A, T, u8>;
+
+    fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Scalar::and(left, right).map(AccessOp::from)
+    }
+
+    fn or_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Scalar::and(left, right).map(AccessOp::from)
+    }
+
+    fn xor_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Scalar::and(left, right).map(AccessOp::from)
     }
 }
 

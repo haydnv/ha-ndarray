@@ -902,6 +902,36 @@ where
             .map_err(Error::from)
     }
 
+    pub fn and(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "and", |l, r| {
+            if l != T::ZERO && r != T::ZERO {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn or(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "or", |l, r| {
+            if l != T::ZERO || r != T::ZERO {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn xor(access: A, scalar: T) -> Result<Self, Error> {
+        Self::compare(access, scalar, "xor", |l, r| {
+            if (l != T::ZERO) ^ (r != T::ZERO) {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
     pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
         Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
     }

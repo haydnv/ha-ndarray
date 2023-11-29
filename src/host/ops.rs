@@ -671,6 +671,45 @@ impl<A, IT, OT> Scalar<A, IT, OT> {
 }
 
 impl<A, T> Scalar<A, T, u8> {
+    pub fn and(access: A, scalar: T) -> Self
+    where
+        T: CType,
+    {
+        Self::new(access, scalar, |l, r| {
+            if (l != T::ZERO) && (r != T::ZERO) {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn or(access: A, scalar: T) -> Self
+    where
+        T: CType,
+    {
+        Self::new(access, scalar, |l, r| {
+            if (l != T::ZERO) || (r != T::ZERO) {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn xor(access: A, scalar: T) -> Self
+    where
+        T: CType,
+    {
+        Self::new(access, scalar, |l, r| {
+            if (l != T::ZERO) ^ (r != T::ZERO) {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
     pub fn eq(access: A, scalar: T) -> Self
     where
         T: PartialEq,
