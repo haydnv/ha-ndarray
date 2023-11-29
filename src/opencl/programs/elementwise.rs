@@ -89,8 +89,20 @@ pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, E
 pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
+        inline {c_type} _log(const double left, const double right) {{
+            return log(left) / log(right);
+        }}
+
         inline {c_type} add(const {c_type} left, const {c_type} right) {{
             return left + right;
+        }}
+
+        inline {c_type} div(const {c_type} left, const {c_type} right) {{
+            return left / right;
+        }}
+
+        inline {c_type} mul(const {c_type} left, const {c_type} right) {{
+            return left * right;
         }}
 
         inline {c_type} sub(const {c_type} left, const {c_type} right) {{

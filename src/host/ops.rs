@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 use std::iter;
 use std::marker::PhantomData;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
 use rand::Rng;
 use rayon::join;
@@ -121,6 +121,46 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
             left,
             right,
             zip: Add::add,
+        }
+    }
+
+    pub fn div(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: Div::div,
+        }
+    }
+
+    pub fn log(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |a, b| T::from_float(a.to_float().log(b.to_float())),
+        }
+    }
+
+    pub fn mul(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: Mul::mul,
+        }
+    }
+
+    pub fn pow(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::pow,
+        }
+    }
+
+    pub fn rem(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: Rem::rem,
         }
     }
 

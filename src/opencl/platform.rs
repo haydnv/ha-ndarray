@@ -371,6 +371,26 @@ where
         Dual::add(left, right).map(AccessOp::from)
     }
 
+    fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::div(left, right).map(AccessOp::from)
+    }
+
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::log(arg, base).map(AccessOp::from)
+    }
+
+    fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::mul(left, right).map(AccessOp::from)
+    }
+
+    fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::pow(arg, exp).map(AccessOp::from)
+    }
+
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Dual::rem(left, right).map(AccessOp::from)
+    }
+
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Dual::sub(left, right).map(AccessOp::from)
     }

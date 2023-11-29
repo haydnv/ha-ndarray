@@ -1,6 +1,6 @@
 use std::borrow::BorrowMut;
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
 use ocl::{Buffer, Kernel, Program, Queue};
 use rand::{random, Rng};
@@ -92,14 +92,40 @@ impl<L, R, IT, OT> Dual<L, R, IT, OT> {
 impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
-        let op = Add::add;
-        Self::new(left, right, program, op)
+        Self::new(left, right, program, Add::add)
+    }
+
+    pub fn div(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::TYPE, "div")?;
+        Self::new(left, right, program, Div::div)
+    }
+
+    pub fn log(arg: L, exp: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::TYPE, "_log")?;
+        Self::new(arg, exp, program, |a, e| {
+            T::from_float(a.to_float().log(e.to_float()))
+        })
+    }
+
+    pub fn mul(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::TYPE, "mul")?;
+        Self::new(left, right, program, Mul::mul)
+    }
+
+    pub fn pow(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::TYPE, "pow")?;
+        Self::new(left, right, program, T::pow)
+    }
+
+    pub fn rem(left: L, right: R) -> Result<Self, Error> {
+        let program = if T::is_float() { "fmod" } else { "mod" };
+        let program = programs::elementwise::dual(T::TYPE, program)?;
+        Self::new(left, right, program, Rem::rem)
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "sub")?;
-        let op = Sub::sub;
-        Self::new(left, right, program, op)
+        Self::new(left, right, program, Sub::sub)
     }
 }
 

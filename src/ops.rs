@@ -131,6 +131,16 @@ where
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
+    fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 

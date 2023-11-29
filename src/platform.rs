@@ -441,6 +441,36 @@ where
         }
     }
 
+    fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.div(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.log(arg, base).map(AccessOp::wrap),
+        }
+    }
+
+    fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.mul(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.pow(arg, exp).map(AccessOp::wrap),
+        }
+    }
+
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.rem(left, right).map(AccessOp::wrap),
+        }
+    }
+
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.sub(left, right).map(AccessOp::wrap),
@@ -461,6 +491,41 @@ where
         match self {
             Self::CL(cl) => cl.add(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.add(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.div(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.div(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.log(arg, base).map(AccessOp::wrap),
+            Self::Host(host) => host.log(arg, base).map(AccessOp::wrap),
+        }
+    }
+
+    fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.mul(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.mul(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.pow(arg, exp).map(AccessOp::wrap),
+            Self::Host(host) => host.pow(arg, exp).map(AccessOp::wrap),
+        }
+    }
+
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.rem(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.rem(left, right).map(AccessOp::wrap),
         }
     }
 

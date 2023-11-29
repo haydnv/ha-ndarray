@@ -338,6 +338,26 @@ where
         Ok(Dual::add(left, right).into())
     }
 
+    fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::div(left, right).into())
+    }
+
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::log(arg, base).into())
+    }
+
+    fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::sub(left, right).into())
+    }
+
+    fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::pow(arg, exp).into())
+    }
+
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Dual::rem(left, right).into())
+    }
+
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::sub(left, right).into())
     }
