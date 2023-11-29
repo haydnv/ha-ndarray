@@ -144,6 +144,28 @@ where
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait ElementwiseScalar<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
+
+    fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn div_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn mul_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn pow_scalar(self, arg: A, exp: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseUnary<A, T>: PlatformInstance
 where
     A: Access<T>,

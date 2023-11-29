@@ -5,8 +5,8 @@ use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, ElementwiseUnaryBoolean,
-    GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
+    ElementwiseDual, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseUnary,
+    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Range, Shape};
@@ -360,6 +360,38 @@ where
 
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Dual::sub(left, right).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Host {
+    type Op = Scalar<A, T, T>;
+
+    fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::add(left, right).into())
+    }
+
+    fn div_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::div(left, right).into())
+    }
+
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::log(arg, base).into())
+    }
+
+    fn mul_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::mul(left, right).into())
+    }
+
+    fn pow_scalar(self, arg: A, exp: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::pow(arg, exp).into())
+    }
+
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::rem(left, right).into())
+    }
+
+    fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Scalar::sub(left, right).into())
     }
 }
 

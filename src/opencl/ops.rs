@@ -908,6 +908,55 @@ pub struct Scalar<A, IT, OT> {
     op: fn(IT, IT) -> OT,
 }
 
+impl<A, T: CType> Scalar<A, T, T> {
+    pub fn new(
+        access: A,
+        scalar: T,
+        program: &'static str,
+        op: fn(T, T) -> T,
+    ) -> Result<Self, Error> {
+        programs::elementwise::dual(T::TYPE, program)
+            .map(|program| Self {
+                access,
+                scalar,
+                program,
+                op,
+            })
+            .map_err(Error::from)
+    }
+
+    pub fn add(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "add", Add::add)
+    }
+
+    pub fn div(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "div", Div::div)
+    }
+
+    pub fn log(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "_log", |a, e| {
+            T::from_float(a.to_float().log(e.to_float()))
+        })
+    }
+
+    pub fn mul(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "mul", Mul::mul)
+    }
+
+    pub fn pow(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "pow", T::pow)
+    }
+
+    pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
+        let program = if T::is_float() { "fmod" } else { "mod" };
+        Self::new(access, scalar, program, Rem::rem)
+    }
+
+    pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "sub", Sub::sub)
+    }
+}
+
 impl<A, T> Scalar<A, T, u8>
 where
     T: CType,

@@ -927,6 +927,75 @@ where
     }
 }
 
+/// Array arithmetic operations with a scalar argument
+pub trait NDArrayMathScalar: NDArray + Sized {
+    type Output: NDArray<DType = Self::DType>;
+
+    /// Construct a scalar addition operation.
+    fn add_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar division operation.
+    fn div_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar logarithm operation.
+    fn log_scalar(self, base: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar multiplication operation.
+    fn mul_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar exponentiation operation.
+    fn pow_scalar(self, exp: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar modulo operation.
+    fn rem_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+
+    /// Construct a scalar subtraction operation.
+    fn sub_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayMathScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseScalar<A, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn add_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, left| platform.add_scalar(left, rhs))
+    }
+
+    fn div_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+        if rhs != T::ZERO {
+            self.apply(|platform, left| platform.div_scalar(left, rhs))
+        } else {
+            Err(Error::Unsupported(format!(
+                "cannot divide {self:?} by {rhs}"
+            )))
+        }
+    }
+
+    fn log_scalar(self, base: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, arg| platform.log_scalar(arg, base))
+    }
+
+    fn mul_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, left| platform.mul_scalar(left, rhs))
+    }
+
+    fn pow_scalar(self, exp: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, arg| platform.pow_scalar(arg, exp))
+    }
+
+    fn rem_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, left| platform.rem_scalar(left, rhs))
+    }
+
+    fn sub_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+        self.apply(|platform, left| platform.sub_scalar(left, rhs))
+    }
+}
+
 /// Boolean array reduce operations
 pub trait NDArrayReduceBoolean: NDArrayRead {
     /// Return `true` if this array contains only non-zero elements.

@@ -237,7 +237,7 @@ c_type!(
     f32,
     i8::abs,
     id,
-    |a, e| i8::pow(a, e as u32),
+    |a, e| f32::powi(a as f32, e as i32) as i8,
     Ord::max,
     Ord::min
 );
@@ -251,7 +251,7 @@ c_type!(
     f32,
     i16::abs,
     id,
-    |a, e| i16::pow(a, e as u32),
+    |a, e| f32::powi(a as f32, e as i32) as i16,
     Ord::max,
     Ord::min
 );
@@ -265,7 +265,7 @@ c_type!(
     f32,
     i32::abs,
     id,
-    |a, e| i32::pow(a, e as u32),
+    |a, e| f32::powi(a as f32, e) as i32,
     Ord::max,
     Ord::min
 );
@@ -279,7 +279,10 @@ c_type!(
     f64,
     i64::abs,
     id,
-    |a, e| i64::pow(a, u32::try_from(e).unwrap_or(u32::MAX)),
+    |a, e| f64::powi(
+        a as f64,
+        i32::try_from(e).unwrap_or_else(|_| if e >= 0 { i32::MAX } else { i32::MIN })
+    ) as i64,
     Ord::max,
     Ord::min
 );
@@ -426,6 +429,7 @@ impl Float for f64 {
 pub enum Error {
     Bounds(String),
     Interface(String),
+    Unsupported(String),
     #[cfg(feature = "opencl")]
     OCL(std::sync::Arc<ocl::Error>),
 }
@@ -437,6 +441,7 @@ impl Clone for Error {
         match self {
             Self::Bounds(msg) => Self::Bounds(msg.clone()),
             Self::Interface(msg) => Self::Interface(msg.clone()),
+            Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => Self::OCL(cause.clone()),
         }
@@ -459,6 +464,7 @@ impl fmt::Debug for Error {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
             Self::Interface(cause) => f.write_str(cause),
+            Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
         }
@@ -470,6 +476,7 @@ impl fmt::Display for Error {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
             Self::Interface(cause) => f.write_str(cause),
+            Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
         }

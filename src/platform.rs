@@ -537,6 +537,60 @@ where
     }
 }
 
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Platform {
+    type Op = Scalar<A, T, T>;
+
+    fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.add_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.add_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn div_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.div_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.div_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.log_scalar(arg, base).map(AccessOp::wrap),
+            Self::Host(host) => host.log_scalar(arg, base).map(AccessOp::wrap),
+        }
+    }
+
+    fn mul_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.mul_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.mul_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn pow_scalar(self, arg: A, exp: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.pow_scalar(arg, exp).map(AccessOp::wrap),
+            Self::Host(host) => host.pow_scalar(arg, exp).map(AccessOp::wrap),
+        }
+    }
+
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.rem_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.rem_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+
+    fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.sub_scalar(left, right).map(AccessOp::wrap),
+            Self::Host(host) => host.sub_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
 #[cfg(not(feature = "opencl"))]
 impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;

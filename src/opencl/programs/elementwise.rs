@@ -117,6 +117,15 @@ pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
             const ulong offset = get_global_id(0);
             output[offset] = {op}(left[offset], right[offset]);
         }}
+
+        __kernel void dual_scalar(
+            __global const {c_type}* restrict left,
+            const {c_type} right,
+            __global {c_type}* restrict output)
+        {{
+            const ulong offset = get_global_id(0);
+            output[offset] = {op}(left[offset], right);
+        }}
         "#,
     );
 

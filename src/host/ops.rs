@@ -710,6 +710,38 @@ impl<A, IT, OT> Scalar<A, IT, OT> {
     }
 }
 
+impl<A, T: CType> Scalar<A, T, T> {
+    pub fn add(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, Add::add)
+    }
+
+    pub fn div(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, Div::div)
+    }
+
+    pub fn log(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, |a, b| {
+            T::from_float(a.to_float().log(b.to_float()))
+        })
+    }
+
+    pub fn mul(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, Mul::mul)
+    }
+
+    pub fn pow(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, T::pow)
+    }
+
+    pub fn rem(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, Rem::rem)
+    }
+
+    pub fn sub(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, Sub::sub)
+    }
+}
+
 impl<A, T> Scalar<A, T, u8> {
     pub fn and(access: A, scalar: T) -> Self
     where
