@@ -1150,16 +1150,40 @@ pub struct Unary<A, IT, OT> {
     dtype: PhantomData<(IT, OT)>,
 }
 
-impl<A, T: CType> Unary<A, T, T> {
-    pub fn ln(access: A) -> Result<Self, Error> {
-        let program = programs::elementwise::unary(T::Float::TYPE, T::TYPE, T::TYPE, "_log")?;
+impl<A, IT: CType, OT: CType> Unary<A, IT, OT> {
+    fn new(access: A, program: &'static str, op: fn(IT) -> OT) -> Result<Self, Error> {
+        let program = programs::elementwise::unary(IT::Float::TYPE, IT::TYPE, OT::TYPE, program)?;
 
         Ok(Self {
             access,
             program,
-            op: |n| T::from_float(n.to_float().ln()),
+            op,
             dtype: PhantomData,
         })
+    }
+}
+
+impl<A, T: CType> Unary<A, T, T> {
+    pub fn abs(access: A) -> Result<Self, Error> {
+        Self::new(access, "abs", |n| T::from_float(n.to_float().ln()))
+    }
+
+    pub fn exp(access: A) -> Result<Self, Error> {
+        Self::new(access, "exp", |n| T::from_float(n.to_float().ln()))
+    }
+
+    pub fn ln(access: A) -> Result<Self, Error> {
+        Self::new(access, "_log", |n| T::from_float(n.to_float().ln()))
+    }
+
+    pub fn round(access: A) -> Result<Self, Error> {
+        Self::new(access, "round", |n| T::from_float(n.to_float().ln()))
+    }
+}
+
+impl<A, T: CType> Unary<A, T, u8> {
+    pub fn not(access: A) -> Result<Self, Error> {
+        Self::new(access, "not", |n| if n == T::ZERO { 1 } else { 0 })
     }
 }
 

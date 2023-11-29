@@ -69,9 +69,13 @@ pub trait CType:
 
     fn from_float(float: Self::Float) -> Self;
 
+    fn abs(self) -> Self;
+
     fn min(l: Self, r: Self) -> Self;
 
     fn max(l: Self, r: Self) -> Self;
+
+    fn round(self) -> Self;
 
     fn to_f64(self) -> f64;
 
@@ -117,9 +121,13 @@ pub trait CType:
 
     fn from_float(float: Self::Float) -> Self;
 
+    fn abs(self) -> Self;
+
     fn min(l: Self, r: Self) -> Self;
 
     fn max(l: Self, r: Self) -> Self;
+
+    fn round(self) -> Self;
 
     fn to_f64(self) -> f64;
 
@@ -127,7 +135,7 @@ pub trait CType:
 }
 
 macro_rules! c_type {
-    ($t:ty, $str:expr, $one:expr, $zero:expr, $float:ty, $cmp_max:expr, $cmp_min:expr) => {
+    ($t:ty, $str:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $round:expr, $cmp_max:expr, $cmp_min:expr) => {
         impl CType for $t {
             const TYPE: &'static str = $str;
 
@@ -149,12 +157,20 @@ macro_rules! c_type {
                 float as $t
             }
 
+            fn abs(self) -> Self {
+                $abs(self)
+            }
+
             fn min(l: Self, r: Self) -> Self {
                 $cmp_min(l, r)
             }
 
             fn max(l: Self, r: Self) -> Self {
                 $cmp_max(l, r)
+            }
+
+            fn round(self) -> Self {
+                $round(self)
             }
 
             fn to_f64(self) -> f64 {
@@ -168,16 +184,40 @@ macro_rules! c_type {
     };
 }
 
-c_type!(f32, "float", 1.0, 0.0, Self, max_f32, min_f32);
-c_type!(f64, "double", 1.0, 0.0, Self, max_f64, min_f64);
-c_type!(i8, "char", 1, 0, f32, Ord::max, Ord::min);
-c_type!(i16, "short", 1, 0, f32, Ord::max, Ord::min);
-c_type!(i32, "int", 1, 0, f32, Ord::max, Ord::min);
-c_type!(i64, "long", 1, 0, f64, Ord::max, Ord::min);
-c_type!(u8, "uchar", 1, 0, f32, Ord::max, Ord::min);
-c_type!(u16, "ushort", 1, 0, f32, Ord::max, Ord::min);
-c_type!(u32, "uint", 1, 0, f32, Ord::max, Ord::min);
-c_type!(u64, "ulong", 1, 0, f64, Ord::max, Ord::min);
+c_type!(
+    f32,
+    "float",
+    1.0,
+    0.0,
+    Self,
+    f32::abs,
+    f32::round,
+    max_f32,
+    min_f32
+);
+c_type!(
+    f64,
+    "double",
+    1.0,
+    0.0,
+    Self,
+    f64::abs,
+    f64::round,
+    max_f64,
+    min_f64
+);
+c_type!(i8, "char", 1, 0, f32, i8::abs, id, Ord::max, Ord::min);
+c_type!(i16, "short", 1, 0, f32, i16::abs, id, Ord::max, Ord::min);
+c_type!(i32, "int", 1, 0, f32, i32::abs, id, Ord::max, Ord::min);
+c_type!(i64, "long", 1, 0, f64, i64::abs, id, Ord::max, Ord::min);
+c_type!(u8, "uchar", 1, 0, f32, id, id, Ord::max, Ord::min);
+c_type!(u16, "ushort", 1, 0, f32, id, id, Ord::max, Ord::min);
+c_type!(u32, "uint", 1, 0, f32, id, id, Ord::max, Ord::min);
+c_type!(u64, "ulong", 1, 0, f64, id, id, Ord::max, Ord::min);
+
+fn id<T>(this: T) -> T {
+    this
+}
 
 fn max_f32(l: f32, r: f32) -> f32 {
     match l.total_cmp(&r) {
@@ -212,12 +252,18 @@ fn min_f64(l: f64, r: f64) -> f64 {
 }
 
 pub trait Float: CType {
+    fn exp(self) -> Self;
+
     fn ln(self) -> Self;
 
     fn to_f64(self) -> f64;
 }
 
 impl Float for f32 {
+    fn exp(self) -> Self {
+        f32::exp(self)
+    }
+
     fn ln(self) -> Self {
         f32::ln(self)
     }
@@ -228,6 +274,10 @@ impl Float for f32 {
 }
 
 impl Float for f64 {
+    fn exp(self) -> Self {
+        f64::exp(self)
+    }
+
     fn ln(self) -> Self {
         f64::ln(self)
     }

@@ -1306,10 +1306,44 @@ where
     A: Access<T>,
     T: CType,
 {
+    pub fn abs(access: A) -> Self {
+        Self {
+            access,
+            op: CType::abs,
+        }
+    }
+
+    pub fn exp(access: A) -> Self {
+        Self {
+            access,
+            op: |n| T::from_float(n.to_float().exp()),
+        }
+    }
+
     pub fn ln(access: A) -> Self {
         Self {
             access,
             op: |n| T::from_float(n.to_float().ln()),
+        }
+    }
+
+    pub fn round(access: A) -> Self {
+        Self {
+            access,
+            op: CType::round,
+        }
+    }
+}
+
+impl<A, T> Unary<A, T, u8>
+where
+    A: Access<T>,
+    T: CType,
+{
+    pub fn not(access: A) -> Self {
+        Self {
+            access,
+            op: |n| if n == T::ZERO { 1 } else { 0 },
         }
     }
 }

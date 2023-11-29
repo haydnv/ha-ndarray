@@ -629,11 +629,20 @@ where
 
 /// Unary array operations
 pub trait NDArrayUnary: NDArray + Sized {
-    /// The return type of an `ln` operation.
-    type Log: NDArray<DType = Self::DType>;
+    /// The return type of a unary operation.
+    type Output: NDArray<DType = Self::DType>;
+
+    /// Construct an absolute value operation.
+    fn abs(self) -> Result<Self::Output, Error>;
+
+    /// Construct an exponentiation operation.
+    fn exp(self) -> Result<Self::Output, Error>;
 
     /// Construct a natural logarithm operation.
-    fn ln(self) -> Result<Self::Log, Error>;
+    fn ln(self) -> Result<Self::Output, Error>;
+
+    /// Construct an integer rounding operation.
+    fn round(self) -> Result<Self::Output, Error>;
 }
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
@@ -642,18 +651,47 @@ where
     A: Access<T>,
     P: ElementwiseUnary<A, T>,
 {
-    type Log = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
 
-    fn ln(self) -> Result<Self::Log, Error>
+    fn abs(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.abs(access))
+    }
+
+    fn exp(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.exp(access))
+    }
+
+    fn ln(self) -> Result<Self::Output, Error>
     where
         P: ElementwiseUnary<A, T>,
     {
-        self.platform.ln(self.access).map(|access| Array {
-            access,
-            shape: self.shape,
-            platform: self.platform,
-            dtype: self.dtype,
-        })
+        self.apply(|platform, access| platform.ln(access))
+    }
+
+    fn round(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.round(access))
+    }
+}
+
+/// Unary boolean array operations
+pub trait NDArrayUnaryBoolean: NDArray + Sized {
+    /// The return type of a unary operation.
+    type Output: NDArray<DType = Self::DType>;
+
+    /// Construct a boolean not operation.
+    fn not(self) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayUnaryBoolean for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseUnaryBoolean<A, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn not(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.not(access))
     }
 }
 

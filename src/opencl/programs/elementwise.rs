@@ -119,6 +119,14 @@ pub fn unary(
 ) -> Result<Program, Error> {
     let src = format!(
         r#"
+        inline uchar not(const {i_type} input) {{
+            if (input == 0) {{
+                return 1;
+            }} else {{
+                return 0;
+            }}
+        }}
+
         inline {f_type} _log(const {f_type} input) {{
             return log(input);
         }}

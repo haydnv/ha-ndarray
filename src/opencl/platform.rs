@@ -8,8 +8,8 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random,
-    ReduceAll, ReduceAxis, Transform,
+    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, ElementwiseUnaryBoolean,
+    GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Constant, Error, Range, Shape};
@@ -379,8 +379,28 @@ where
 impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
     type Op = Unary<A, T, T>;
 
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::abs(access).map(AccessOp::from)
+    }
+
+    fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::exp(access).map(AccessOp::from)
+    }
+
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::ln(access).map(AccessOp::from)
+    }
+
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::round(access).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for OpenCL {
+    type Op = Unary<A, T, u8>;
+
+    fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::not(access).map(AccessOp::from)
     }
 }
 

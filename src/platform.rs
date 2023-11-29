@@ -476,9 +476,27 @@ where
 impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.exp(access).map(AccessOp::wrap),
+        }
+    }
+
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.round(access).map(AccessOp::wrap),
         }
     }
 }
@@ -487,10 +505,54 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
 impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.abs(access).map(AccessOp::wrap),
+            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.exp(access).map(AccessOp::wrap),
+            Self::Host(host) => host.exp(access).map(AccessOp::wrap),
+        }
+    }
+
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::CL(cl) => cl.ln(access).map(AccessOp::wrap),
             Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.round(access).map(AccessOp::wrap),
+            Self::Host(host) => host.round(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Platform {
+    type Op = Unary<A, T, u8>;
+
+    fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.not(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Platform {
+    type Op = Unary<A, T, u8>;
+
+    fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.not(access).map(AccessOp::wrap),
+            Self::Host(host) => host.not(access).map(AccessOp::wrap),
         }
     }
 }

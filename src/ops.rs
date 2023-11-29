@@ -141,7 +141,23 @@ where
 {
     type Op: Enqueue<Self, T>;
 
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+pub trait ElementwiseUnaryBoolean<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, u8>;
+
+    fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait GatherCond<A, L, R, T>: PlatformInstance

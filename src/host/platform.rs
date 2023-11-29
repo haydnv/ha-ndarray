@@ -5,8 +5,8 @@ use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random,
-    ReduceAll, ReduceAxis, Transform,
+    ElementwiseDual, ElementwiseScalarCompare, ElementwiseUnary, ElementwiseUnaryBoolean,
+    GatherCond, LinAlgDual, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Range, Shape};
@@ -346,8 +346,28 @@ where
 impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
     type Op = Unary<A, T, T>;
 
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::abs(access).into())
+    }
+
+    fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::exp(access).into())
+    }
+
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::ln(access).into())
+    }
+
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::round(access).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Host {
+    type Op = Unary<A, T, u8>;
+
+    fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::not(access).into())
     }
 }
 
