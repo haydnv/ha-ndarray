@@ -68,6 +68,17 @@ pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
     fn xor(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait ElementwiseCast<A, IT, OT>: PlatformInstance
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Op: Enqueue<Self, OT>;
+
+    fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
     type Op: Enqueue<Self, u8>;
 
@@ -123,7 +134,7 @@ where
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-pub trait Cond<A, L, R, T>: PlatformInstance
+pub trait GatherCond<A, L, R, T>: PlatformInstance
 where
     A: Access<u8>,
     L: Access<T>,
@@ -209,13 +220,52 @@ pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     ) -> Result<AccessOp<Self::Transpose, Self>, Error>;
 }
 
-pub enum GatherCond<A, L, R, T> {
+pub enum Cast<A, IT, OT> {
     #[cfg(feature = "opencl")]
-    CL(opencl::ops::GatherCond<A, L, R, T>),
-    Host(host::ops::GatherCond<A, L, R, T>),
+    CL(opencl::ops::Cast<A, IT, OT>),
+    Host(host::ops::Cast<A, IT, OT>),
 }
 
-impl<A, L, R, T> Op for GatherCond<A, L, R, T>
+impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+    fn size(&self) -> usize {
+        op_dispatch!(self, op, op.size())
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Platform, OT> for Cast<A, IT, OT> {
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        op_enqueue!(self, OT)
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<Platform, OT> for Cast<A, IT, OT> {
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        op_dispatch!(self, op, op.read_value(offset))
+    }
+}
+
+impl<A, IT, OT> From<host::ops::Cast<A, IT, OT>> for Cast<A, IT, OT> {
+    fn from(op: host::ops::Cast<A, IT, OT>) -> Cast<A, IT, OT> {
+        Self::Host(op)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, IT, OT> From<opencl::ops::Cast<A, IT, OT>> for Cast<A, IT, OT> {
+    fn from(op: opencl::ops::Cast<A, IT, OT>) -> Cast<A, IT, OT> {
+        Self::CL(op)
+    }
+}
+
+pub enum Cond<A, L, R, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Cond<A, L, R, T>),
+    Host(host::ops::Cond<A, L, R, T>),
+}
+
+impl<A, L, R, T> Op for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -227,7 +277,7 @@ where
     }
 }
 
-impl<A, L, R, T> Enqueue<Platform, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> Enqueue<Platform, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -241,7 +291,7 @@ where
     }
 }
 
-impl<A, L, R, T> ReadValue<Platform, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> ReadValue<Platform, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -253,15 +303,15 @@ where
     }
 }
 
-impl<A, L, R, T> From<host::ops::GatherCond<A, L, R, T>> for GatherCond<A, L, R, T> {
-    fn from(op: host::ops::GatherCond<A, L, R, T>) -> Self {
+impl<A, L, R, T> From<host::ops::Cond<A, L, R, T>> for Cond<A, L, R, T> {
+    fn from(op: host::ops::Cond<A, L, R, T>) -> Self {
         Self::Host(op)
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<A, L, R, T> From<opencl::ops::GatherCond<A, L, R, T>> for GatherCond<A, L, R, T> {
-    fn from(op: opencl::ops::GatherCond<A, L, R, T>) -> Self {
+impl<A, L, R, T> From<opencl::ops::Cond<A, L, R, T>> for Cond<A, L, R, T> {
+    fn from(op: opencl::ops::Cond<A, L, R, T>) -> Self {
         Self::CL(op)
     }
 }

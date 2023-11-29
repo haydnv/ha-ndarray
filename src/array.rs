@@ -252,7 +252,6 @@ where
     }
 }
 
-// references
 impl<T, O, P> Array<T, AccessOp<O, P>, P>
 where
     T: CType,
@@ -398,37 +397,27 @@ where
 
 // op traits
 
-/// Conditional selection (boolean logic) methods
-pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug {
-    type Output: NDArray<DType = T>;
+/// Array cast operations
+pub trait NDArrayCast<OT: CType>: NDArray + Sized {
+    type Output: NDArray<DType = OT>;
 
-    /// Construct a boolean selection operation.
-    /// The resulting array will return values from `then` where `self` is `true`
-    /// and from `or_else` where `self` is `false`.
-    fn cond(self, then: L, or_else: R) -> Result<Self::Output, Error>;
+    /// Construct a new array cast operation.
+    fn cast(self) -> Result<Self::Output, Error>;
 }
 
-impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
+impl<IT, OT, A, P> NDArrayCast<OT> for Array<IT, A, P>
 where
-    T: CType,
-    A: Access<u8>,
-    L: Access<T>,
-    R: Access<T>,
-    P: Cond<A, L, R, T>,
+    IT: CType,
+    OT: CType,
+    A: Access<IT>,
+    P: ElementwiseCast<A, IT, OT>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = Array<OT, AccessOp<P::Op, P>, P>;
 
-    fn cond(self, then: Array<T, L, P>, or_else: Array<T, R, P>) -> Result<Self::Output, Error> {
-        same_shape("cond", self.shape(), then.shape())?;
-        same_shape("cond", self.shape(), or_else.shape())?;
-
-        let access = self
-            .platform
-            .cond(self.access, then.access, or_else.access)?;
-
+    fn cast(self) -> Result<Self::Output, Error> {
         Ok(Array {
             shape: self.shape,
-            access,
+            access: self.platform.cast(self.access)?,
             platform: self.platform,
             dtype: PhantomData,
         })
@@ -914,6 +903,43 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
             std::any::type_name::<T>(),
             self.shape
         )
+    }
+}
+
+/// Conditional selection (boolean logic) methods
+pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug {
+    type Output: NDArray<DType = T>;
+
+    /// Construct a boolean selection operation.
+    /// The resulting array will return values from `then` where `self` is `true`
+    /// and from `or_else` where `self` is `false`.
+    fn cond(self, then: L, or_else: R) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
+where
+    T: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    P: GatherCond<A, L, R, T>,
+{
+    type Output = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn cond(self, then: Array<T, L, P>, or_else: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("cond", self.shape(), then.shape())?;
+        same_shape("cond", self.shape(), or_else.shape())?;
+
+        let access = self
+            .platform
+            .cond(self.access, then.access, or_else.access)?;
+
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 }
 

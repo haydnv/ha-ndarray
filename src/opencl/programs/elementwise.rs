@@ -6,6 +6,23 @@ use crate::Error;
 use super::build;
 
 #[memoize]
+pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error> {
+    let src = format!(
+        r#"
+        __kernel void cast(
+            __global const {i_type}* restrict input,
+            __global {o_type}* restrict output)
+        {{
+            const ulong offset = get_global_id(0);
+            output[offset] = ({o_type}) input[offset];
+        }}
+        "#,
+    );
+
+    build(&src)
+}
+
+#[memoize]
 pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"

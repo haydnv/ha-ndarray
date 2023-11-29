@@ -4,12 +4,12 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
-    Cond, Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual,
-    ElementwiseScalarCompare, ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis,
-    Transform,
+    Construct, ElementwiseBoolean, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
+    ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random, ReduceAll,
+    ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
+use crate::{stackvec, Axes, CType, Constant, Error, Range, Shape};
 
 use super::buffer::{Buffer, SliceConverter};
 use super::ops::*;
@@ -198,7 +198,7 @@ impl<T: CType> Construct<T> for Host {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = (stop - start).to_float().to_f64() / size as f64;
+            let step = (stop - start).to_f64() / size as f64;
             Ok(Linear::new(start, step, size).into())
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
@@ -206,17 +206,25 @@ impl<T: CType> Construct<T> for Host {
     }
 }
 
-impl<A, L, R, T> Cond<A, L, R, T> for Host
+impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Host {
+    type Op = Cast<A, IT, OT>;
+
+    fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Cast::new(access).into())
+    }
+}
+
+impl<A, L, R, T> GatherCond<A, L, R, T> for Host
 where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
     T: CType,
 {
-    type Op = GatherCond<A, L, R, T>;
+    type Op = Cond<A, L, R, T>;
 
     fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(GatherCond::new(cond, then, or_else).into())
+        Ok(Cond::new(cond, then, or_else).into())
     }
 }
 

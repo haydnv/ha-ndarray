@@ -114,41 +114,6 @@ impl<T: CType> Construct<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A, L, R, T> Cond<A, L, R, T> for Platform
-where
-    A: Access<u8>,
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Op = GatherCond<A, L, R, T>;
-
-    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        match self {
-            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<A, L, R, T> Cond<A, L, R, T> for Platform
-where
-    A: Access<u8>,
-    L: Access<T>,
-    R: Access<T>,
-    T: CType,
-{
-    type Op = GatherCond<A, L, R, T>;
-
-    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        match self {
-            Self::CL(cl) => cl.cond(cond, then, or_else).map(AccessOp::wrap),
-            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
-        }
-    }
-}
-
-#[cfg(not(feature = "opencl"))]
 impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
 where
     L: Access<T>,
@@ -201,6 +166,29 @@ where
         match self {
             Self::CL(cl) => cl.xor(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.xor(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platform {
+    type Op = Cast<A, IT, OT>;
+
+    fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.cast(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platform {
+    type Op = Cast<A, IT, OT>;
+
+    fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.cast(access).map(AccessOp::wrap),
+            Self::Host(host) => host.cast(access).map(AccessOp::wrap),
         }
     }
 }
@@ -456,6 +444,41 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
         match self {
             Self::CL(cl) => cl.ln(access).map(AccessOp::wrap),
             Self::Host(host) => host.ln(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
+impl<A, L, R, T> GatherCond<A, L, R, T> for Platform
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = Cond<A, L, R, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, L, R, T> GatherCond<A, L, R, T> for Platform
+where
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    T: CType,
+{
+    type Op = Cond<A, L, R, T>;
+
+    fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.cond(cond, then, or_else).map(AccessOp::wrap),
+            Self::Host(host) => host.cond(cond, then, or_else).map(AccessOp::wrap),
         }
     }
 }

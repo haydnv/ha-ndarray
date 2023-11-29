@@ -7,12 +7,12 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Cond, Construct, ElementwiseBoolean, ElementwiseCompare, ElementwiseDual,
-    ElementwiseScalarCompare, ElementwiseUnary, LinAlgDual, Random, ReduceAll, ReduceAxis,
-    Transform,
+    Construct, ElementwiseBoolean, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
+    ElementwiseScalarCompare, ElementwiseUnary, GatherCond, LinAlgDual, Random, ReduceAll,
+    ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
+use crate::{Axes, CType, Constant, Error, Range, Shape};
 
 use super::ops::*;
 use super::{programs, CLConverter};
@@ -231,7 +231,7 @@ impl<T: CType> Construct<T> for OpenCL {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = (stop - start).to_float().to_f64() / size as f64;
+            let step = (stop - start).to_f64() / size as f64;
             Linear::new(start, step, size).map(AccessOp::from)
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
@@ -239,17 +239,17 @@ impl<T: CType> Construct<T> for OpenCL {
     }
 }
 
-impl<A, L, R, T> Cond<A, L, R, T> for OpenCL
+impl<A, L, R, T> GatherCond<A, L, R, T> for OpenCL
 where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
     T: CType,
 {
-    type Op = GatherCond<A, L, R, T>;
+    type Op = Cond<A, L, R, T>;
 
     fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        GatherCond::new(cond, then, or_else).map(AccessOp::from)
+        Cond::new(cond, then, or_else).map(AccessOp::from)
     }
 }
 
@@ -274,7 +274,15 @@ where
     }
 }
 
-impl<T, L, R> ElementwiseCompare<L, R, T> for OpenCL
+impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for OpenCL {
+    type Op = Cast<A, IT, OT>;
+
+    fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Cast::new(access).map(AccessOp::from)
+    }
+}
+
+impl<L, R, T> ElementwiseCompare<L, R, T> for OpenCL
 where
     T: CType,
     L: Access<T>,

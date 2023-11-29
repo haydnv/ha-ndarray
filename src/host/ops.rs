@@ -15,119 +15,6 @@ use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
 use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
 
-pub struct Scalar<A, IT, OT> {
-    access: A,
-    scalar: IT,
-    op: fn(IT, IT) -> OT,
-}
-
-impl<A, IT, OT> Scalar<A, IT, OT> {
-    fn new(access: A, scalar: IT, op: fn(IT, IT) -> OT) -> Self {
-        Self { access, scalar, op }
-    }
-}
-
-impl<A, T> Scalar<A, T, u8> {
-    pub fn eq(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
-        Self::new(access, scalar, |l, r| if l == r { 1 } else { 0 })
-    }
-
-    pub fn ge(access: A, scalar: T) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self::new(access, scalar, |l, r| if l >= r { 1 } else { 0 })
-    }
-
-    pub fn gt(access: A, scalar: T) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self::new(access, scalar, |l, r| if l > r { 1 } else { 0 })
-    }
-
-    pub fn le(access: A, scalar: T) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self::new(access, scalar, |l, r| if l <= r { 1 } else { 0 })
-    }
-
-    pub fn lt(access: A, scalar: T) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self::new(access, scalar, |l, r| if l < r { 1 } else { 0 })
-    }
-
-    pub fn ne(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
-        Self::new(access, scalar, |l, r| if l != r { 1 } else { 0 })
-    }
-}
-
-impl<A, IT, OT> Op for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    fn size(&self) -> usize {
-        self.access.size()
-    }
-}
-
-impl<A, IT, OT> Enqueue<Heap, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    type Buffer = Vec<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        self.access
-            .read()
-            .and_then(|buf| buf.to_slice())
-            .map(|slice| {
-                slice
-                    .as_ref()
-                    .into_par_iter()
-                    .copied()
-                    .map(|l| (self.op)(l, self.scalar))
-                    .collect()
-            })
-    }
-}
-
-impl<A, IT, OT> Enqueue<Stack, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
-    type Buffer = StackVec<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        self.access
-            .read()
-            .and_then(|buf| buf.to_slice())
-            .map(|slice| {
-                slice
-                    .as_ref()
-                    .into_iter()
-                    .copied()
-                    .map(|l| (self.op)(l, self.scalar))
-                    .collect()
-            })
-    }
-}
-
 macro_rules! host_enqueue {
     ($this:expr, $cond:expr, $t:ty) => {
         if $cond {
@@ -138,12 +25,61 @@ macro_rules! host_enqueue {
     };
 }
 
-impl<A, IT, OT> Enqueue<Host, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
+pub struct Cast<A, IT, OT> {
+    access: A,
+    dtype: PhantomData<(IT, OT)>,
+}
+
+impl<A, IT, OT> Cast<A, IT, OT> {
+    pub fn new(access: A) -> Self {
+        Self {
+            access,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Heap, OT> for Cast<A, IT, OT> {
+    type Buffer = Vec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .into_par_iter()
+                    .map(|n| n.to_f64())
+                    .map(OT::from_f64)
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Stack, OT> for Cast<A, IT, OT> {
+    type Buffer = StackVec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .into_iter()
+                    .map(|n| n.to_f64())
+                    .map(OT::from_f64)
+                    .collect()
+            })
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Host, OT> for Cast<A, IT, OT> {
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -151,16 +87,12 @@ where
     }
 }
 
-impl<A, IT, OT> ReadValue<Host, OT> for Scalar<A, IT, OT>
-where
-    A: Access<IT>,
-    IT: CType,
-    OT: CType,
-{
+impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<Host, OT> for Cast<A, IT, OT> {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| (self.op)(n, self.scalar))
+            .map(|n| n.to_f64())
+            .map(OT::from_f64)
     }
 }
 
@@ -342,14 +274,14 @@ where
     }
 }
 
-pub struct GatherCond<A, L, R, T> {
+pub struct Cond<A, L, R, T> {
     cond: A,
     then: L,
     or_else: R,
     dtype: PhantomData<T>,
 }
 
-impl<A, L, R, T> GatherCond<A, L, R, T> {
+impl<A, L, R, T> Cond<A, L, R, T> {
     pub fn new(cond: A, then: L, or_else: R) -> Self {
         Self {
             cond,
@@ -360,7 +292,7 @@ impl<A, L, R, T> GatherCond<A, L, R, T> {
     }
 }
 
-impl<A, L, R, T> Op for GatherCond<A, L, R, T>
+impl<A, L, R, T> Op for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -374,7 +306,7 @@ where
     }
 }
 
-impl<A, L, R, T> Enqueue<Stack, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> Enqueue<Stack, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -408,7 +340,7 @@ where
     }
 }
 
-impl<A, L, R, T> Enqueue<Heap, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> Enqueue<Heap, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -450,7 +382,7 @@ where
     }
 }
 
-impl<A, L, R, T> Enqueue<Host, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> Enqueue<Host, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -464,7 +396,7 @@ where
     }
 }
 
-impl<A, L, R, T> ReadValue<Host, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> ReadValue<Host, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -522,7 +454,7 @@ impl<T: CType> Enqueue<Stack, T> for Linear<T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let start = self.start.to_float().to_f64();
+        let start = self.start.to_f64();
 
         let buffer = (0..self.size)
             .into_iter()
@@ -723,6 +655,145 @@ where
             "reading an individual value from a matrix multiplication is not implemented"
                 .to_string(),
         ))
+    }
+}
+
+pub struct Scalar<A, IT, OT> {
+    access: A,
+    scalar: IT,
+    op: fn(IT, IT) -> OT,
+}
+
+impl<A, IT, OT> Scalar<A, IT, OT> {
+    fn new(access: A, scalar: IT, op: fn(IT, IT) -> OT) -> Self {
+        Self { access, scalar, op }
+    }
+}
+
+impl<A, T> Scalar<A, T, u8> {
+    pub fn eq(access: A, scalar: T) -> Self
+    where
+        T: PartialEq,
+    {
+        Self::new(access, scalar, |l, r| if l == r { 1 } else { 0 })
+    }
+
+    pub fn ge(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self::new(access, scalar, |l, r| if l >= r { 1 } else { 0 })
+    }
+
+    pub fn gt(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self::new(access, scalar, |l, r| if l > r { 1 } else { 0 })
+    }
+
+    pub fn le(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self::new(access, scalar, |l, r| if l <= r { 1 } else { 0 })
+    }
+
+    pub fn lt(access: A, scalar: T) -> Self
+    where
+        T: PartialOrd,
+    {
+        Self::new(access, scalar, |l, r| if l < r { 1 } else { 0 })
+    }
+
+    pub fn ne(access: A, scalar: T) -> Self
+    where
+        T: PartialEq,
+    {
+        Self::new(access, scalar, |l, r| if l != r { 1 } else { 0 })
+    }
+}
+
+impl<A, IT, OT> Op for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A, IT, OT> Enqueue<Heap, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Vec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .as_ref()
+                    .into_par_iter()
+                    .copied()
+                    .map(|l| (self.op)(l, self.scalar))
+                    .collect()
+            })
+    }
+}
+
+impl<A, IT, OT> Enqueue<Stack, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = StackVec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        self.access
+            .read()
+            .and_then(|buf| buf.to_slice())
+            .map(|slice| {
+                slice
+                    .as_ref()
+                    .into_iter()
+                    .copied()
+                    .map(|l| (self.op)(l, self.scalar))
+                    .collect()
+            })
+    }
+}
+
+impl<A, IT, OT> Enqueue<Host, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
+    }
+}
+
+impl<A, IT, OT> ReadValue<Host, OT> for Scalar<A, IT, OT>
+where
+    A: Access<IT>,
+    IT: CType,
+    OT: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        self.access
+            .read_value(offset)
+            .map(|n| (self.op)(n, self.scalar))
     }
 }
 

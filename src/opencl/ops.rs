@@ -12,6 +12,64 @@ use crate::{strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strid
 use super::platform::OpenCL;
 use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
 
+pub struct Cast<A, IT, OT> {
+    access: A,
+    program: Program,
+    dtype: PhantomData<(IT, OT)>,
+}
+
+impl<A, IT: CType, OT: CType> Cast<A, IT, OT> {
+    pub fn new(access: A) -> Result<Self, Error> {
+        programs::elementwise::cast(IT::TYPE, OT::TYPE).map(|program| Self {
+            access,
+            program,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<OpenCL, OT> for Cast<A, IT, OT> {
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(input.len())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("cast")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(input.len())
+            .arg(&*input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
+    }
+}
+
+impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<OpenCL, OT> for Cast<A, IT, OT> {
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        self.access
+            .read_value(offset)
+            .map(|n| n.to_f64())
+            .map(OT::from_f64)
+    }
+}
+
 pub struct Dual<L, R, IT, OT> {
     left: L,
     right: R,
@@ -174,7 +232,7 @@ where
     }
 }
 
-pub struct GatherCond<A, L, R, T> {
+pub struct Cond<A, L, R, T> {
     cond: A,
     then: L,
     or_else: R,
@@ -182,7 +240,7 @@ pub struct GatherCond<A, L, R, T> {
     dtype: PhantomData<T>,
 }
 
-impl<A, L, R, T> GatherCond<A, L, R, T>
+impl<A, L, R, T> Cond<A, L, R, T>
 where
     T: CType,
 {
@@ -199,7 +257,7 @@ where
     }
 }
 
-impl<A, L, R, T> Op for GatherCond<A, L, R, T>
+impl<A, L, R, T> Op for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -213,7 +271,7 @@ where
     }
 }
 
-impl<A, L, R, T> Enqueue<OpenCL, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> Enqueue<OpenCL, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,
@@ -256,7 +314,7 @@ where
     }
 }
 
-impl<A, L, R, T> ReadValue<OpenCL, T> for GatherCond<A, L, R, T>
+impl<A, L, R, T> ReadValue<OpenCL, T> for Cond<A, L, R, T>
 where
     A: Access<u8>,
     L: Access<T>,

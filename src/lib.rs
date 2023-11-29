@@ -12,9 +12,9 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixMath, NDArray, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayRead,
-    NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary,
-    NDArrayWhere, NDArrayWrite,
+    MatrixMath, NDArray, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath,
+    NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform,
+    NDArrayUnary, NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
 use ops::*;
@@ -73,6 +73,8 @@ pub trait CType:
 
     fn max(l: Self, r: Self) -> Self;
 
+    fn to_f64(self) -> f64;
+
     fn to_float(self) -> Self::Float;
 }
 
@@ -119,6 +121,8 @@ pub trait CType:
 
     fn max(l: Self, r: Self) -> Self;
 
+    fn to_f64(self) -> f64;
+
     fn to_float(self) -> Self::Float;
 }
 
@@ -151,6 +155,10 @@ macro_rules! c_type {
 
             fn max(l: Self, r: Self) -> Self {
                 $cmp_max(l, r)
+            }
+
+            fn to_f64(self) -> f64 {
+                self as f64
             }
 
             fn to_float(self) -> $float {
@@ -293,7 +301,7 @@ pub type Shape = SmallVec<[usize; 8]>;
 
 pub type Strides = SmallVec<[usize; 8]>;
 
-pub type Array<T> = array::Array<T, Accessor<T>, Platform>;
+pub type Array<T, A> = array::Array<T, A, Platform>;
 
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
 
