@@ -534,6 +534,90 @@ impl<T: CType> ReadValue<Host, T> for Linear<T> {
     }
 }
 
+pub struct MatDiag<A, T> {
+    access: A,
+    dim: usize,
+    batch_size: usize,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T> MatDiag<A, T> {
+    pub fn new(access: A, batch_size: usize, dim: usize) -> Self {
+        Self {
+            access,
+            dim,
+            batch_size,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.access.size(), self.batch_size * self.dim * self.dim);
+        self.batch_size * self.dim
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Heap, T> for MatDiag<A, T> {
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_slice()?;
+
+        let diagonals = input
+            .par_chunks_exact(self.batch_size)
+            .map(|matrix| {
+                matrix
+                    .par_chunks_exact(self.dim)
+                    .enumerate()
+                    .map(|(i, row)| row[i])
+            })
+            .flatten()
+            .collect();
+
+        Ok(diagonals)
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Stack, T> for MatDiag<A, T> {
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_slice()?;
+
+        let diagonals = input
+            .chunks_exact(self.batch_size)
+            .map(|matrix| {
+                matrix
+                    .chunks_exact(self.dim)
+                    .enumerate()
+                    .map(|(i, row)| row[i])
+            })
+            .flatten()
+            .collect();
+
+        Ok(diagonals)
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Host, T> for MatDiag<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<Host, T> for MatDiag<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let batch = offset / self.batch_size;
+        let i = offset % self.batch_size;
+        let source_offset = (batch * self.dim * self.dim) + (i * self.dim) + i;
+        self.access.read_value(source_offset)
+    }
+}
+
 pub struct MatMul<L, R, T> {
     left: L,
     right: R,

@@ -254,6 +254,21 @@ where
         -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait LinAlgUnary<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T>;
+
+    fn diag(
+        self,
+        access: A,
+        batch_size: usize,
+        dim: usize,
+    ) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait Random: PlatformInstance {
     type Normal: Enqueue<Self, f32>;
     type Uniform: Enqueue<Self, f32>;
@@ -505,6 +520,45 @@ impl<T: CType> Enqueue<Platform, T> for Linear<T> {
 impl<T: CType> ReadValue<Platform, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
+    }
+}
+
+pub enum MatDiag<A, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::MatDiag<A, T>),
+    Host(host::ops::MatDiag<A, T>),
+}
+
+impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+    fn size(&self) -> usize {
+        op_dispatch!(self, op, op.size())
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Platform, T> for MatDiag<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        op_enqueue!(self, T)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<Platform, T> for MatDiag<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        op_dispatch!(self, op, op.read_value(offset))
+    }
+}
+
+impl<A, T> From<host::ops::MatDiag<A, T>> for MatDiag<A, T> {
+    fn from(op: host::ops::MatDiag<A, T>) -> Self {
+        Self::Host(op)
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T> From<opencl::ops::MatDiag<A, T>> for MatDiag<A, T> {
+    fn from(op: opencl::ops::MatDiag<A, T>) -> Self {
+        Self::CL(op)
     }
 }
 

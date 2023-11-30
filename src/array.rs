@@ -64,12 +64,13 @@ impl<T, A, P> Array<T, A, P> {
             shape.extend_from_slice(&self.shape[(axis + 1)..]);
         }
 
-        let access = (op)(self.platform, self.access, self.shape[axis])?;
+        let platform = P::select(shape.iter().product());
+        let access = (op)(platform, self.access, self.shape[axis])?;
 
         Ok(Array {
             shape,
             access,
-            platform: self.platform,
+            platform,
             dtype: self.dtype,
         })
     }
@@ -1226,8 +1227,8 @@ where
     }
 }
 
-/// Matrix operations
-pub trait MatrixMath<O>: NDArray + fmt::Debug
+/// Matrix dual operations
+pub trait MatrixDual<O>: NDArray + fmt::Debug
 where
     O: NDArray<DType = Self::DType> + fmt::Debug,
 {
@@ -1237,7 +1238,7 @@ where
     fn matmul(self, other: O) -> Result<Self::MatMul, Error>;
 }
 
-impl<T, L, R, P> MatrixMath<Array<T, R, P>> for Array<T, L, P>
+impl<T, L, R, P> MatrixDual<Array<T, R, P>> for Array<T, L, P>
 where
     T: CType,
     L: Access<T>,
@@ -1270,6 +1271,18 @@ where
             dtype: self.dtype,
         })
     }
+}
+
+/// Matrix unary operations
+pub trait MatrixUnary<O>: NDArray + fmt::Debug
+where
+    O: NDArray<DType = Self::DType> + fmt::Debug,
+{
+    type Diag: NDArray<DType = Self::DType>;
+
+    /// Construct an operation to read the diagonal(s) of this matrix or batch of matrices.
+    /// This will return an error if the last two dimensions of the batch are unequal.
+    fn diag(self) -> Result<Self::Diag, Error>;
 }
 
 #[inline]

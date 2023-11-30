@@ -6,6 +6,24 @@ use crate::Error;
 use super::{build, TILE_SIZE, WG_SIZE};
 
 #[memoize]
+pub fn diagonal(c_type: &'static str) -> Result<Program, Error> {
+    let src = format!(
+        r#"
+        __kernel void diagonal(
+            const {c_type}* restrict matrices,
+            {c_type}* restrict diagonals)
+        {{
+            const ulong m = get_global_id(0);
+            const ulong i = get_global_id(1);
+            diagonals[m, i] = matrices[m, i, i];
+        }}
+        "#,
+    );
+
+    build(&src)
+}
+
+#[memoize]
 pub fn pad_matrices(c_type: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"

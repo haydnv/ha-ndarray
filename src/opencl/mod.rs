@@ -30,7 +30,7 @@ pub type ArrayOp<T, O> = crate::array::Array<T, AccessOp<O, OpenCL>, OpenCL>;
 #[cfg(test)]
 mod tests {
     use crate::{
-        shape, slice, AxisRange, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayMath,
+        shape, slice, AxisRange, Error, MatrixDual, NDArray, NDArrayCompare, NDArrayMath,
         NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite, Shape,
     };
 

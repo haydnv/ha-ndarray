@@ -859,6 +859,39 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Platform {
+    type Op = MatDiag<A, T>;
+
+    fn diag(
+        self,
+        access: A,
+        batch_size: usize,
+        dim: usize,
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.diag(access, batch_size, dim).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Platform {
+    type Op = MatDiag<A, T>;
+
+    fn diag(
+        self,
+        access: A,
+        batch_size: usize,
+        dim: usize,
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.diag(access, batch_size, dim).map(AccessOp::wrap),
+            Self::Host(host) => host.diag(access, batch_size, dim).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl Random for Platform {
     type Normal = RandomNormal;
     type Uniform = RandomUniform;

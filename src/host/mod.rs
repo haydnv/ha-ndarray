@@ -12,7 +12,7 @@ pub type ArrayBuf<T> = crate::array::Array<T, AccessBuffer<Buffer<T>>, Host>;
 #[cfg(test)]
 mod tests {
     use crate::{
-        shape, slice, AxisRange, Error, MatrixMath, NDArray, NDArrayCompare, NDArrayRead,
+        shape, slice, AxisRange, Error, MatrixDual, NDArray, NDArrayCompare, NDArrayRead,
         NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite, Shape,
     };
 

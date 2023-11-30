@@ -6,8 +6,8 @@ use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
     ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
-    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random,
-    ReduceAll, ReduceAxis, Transform,
+    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual,
+    LinAlgUnary, Random, ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
@@ -491,6 +491,19 @@ where
         dims: [usize; 4],
     ) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(MatMul::new(left, right, dims).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Host {
+    type Op = MatDiag<A, T>;
+
+    fn diag(
+        self,
+        access: A,
+        batch_size: usize,
+        dim: usize,
+    ) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(MatDiag::new(access, batch_size, dim).into())
     }
 }
 

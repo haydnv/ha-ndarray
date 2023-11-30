@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixMath, NDArray, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath,
+    MatrixDual, NDArray, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath,
     NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll,
     NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWhere, NDArrayWrite,
 };

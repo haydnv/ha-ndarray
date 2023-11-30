@@ -366,6 +366,74 @@ where
     }
 }
 
+pub struct MatDiag<A, T> {
+    access: A,
+    dim: usize,
+    batch_size: usize,
+    program: Program,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T: CType> MatDiag<A, T> {
+    pub fn new(access: A, batch_size: usize, dim: usize) -> Result<Self, Error> {
+        let program = programs::linalg::diagonal(T::TYPE)?;
+
+        Ok(Self {
+            access,
+            batch_size,
+            dim,
+            program,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+    fn size(&self) -> usize {
+        debug_assert_eq!(self.access.size(), self.batch_size * self.dim * self.dim);
+        self.batch_size * self.dim
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for MatDiag<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let input = self.access.read()?.to_cl()?;
+
+        debug_assert_eq!(input.len(), self.batch_size * self.dim * self.dim);
+
+        let queue = OpenCL::queue(self.size(), &[input.default_queue()])?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.batch_size * self.dim)
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("diagonal")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size((self.batch_size, self.dim))
+            .arg(&*input)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? };
+
+        Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for MatDiag<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let batch = offset / self.batch_size;
+        let i = offset % self.batch_size;
+        let source_offset = (batch * self.dim * self.dim) + (i * self.dim) + i;
+        self.access.read_value(source_offset)
+    }
+}
+
 pub struct MatMul<L, R, T> {
     left: L,
     right: R,
