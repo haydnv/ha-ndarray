@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use ocl::core::{DeviceInfo, DeviceInfoResult};
-use ocl::{Buffer, Context, Device, DeviceType, Kernel, Platform, Queue};
+use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
+use smallvec::SmallVec;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
@@ -19,8 +20,16 @@ use super::ops::*;
 use super::{programs, CLConverter};
 use super::{CL_PLATFORM, WG_SIZE};
 
+#[cfg(debug_assertions)]
+pub const GPU_MIN_SIZE: usize = 128;
+
+#[cfg(not(debug_assertions))]
 pub const GPU_MIN_SIZE: usize = 1024; // 1 KiB
 
+#[cfg(debug_assertions)]
+pub const ACC_MIN_SIZE: usize = 1024; // 1 KiB
+
+#[cfg(not(debug_assertions))]
 pub const ACC_MIN_SIZE: usize = 2_147_483_648; // 1 GiB
 
 #[derive(Clone)]
@@ -39,8 +48,12 @@ impl Default for DeviceList {
 }
 
 impl DeviceList {
+    fn is_empty(&self) -> bool {
+        self.devices.is_empty()
+    }
+
     fn next(&self) -> Option<Device> {
-        if self.devices.is_empty() {
+        if self.is_empty() {
             None
         } else {
             let idx = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -156,7 +169,7 @@ impl OpenCL {
 
     /// Copy the given `data` into a new [`Buffer`].
     pub fn copy_into_buffer<T: CType>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
-        let queue = Self::queue(data.len(), None, None)?;
+        let queue = Self::queue(data.len(), &[])?;
 
         ocl::builders::BufferBuilder::new()
             .len(data.len())
@@ -165,36 +178,58 @@ impl OpenCL {
             .build()
     }
 
-    pub(crate) fn queue(
-        size_hint: usize,
-        left: Option<&Queue>,
-        right: Option<&Queue>,
-    ) -> Result<Queue, ocl::Error> {
+    pub(crate) fn queue(size_hint: usize, options: &[Option<&Queue>]) -> Result<Queue, ocl::Error> {
         let device_type = CL_PLATFORM.select_device_type(size_hint);
 
-        // TODO: is this slow?
-        if let Some(queue) = left {
+        let mut queue = Option::<Queue>::None;
+        let mut deps = SmallVec::<[&Queue; 3]>::with_capacity(3);
+
+        fn clone_if_match(
+            queue: &Queue,
+            device_type: DeviceType,
+        ) -> Result<Option<Queue>, ocl::Error> {
+            // TODO: is this slow?
             if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
                 if dt == device_type {
-                    return Ok(queue.clone());
+                    return Ok(Some(queue.clone()));
                 }
+            };
+
+            Ok(None)
+        }
+
+        for option in options.into_iter().filter_map(|q| q.as_ref()) {
+            if let Some(q) = clone_if_match(option, device_type)? {
+                queue = Some(q);
+            } else {
+                deps.push(*option);
             }
         }
 
-        // TODO: is this slow?
-        if let Some(queue) = right {
-            if let DeviceInfoResult::Type(dt) = queue.device().info(DeviceInfo::Type)? {
-                if dt == device_type {
-                    return Ok(queue.clone());
-                }
-            }
+        let queue = if let Some(queue) = queue {
+            queue
+        } else {
+            let device = CL_PLATFORM
+                .select_device(device_type)
+                .expect("OpenCL device");
+
+            Queue::new(&CL_PLATFORM.cl_context, device, None)?
+        };
+
+        if !deps.is_empty() {
+            let events = deps
+                .into_iter()
+                .map(|dep| {
+                    dep.enqueue_marker::<Event>(None)
+                        .map(ocl::core::Event::from)
+                })
+                .collect::<Result<SmallVec<[ocl::core::Event; 3]>, ocl::Error>>()?;
+
+            // TODO: this assignment shouldn't be necessary
+            let _ = queue.enqueue_marker(Some(events.as_slice()))?;
         }
 
-        let device = CL_PLATFORM
-            .select_device(device_type)
-            .expect("OpenCL device");
-
-        Queue::new(&CL_PLATFORM.cl_context, device, None)
+        Ok(queue)
     }
 }
 
@@ -208,7 +243,7 @@ impl<T: CType> Constant<T> for OpenCL {
     type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
-        let queue = Self::queue(size, None, None)?;
+        let queue = Self::queue(size, &[])?;
 
         ocl::builders::BufferBuilder::new()
             .len(size)
@@ -642,7 +677,7 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
         return Ok(result);
     }
 
-    let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+    let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
     let program = programs::reduce::reduce(T::TYPE, reduce)?;
 

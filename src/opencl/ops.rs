@@ -38,7 +38,7 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<OpenCL, OT> for Cast<A, IT, OT
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
-        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+        let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -220,7 +220,7 @@ where
         let right = self.right.read()?.to_cl()?;
         debug_assert_eq!(left.size(), right.size());
 
-        let queue = OpenCL::queue(left.len(), left.default_queue(), right.default_queue())?;
+        let queue = OpenCL::queue(left.len(), &[left.default_queue(), right.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -315,7 +315,14 @@ where
 
         let (cond, (then, or_else)) = (cond.to_cl()?, (then.to_cl()?, or_else.to_cl()?));
 
-        let queue = OpenCL::queue(cond.len(), then.default_queue(), or_else.default_queue())?;
+        let queue = OpenCL::queue(
+            cond.len(),
+            &[
+                cond.default_queue(),
+                then.default_queue(),
+                or_else.default_queue(),
+            ],
+        )?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -414,8 +421,7 @@ where
 
         let queue = OpenCL::queue(
             self.batch_size * a * b * c,
-            left.default_queue(),
-            right.default_queue(),
+            &[left.default_queue(), right.default_queue()],
         )?;
 
         let output = Buffer::builder()
@@ -459,7 +465,7 @@ where
 
         assert_eq!(batch.len(), self.batch_size * dims_in[0] * dims_in[1]);
 
-        let queue = OpenCL::queue(batch.len(), batch.default_queue(), None)?;
+        let queue = OpenCL::queue(batch.len(), &[batch.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -574,7 +580,7 @@ impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let queue = OpenCL::queue(self.size, None, None)?;
+        let queue = OpenCL::queue(self.size, &[])?;
 
         let buffer = Buffer::builder()
             .queue(queue.clone())
@@ -624,7 +630,7 @@ impl Enqueue<OpenCL, f32> for RandomNormal {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let queue = OpenCL::queue(self.size, None, None)?;
+        let queue = OpenCL::queue(self.size, &[])?;
         let seed: u32 = rand::thread_rng().gen();
 
         let buffer = Buffer::builder()
@@ -686,7 +692,7 @@ impl Enqueue<OpenCL, f32> for RandomUniform {
     type Buffer = Buffer<f32>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let queue = OpenCL::queue(self.size, None, None)?;
+        let queue = OpenCL::queue(self.size, &[])?;
         let seed: u32 = random();
 
         let output = Buffer::builder()
@@ -824,6 +830,8 @@ impl<A, T: CType> Reduce<A, T> {
         stride: usize,
         wg_size: usize,
     ) -> Result<Buffer<T>, Error> {
+        debug_assert_eq!(input.len() % stride, 0);
+
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(input.len() / stride)
@@ -860,7 +868,9 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
-        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+
+        let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
+
         let output_size = input.len() / self.stride;
 
         let mut stride = self.stride;
@@ -884,6 +894,8 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
             stride /= wg_size;
             debug_assert_eq!(output_size * stride, buffer.len());
         }
+
+        assert_eq!(buffer.len(), output_size);
 
         Ok(buffer)
     }
@@ -1050,7 +1062,9 @@ where
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
 
-        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+        debug_assert_eq!(input.len(), self.size());
+
+        let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -1123,7 +1137,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Slice<A, T> {
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
-        let queue = OpenCL::queue(self.size(), source.default_queue(), None)?;
+        let queue = OpenCL::queue(self.size(), &[source.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -1162,7 +1176,7 @@ where
     fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
         let size_hint = self.size();
         let source = self.access.as_ref().into_inner();
-        let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
+        let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
         if self.write.is_none() {
             let program = programs::slice::write_to_slice(T::TYPE, self.spec.clone())?;
@@ -1186,7 +1200,7 @@ where
     fn write_value(&'a mut self, value: T) -> Result<(), Error> {
         let size_hint = self.size();
         let source = self.access.as_ref().into_inner();
-        let queue = OpenCL::queue(size_hint, source.default_queue(), None)?;
+        let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
         if self.write.is_none() {
             let program = programs::slice::write_value_to_slice(T::TYPE, self.spec.clone())?;
@@ -1326,7 +1340,7 @@ where
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
-        let queue = OpenCL::queue(input.len(), input.default_queue(), None)?;
+        let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())
@@ -1410,7 +1424,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for View<A, T> {
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
 
-        let queue = OpenCL::queue(self.size, source.default_queue(), None)?;
+        let queue = OpenCL::queue(self.size, &[source.default_queue()])?;
 
         let output = Buffer::builder()
             .queue(queue.clone())

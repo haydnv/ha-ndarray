@@ -99,7 +99,7 @@ mod tests {
             (shape![8, 44, 1], shape![8, 1, 98], shape![8, 44, 98]),
         ];
 
-        let queue = OpenCL::queue(GPU_MIN_SIZE, None, None)?;
+        let queue = OpenCL::queue(GPU_MIN_SIZE, &[])?;
 
         for (left_shape, right_shape, output_shape) in shapes {
             println!("{left_shape:?} @ {right_shape:?}");

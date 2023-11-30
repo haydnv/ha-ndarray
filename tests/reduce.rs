@@ -3,9 +3,7 @@ use ha_ndarray::*;
 #[test]
 fn test_reduce_sum_all() -> Result<(), Error> {
     for x in 1..9 {
-        let data = vec![1; 10_usize.pow(x)];
-        let shape = shape![data.len()];
-        let array = ArrayBuf::new(data, shape)?;
+        let array = ArrayBuf::constant(1, shape![10_usize.pow(x)])?;
         assert_eq!(array.size() as i32, array.sum_all()?);
     }
 
@@ -27,8 +25,9 @@ fn test_reduce_sum_axis() -> Result<(), Error> {
         let array = ArrayBuf::constant(1u32, shape.clone())?;
 
         for x in 0..shape.len() {
-            let sum = array.as_ref().sum(x, false)?;
-            let eq = sum.eq_scalar(shape[x] as u32)?;
+            let expected = shape[x] as u32;
+            let actual = array.as_ref().sum(x, false)?;
+            let eq = actual.eq_scalar(expected)?;
             assert!(eq.all()?);
         }
     }
