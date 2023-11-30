@@ -1,6 +1,5 @@
 use std::borrow::BorrowMut;
 use std::marker::PhantomData;
-use std::ops::{Add, Div, Mul, Rem, Sub};
 
 use ocl::{Buffer, Kernel, Program, Queue};
 use rand::{random, Rng};
@@ -92,12 +91,12 @@ impl<L, R, IT, OT> Dual<L, R, IT, OT> {
 impl<L, R, T: CType> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
-        Self::new(left, right, program, Add::add)
+        Self::new(left, right, program, T::add)
     }
 
     pub fn div(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "div")?;
-        Self::new(left, right, program, Div::div)
+        Self::new(left, right, program, T::div)
     }
 
     pub fn log(arg: L, exp: R) -> Result<Self, Error> {
@@ -109,7 +108,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
 
     pub fn mul(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "mul")?;
-        Self::new(left, right, program, Mul::mul)
+        Self::new(left, right, program, T::mul)
     }
 
     pub fn pow(left: L, right: R) -> Result<Self, Error> {
@@ -118,14 +117,14 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
     }
 
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
-        let program = if T::is_float() { "fmod" } else { "mod" };
+        let program = if T::IS_FLOAT { "fmod" } else { "mod" };
         let program = programs::elementwise::dual(T::TYPE, program)?;
-        Self::new(left, right, program, Rem::rem)
+        Self::new(left, right, program, T::rem)
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "sub")?;
-        Self::new(left, right, program, Sub::sub)
+        Self::new(left, right, program, T::sub)
     }
 }
 
@@ -465,6 +464,7 @@ where
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(self.batch_size * dims_out[0] * dims_out[1])
+            .fill_val(T::ZERO)
             .build()?;
 
         let gws = if dims_in.iter().product::<usize>() <= dims_out.iter().product::<usize>() {
@@ -599,7 +599,7 @@ impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
 
 impl<T: CType> ReadValue<OpenCL, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        Ok(self.start + T::from_f64((offset as f64) * self.step))
+        Ok(T::add(self.start, T::from_f64((offset as f64) * self.step)))
     }
 }
 
@@ -926,11 +926,11 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 
     pub fn add(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "add", Add::add)
+        Self::new(access, scalar, "add", T::add)
     }
 
     pub fn div(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "div", Div::div)
+        Self::new(access, scalar, "div", T::div)
     }
 
     pub fn log(access: A, scalar: T) -> Result<Self, Error> {
@@ -940,7 +940,7 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 
     pub fn mul(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "mul", Mul::mul)
+        Self::new(access, scalar, "mul", T::mul)
     }
 
     pub fn pow(access: A, scalar: T) -> Result<Self, Error> {
@@ -948,12 +948,12 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 
     pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
-        let program = if T::is_float() { "fmod" } else { "mod" };
-        Self::new(access, scalar, program, Rem::rem)
+        let program = if T::IS_FLOAT { "fmod" } else { "mod" };
+        Self::new(access, scalar, program, T::rem)
     }
 
     pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "sub", Sub::sub)
+        Self::new(access, scalar, "sub", T::sub)
     }
 }
 

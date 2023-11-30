@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt;
-use std::iter::{Product, Sum};
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
 pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as range;
@@ -31,28 +30,10 @@ mod platform;
 
 #[cfg(feature = "opencl")]
 pub trait CType:
-    ocl::OclPrm
-    + Add<Output = Self>
-    + AddAssign
-    + Sum
-    + Mul<Output = Self>
-    + MulAssign
-    + Product
-    + Div<Output = Self>
-    + DivAssign
-    + Sub<Output = Self>
-    + SubAssign
-    + Rem<Output = Self>
-    + RemAssign
-    + PartialEq
-    + PartialOrd
-    + Copy
-    + Send
-    + Sync
-    + fmt::Display
-    + fmt::Debug
-    + 'static
+    ocl::OclPrm + PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
 {
+    // type information
+
     const TYPE: &'static str;
 
     const MAX: Self;
@@ -63,21 +44,41 @@ pub trait CType:
 
     const ONE: Self;
 
+    const IS_FLOAT: bool;
+
     type Float: Float;
 
-    fn is_float() -> bool;
+    // constructors
 
     fn from_f64(float: f64) -> Self;
 
     fn from_float(float: Self::Float) -> Self;
 
+    // arithmetic
+
     fn abs(self) -> Self;
+
+    fn add(self, other: Self) -> Self;
+
+    fn div(self, other: Self) -> Self;
+
+    fn mul(self, other: Self) -> Self;
+
+    fn sub(self, other: Self) -> Self;
+
+    fn rem(self, other: Self) -> Self;
+
+    // comparisons
 
     fn min(l: Self, r: Self) -> Self;
 
     fn max(l: Self, r: Self) -> Self;
 
+    // logarithms
+
     fn pow(self, exp: Self) -> Self;
+
+    // conversions
 
     fn round(self) -> Self;
 
@@ -88,27 +89,10 @@ pub trait CType:
 
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
-    Add<Output = Self>
-    + AddAssign
-    + Sum
-    + Mul<Output = Self>
-    + MulAssign
-    + Product
-    + Div<Output = Self>
-    + DivAssign
-    + Sub<Output = Self>
-    + SubAssign
-    + Rem<Output = Self>
-    + RemAssign
-    + PartialEq
-    + PartialOrd
-    + Copy
-    + Send
-    + Sync
-    + fmt::Display
-    + fmt::Debug
-    + 'static
+    PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
 {
+    // type information
+
     const TYPE: &'static str;
 
     const MAX: Self;
@@ -119,21 +103,41 @@ pub trait CType:
 
     const ONE: Self;
 
+    const IS_FLOAT: bool;
+
     type Float: Float;
 
-    fn is_float() -> bool;
+    // constructors
 
     fn from_f64(float: f64) -> Self;
 
     fn from_float(float: Self::Float) -> Self;
 
+    // arithmetic
+
     fn abs(self) -> Self;
+
+    fn add(self, other: Self) -> Self;
+
+    fn div(self, other: Self) -> Self;
+
+    fn mul(self, other: Self) -> Self;
+
+    fn sub(self, other: Self) -> Self;
+
+    fn rem(self, other: Self) -> Self;
+
+    // comparisons
 
     fn min(l: Self, r: Self) -> Self;
 
     fn max(l: Self, r: Self) -> Self;
 
+    // logarithms
+
     fn pow(self, exp: Self) -> Self;
+
+    // conversions
 
     fn round(self) -> Self;
 
@@ -143,7 +147,7 @@ pub trait CType:
 }
 
 macro_rules! c_type {
-    ($t:ty, $str:expr, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
+    ($t:ty, $str:expr, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $rem:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
         impl CType for $t {
             const TYPE: &'static str = $str;
 
@@ -155,11 +159,9 @@ macro_rules! c_type {
 
             const ONE: Self = $one;
 
-            type Float = $float;
+            const IS_FLOAT: bool = $is_float;
 
-            fn is_float() -> bool {
-                $is_float
-            }
+            type Float = $float;
 
             fn from_f64(float: f64) -> Self {
                 float as $t
@@ -171,6 +173,26 @@ macro_rules! c_type {
 
             fn abs(self) -> Self {
                 $abs(self)
+            }
+
+            fn add(self, other: Self) -> Self {
+                $add(self, other)
+            }
+
+            fn div(self, other: Self) -> Self {
+                $div(self, other)
+            }
+
+            fn mul(self, other: Self) -> Self {
+                $mul(self, other)
+            }
+
+            fn sub(self, other: Self) -> Self {
+                $sub(self, other)
+            }
+
+            fn rem(self, other: Self) -> Self {
+                $rem(self, other)
             }
 
             fn min(l: Self, r: Self) -> Self {
@@ -208,6 +230,11 @@ c_type!(
     0.0,
     Self,
     f32::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     f32::round,
     max_f32,
     f32::powf,
@@ -222,6 +249,11 @@ c_type!(
     0.0,
     Self,
     f64::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     f64::round,
     f64::powf,
     max_f64,
@@ -236,6 +268,11 @@ c_type!(
     0,
     f32,
     i8::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| f32::powi(a as f32, e as i32) as i8,
     Ord::max,
@@ -250,6 +287,11 @@ c_type!(
     0,
     f32,
     i16::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| f32::powi(a as f32, e as i32) as i16,
     Ord::max,
@@ -264,6 +306,11 @@ c_type!(
     0,
     f32,
     i32::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| f32::powi(a as f32, e) as i32,
     Ord::max,
@@ -278,6 +325,11 @@ c_type!(
     0,
     f64,
     i64::abs,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| f64::powi(
         a as f64,
@@ -295,6 +347,11 @@ c_type!(
     0,
     f32,
     id,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| u8::pow(a, e as u32),
     Ord::max,
@@ -309,6 +366,11 @@ c_type!(
     0,
     f32,
     id,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| u16::pow(a, e as u32),
     Ord::max,
@@ -323,6 +385,11 @@ c_type!(
     0,
     f32,
     id,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| u32::pow(a, e),
     Ord::max,
@@ -337,6 +404,11 @@ c_type!(
     0,
     f64,
     id,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Rem::rem,
     id,
     |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX)),
     Ord::max,

@@ -232,7 +232,7 @@ impl<T: CType> Construct<T> for OpenCL {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = (stop - start).to_f64() / size as f64;
+            let step = T::sub(stop, start).to_f64() / size as f64;
             Linear::new(start, step, size).map(AccessOp::from)
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
@@ -568,13 +568,13 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
     fn product(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
         let result = reduce_all(&*input, "mul", T::ONE)?;
-        Ok(result.into_par_iter().product())
+        Ok(result.into_par_iter().reduce(|| T::ONE, T::mul))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
         let result = reduce_all(&*input, "add", T::ZERO)?;
-        Ok(result.into_par_iter().sum())
+        Ok(result.into_par_iter().reduce(|| T::ZERO, T::add))
     }
 }
 

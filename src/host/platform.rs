@@ -71,14 +71,14 @@ where
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.iter().copied().product())
+            .map(|slice| slice.iter().copied().reduce(T::mul).expect("product"))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.iter().copied().sum())
+            .map(|slice| slice.iter().copied().reduce(T::add).expect("sum"))
     }
 }
 
@@ -136,14 +136,14 @@ where
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.into_par_iter().copied().product())
+            .map(|slice| slice.into_par_iter().copied().reduce(|| T::ONE, T::mul))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|slice| slice.into_par_iter().copied().sum())
+            .map(|slice| slice.into_par_iter().copied().reduce(|| T::ZERO, T::add))
     }
 }
 
@@ -199,7 +199,7 @@ impl<T: CType> Construct<T> for Host {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = (stop - start).to_f64() / size as f64;
+            let step = T::sub(stop, start).to_f64() / size as f64;
             Ok(Linear::new(start, step, size).into())
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))

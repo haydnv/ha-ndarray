@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 use std::iter;
 use std::marker::PhantomData;
-use std::ops::{Add, Div, Mul, Rem, Sub};
 
 use rand::Rng;
 use rayon::join;
@@ -120,7 +119,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         Self {
             left,
             right,
-            zip: Add::add,
+            zip: T::add,
         }
     }
 
@@ -128,7 +127,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         Self {
             left,
             right,
-            zip: Div::div,
+            zip: T::div,
         }
     }
 
@@ -144,7 +143,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         Self {
             left,
             right,
-            zip: Mul::mul,
+            zip: T::mul,
         }
     }
 
@@ -160,7 +159,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         Self {
             left,
             right,
-            zip: Rem::rem,
+            zip: T::rem,
         }
     }
 
@@ -168,7 +167,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         Self {
             left,
             right,
-            zip: Sub::sub,
+            zip: T::sub,
         }
     }
 }
@@ -480,7 +479,7 @@ impl<T> Linear<T> {
     where
         T: CType,
     {
-        self.start + T::from_f64((offset as f64) * self.step)
+        T::add(self.start, T::from_f64((offset as f64) * self.step))
     }
 }
 
@@ -592,7 +591,7 @@ where
                     for y in 0..b {
                         let l_offset = (x * b) + y;
                         let r_offset = (y * c) + z;
-                        sum += left[l_offset] * right[r_offset];
+                        sum = T::add(sum, T::mul(left[l_offset], right[r_offset]));
                     }
 
                     product.push(sum)
@@ -647,9 +646,14 @@ where
                             row.par_chunks(8)
                                 .zip(col)
                                 .map(|(rc, cc)| {
-                                    rc.into_iter().copied().zip(cc).map(|(r, c)| r * c).sum()
+                                    rc.into_iter()
+                                        .copied()
+                                        .zip(cc)
+                                        .map(|(r, c)| T::mul(r, c))
+                                        .reduce(T::add)
+                                        .expect("sum")
                                 })
-                                .sum::<T>()
+                                .reduce(|| T::ZERO, T::add)
                         })
                     })
                     .flatten();
@@ -712,11 +716,11 @@ impl<A, IT, OT> Scalar<A, IT, OT> {
 
 impl<A, T: CType> Scalar<A, T, T> {
     pub fn add(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, Add::add)
+        Self::new(access, scalar, T::add)
     }
 
     pub fn div(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, Div::div)
+        Self::new(access, scalar, T::div)
     }
 
     pub fn log(access: A, scalar: T) -> Self {
@@ -726,7 +730,7 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 
     pub fn mul(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, Mul::mul)
+        Self::new(access, scalar, T::mul)
     }
 
     pub fn pow(access: A, scalar: T) -> Self {
@@ -734,11 +738,11 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 
     pub fn rem(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, Rem::rem)
+        Self::new(access, scalar, T::rem)
     }
 
     pub fn sub(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, Sub::sub)
+        Self::new(access, scalar, T::sub)
     }
 }
 
@@ -1086,7 +1090,7 @@ where
         Self {
             access,
             stride,
-            reduce: Mul::mul,
+            reduce: T::mul,
             id: T::ONE,
         }
     }
@@ -1095,7 +1099,7 @@ where
         Self {
             access,
             stride,
-            reduce: Add::add,
+            reduce: T::add,
             id: T::ZERO,
         }
     }
