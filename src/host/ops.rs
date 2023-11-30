@@ -1373,11 +1373,7 @@ pub struct Unary<A, IT, OT> {
     op: fn(IT) -> OT,
 }
 
-impl<A, T> Unary<A, T, T>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Unary<A, T, T> {
     pub fn abs(access: A) -> Self {
         Self {
             access,
@@ -1407,11 +1403,72 @@ where
     }
 }
 
-impl<A, T> Unary<A, T, u8>
-where
-    A: Access<T>,
-    T: CType,
-{
+impl<A: Access<T>, T: CType> Unary<A, T, T::Float> {
+    pub fn sin(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().sin(),
+        }
+    }
+
+    pub fn asin(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().asin(),
+        }
+    }
+
+    pub fn sinh(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().sinh(),
+        }
+    }
+
+    pub fn cos(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().cos(),
+        }
+    }
+
+    pub fn acos(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().acos(),
+        }
+    }
+
+    pub fn cosh(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().cosh(),
+        }
+    }
+
+    pub fn tan(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().tan(),
+        }
+    }
+
+    pub fn atan(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().atan(),
+        }
+    }
+
+    pub fn tanh(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.to_float().tanh(),
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Unary<A, T, u8> {
     pub fn not(access: A) -> Self {
         Self {
             access,
@@ -1420,11 +1477,7 @@ where
     }
 }
 
-impl<A, T> Unary<A, T, u8>
-where
-    A: Access<T>,
-    T: Float,
-{
+impl<A: Access<T>, T: Float> Unary<A, T, u8> {
     pub fn inf(access: A) -> Self {
         Self {
             access,

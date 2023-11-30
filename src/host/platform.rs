@@ -6,8 +6,8 @@ use crate::host::StackVec;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
     ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
-    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll,
-    ReduceAxis, Transform,
+    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random,
+    ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
@@ -405,6 +405,46 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Host {
 
     fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::nan(access).into())
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Host {
+    type Op = Unary<A, T, T::Float>;
+
+    fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::sin(access).into())
+    }
+
+    fn asin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::asin(access).into())
+    }
+
+    fn sinh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::sinh(access).into())
+    }
+
+    fn cos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::cos(access).into())
+    }
+
+    fn acos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::acos(access).into())
+    }
+
+    fn cosh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::cosh(access).into())
+    }
+
+    fn tan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::tan(access).into())
+    }
+
+    fn atan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::atan(access).into())
+    }
+
+    fn tanh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::tanh(access).into())
     }
 }
 

@@ -379,71 +379,125 @@ fn min_f64(l: f64, r: f64) -> f64 {
     }
 }
 
-pub trait Float: CType {
-    fn exp(self) -> Self;
-
+pub trait Float: CType<Float = Self> {
+    // numeric methods
+    /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
     fn is_inf(self) -> bool;
 
+    /// Return `true` if this [`Float`] is not a number (e.g. a float representation of `1.0 / 0.0`).
     fn is_nan(self) -> bool;
 
+    // logarithms
+    /// Exponentiate this number (equivalent to `consts::E.pow(self)`).
+    fn exp(self) -> Self;
+
+    /// Return the natural logarithm of this [`Float`].
     fn ln(self) -> Self;
 
+    /// Calculate the logarithm of this [`Float`] w/r/t the given `base`.
     fn log(self, base: Self) -> Self;
 
+    // trigonometry
+    /// Return the sine of this [`Float`] (in radians).
+    fn sin(self) -> Self;
+
+    /// Return the arcsine of this [`Float`] (in radians).
+    fn asin(self) -> Self;
+
+    /// Return the hyperbolic sine of this [`Float`] (in radians).
+    fn sinh(self) -> Self;
+
+    /// Return the cosine of this [`Float`] (in radians).
+    fn cos(self) -> Self;
+
+    /// Return the arcsine of this [`Float`] (in radians).
+    fn acos(self) -> Self;
+
+    /// Return the hyperbolic cosine of this [`Float`] (in radians).
+    fn cosh(self) -> Self;
+
+    /// Return the tangent of this [`Float`] (in radians).
+    fn tan(self) -> Self;
+
+    /// Return the arctangent of this [`Float`] (in radians).
+    fn atan(self) -> Self;
+
+    /// Return the hyperbolic tangent of this [`Float`] (in radians).
+    fn tanh(self) -> Self;
+
+    // utility
+    /// Cast this [`Float`] to an [`f64`].
     fn to_f64(self) -> f64;
 }
 
-impl Float for f32 {
-    fn exp(self) -> Self {
-        f32::exp(self)
-    }
+macro_rules! float_type {
+    ($t:ty) => {
+        impl Float for $t {
+            fn is_inf(self) -> bool {
+                <$t>::is_infinite(self)
+            }
 
-    fn is_inf(self) -> bool {
-        self.is_infinite()
-    }
+            fn is_nan(self) -> bool {
+                <$t>::is_nan(self)
+            }
 
-    fn is_nan(self) -> bool {
-        f32::is_nan(self)
-    }
+            fn exp(self) -> Self {
+                <$t>::exp(self)
+            }
 
-    fn ln(self) -> Self {
-        f32::ln(self)
-    }
+            fn ln(self) -> Self {
+                <$t>::ln(self)
+            }
 
-    fn log(self, base: Self) -> Self {
-        f32::log(self, base)
-    }
+            fn log(self, base: Self) -> Self {
+                <$t>::log(self, base)
+            }
 
-    fn to_f64(self) -> f64 {
-        self as f64
-    }
+            fn sin(self) -> Self {
+                <$t>::sin(self)
+            }
+
+            fn asin(self) -> Self {
+                <$t>::asin(self)
+            }
+
+            fn sinh(self) -> Self {
+                <$t>::sinh(self)
+            }
+
+            fn cos(self) -> Self {
+                <$t>::cos(self)
+            }
+
+            fn acos(self) -> Self {
+                <$t>::acos(self)
+            }
+
+            fn cosh(self) -> Self {
+                <$t>::tanh(self)
+            }
+
+            fn tan(self) -> Self {
+                <$t>::tan(self)
+            }
+
+            fn atan(self) -> Self {
+                <$t>::atan(self)
+            }
+
+            fn tanh(self) -> Self {
+                <$t>::tanh(self)
+            }
+
+            fn to_f64(self) -> f64 {
+                self as f64
+            }
+        }
+    };
 }
 
-impl Float for f64 {
-    fn exp(self) -> Self {
-        f64::exp(self)
-    }
-
-    fn is_inf(self) -> bool {
-        self.is_infinite()
-    }
-
-    fn is_nan(self) -> bool {
-        f64::is_nan(self)
-    }
-
-    fn ln(self) -> Self {
-        f64::ln(self)
-    }
-
-    fn log(self, base: Self) -> Self {
-        f64::log(self, base)
-    }
-
-    fn to_f64(self) -> f64 {
-        self
-    }
-}
+float_type!(f32);
+float_type!(f64);
 
 /// An array math error
 pub enum Error {
@@ -454,8 +508,8 @@ pub enum Error {
     OCL(std::sync::Arc<ocl::Error>),
 }
 
-// Clone is required to support memorizing OpenCL programs
-// since constructing an [`ocl::Program`] can return an error
+// Clone is required to support memoizing OpenCL programs
+// since constructing an [`ocl::Program`] may return an error
 impl Clone for Error {
     fn clone(&self) -> Self {
         match self {

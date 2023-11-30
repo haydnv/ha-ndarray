@@ -178,6 +178,32 @@ where
     fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
+pub trait ElementwiseTrig<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: Enqueue<Self, T::Float>;
+
+    fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn asin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn sinh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn cos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn acos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn cosh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn tan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn atan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn tanh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseUnary<A, T>: PlatformInstance
 where
     A: Access<T>,

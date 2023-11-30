@@ -1079,6 +1079,83 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
     }
 }
 
+/// Array trigonometry methods
+pub trait NDArrayTrig: NDArray + Sized {
+    type Output: NDArray<DType = <Self::DType as CType>::Float>;
+
+    /// Construct a new sine operation.
+    fn sin(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new arcsine operation.
+    fn asin(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new hyperbolic sine operation.
+    fn sinh(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new cos operation.
+    fn cos(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new arccosine operation.
+    fn acos(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new hyperbolic cosine operation.
+    fn cosh(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new tangent operation.
+    fn tan(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new arctangent operation.
+    fn atan(self) -> Result<Self::Output, Error>;
+
+    /// Construct a new hyperbolic tangent operation.
+    fn tanh(self) -> Result<Self::Output, Error>;
+}
+
+impl<T, A, P> NDArrayTrig for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseTrig<A, T>,
+{
+    type Output = Array<T::Float, AccessOp<P::Op, P>, P>;
+
+    fn sin(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.sin(access))
+    }
+
+    fn asin(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.asin(access))
+    }
+
+    fn sinh(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.sinh(access))
+    }
+
+    fn cos(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.cos(access))
+    }
+
+    fn acos(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.acos(access))
+    }
+
+    fn cosh(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.cosh(access))
+    }
+
+    fn tan(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.tan(access))
+    }
+
+    fn atan(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.atan(access))
+    }
+
+    fn tanh(self) -> Result<Self::Output, Error> {
+        self.apply(|platform, access| platform.tanh(access))
+    }
+}
+
 /// Conditional selection (boolean logic) methods
 pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug {
     type Output: NDArray<DType = T>;

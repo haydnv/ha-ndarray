@@ -9,8 +9,8 @@ use crate::buffer::BufferConverter;
 use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
     ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
-    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random, ReduceAll,
-    ReduceAxis, Transform,
+    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, Random,
+    ReduceAll, ReduceAxis, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
@@ -438,6 +438,46 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
 
     fn is_nan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::nan(access).map(AccessOp::from)
+    }
+}
+
+impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for OpenCL {
+    type Op = Unary<A, T, T::Float>;
+
+    fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::sin(access).map(AccessOp::from)
+    }
+
+    fn asin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::asin(access).map(AccessOp::from)
+    }
+
+    fn sinh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::sinh(access).map(AccessOp::from)
+    }
+
+    fn cos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::cos(access).map(AccessOp::from)
+    }
+
+    fn acos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::acos(access).map(AccessOp::from)
+    }
+
+    fn cosh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::cosh(access).map(AccessOp::from)
+    }
+
+    fn tan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::tan(access).map(AccessOp::from)
+    }
+
+    fn atan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::atan(access).map(AccessOp::from)
+    }
+
+    fn tanh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::tanh(access).map(AccessOp::from)
     }
 }
 

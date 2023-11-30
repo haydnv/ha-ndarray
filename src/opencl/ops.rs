@@ -1256,6 +1256,43 @@ impl<A, T: CType> Unary<A, T, T> {
     }
 }
 
+impl<A, T: CType> Unary<A, T, T::Float> {
+    pub fn sin(access: A) -> Result<Self, Error> {
+        Self::new(access, "sin", |n| n.to_float().sin())
+    }
+
+    pub fn sinh(access: A) -> Result<Self, Error> {
+        Self::new(access, "sinh", |n| n.to_float().sinh())
+    }
+
+    pub fn asin(access: A) -> Result<Self, Error> {
+        Self::new(access, "asin", |n| n.to_float().asin())
+    }
+
+    pub fn cos(access: A) -> Result<Self, Error> {
+        Self::new(access, "cos", |n| n.to_float().cos())
+    }
+
+    pub fn cosh(access: A) -> Result<Self, Error> {
+        Self::new(access, "cosh", |n| n.to_float().cosh())
+    }
+
+    pub fn acos(access: A) -> Result<Self, Error> {
+        Self::new(access, "acos", |n| n.to_float().acos())
+    }
+    pub fn tan(access: A) -> Result<Self, Error> {
+        Self::new(access, "tan", |n| n.to_float().tan())
+    }
+
+    pub fn tanh(access: A) -> Result<Self, Error> {
+        Self::new(access, "tanh", |n| n.to_float().tanh())
+    }
+
+    pub fn atan(access: A) -> Result<Self, Error> {
+        Self::new(access, "atan", |n| n.to_float().atan())
+    }
+}
+
 impl<A, T: CType> Unary<A, T, u8> {
     pub fn not(access: A) -> Result<Self, Error> {
         Self::new(access, "not", |n| if n == T::ZERO { 1 } else { 0 })
