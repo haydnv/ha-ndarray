@@ -865,10 +865,6 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
 
         let mut stride = self.stride;
 
-        if stride < WG_SIZE {
-            return self.fold(queue, &*input, stride, 1);
-        }
-
         let log = (stride as f32).log(WG_SIZE as f32).fract();
         let target_dim = WG_SIZE.pow(log as u32);
         let mut buffer = self.fold(queue.clone(), &*input, stride, target_dim)?;
