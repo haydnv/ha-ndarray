@@ -1053,6 +1053,15 @@ where
 
 /// Array reduce operations
 pub trait NDArrayReduceAll: NDArrayRead {
+    /// Return the maximum of all elements in this array.
+    fn max_all(self) -> Result<Self::DType, Error>;
+
+    /// Return the minimum of all elements in this array.
+    fn min_all(self) -> Result<Self::DType, Error>;
+
+    /// Return the product of all elements in this array.
+    fn product_all(self) -> Result<Self::DType, Error>;
+
     /// Return the sum of all elements in this array.
     fn sum_all(self) -> Result<Self::DType, Error>;
 }
@@ -1063,6 +1072,18 @@ where
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
+    fn max_all(self) -> Result<Self::DType, Error> {
+        self.platform.max(self.access)
+    }
+
+    fn min_all(self) -> Result<Self::DType, Error> {
+        self.platform.min(self.access)
+    }
+
+    fn product_all(self) -> Result<Self::DType, Error> {
+        self.platform.product(self.access)
+    }
+
     fn sum_all(self) -> Result<T, Error> {
         self.platform.sum(self.access)
     }
