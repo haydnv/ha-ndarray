@@ -169,6 +169,23 @@ where
     }
 }
 
+impl<'a, T, P> Array<T, AccessBuffer<P::Buffer>, P>
+where
+    T: CType,
+    P: Convert<'a, T>,
+{
+    pub fn copy<A: Access<T>>(source: &'a Array<T, A, P>) -> Result<Self, Error> {
+        let buffer = source.read().and_then(|buf| source.platform.convert(buf))?;
+
+        Ok(Self {
+            shape: source.shape.clone(),
+            access: buffer.into(),
+            platform: source.platform,
+            dtype: source.dtype,
+        })
+    }
+}
+
 // op constructors
 impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
@@ -1274,15 +1291,47 @@ where
 }
 
 /// Matrix unary operations
-pub trait MatrixUnary<O>: NDArray + fmt::Debug
-where
-    O: NDArray<DType = Self::DType> + fmt::Debug,
-{
+pub trait MatrixUnary: NDArray + fmt::Debug {
     type Diag: NDArray<DType = Self::DType>;
 
     /// Construct an operation to read the diagonal(s) of this matrix or batch of matrices.
     /// This will return an error if the last two dimensions of the batch are unequal.
     fn diag(self) -> Result<Self::Diag, Error>;
+}
+
+impl<T, A, P> MatrixUnary for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: LinAlgUnary<A, T>,
+{
+    type Diag = Array<T, AccessOp<P::Op, P>, P>;
+
+    fn diag(self) -> Result<Self::Diag, Error> {
+        if self.ndim() >= 2 && self.shape.last() == self.shape.iter().nth_back(1) {
+            let batch_size = self.shape.iter().rev().skip(2).product();
+            let dim = self.shape.last().copied().expect("dim");
+
+            let mut shape = Shape::with_capacity(self.ndim() - 1);
+            shape.extend(self.shape.iter().rev().skip(2).copied().rev());
+            shape.push(dim);
+
+            let platform = P::select(batch_size * dim * dim);
+            let access = platform.diag(self.access, batch_size, dim)?;
+
+            Ok(Array {
+                shape,
+                access,
+                platform,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "invalid shape for diagonal: {:?}",
+                self.shape
+            )))
+        }
+    }
 }
 
 #[inline]

@@ -104,8 +104,8 @@ pub struct AccessOp<O, P> {
 impl<O, P> AccessOp<O, P> {
     pub fn wrap<FO, FP>(access: AccessOp<FO, FP>) -> Self
     where
-        O: From<FO>,
-        P: From<FP>,
+        FO: Into<O>,
+        FP: Into<P>,
     {
         Self {
             op: access.op.into(),
@@ -221,8 +221,8 @@ impl<T: CType, B: Into<Buffer<T>>> From<AccessBuffer<B>> for Accessor<T> {
 impl<T, O, P> From<AccessOp<O, P>> for Accessor<T>
 where
     T: CType,
-    O: ReadValue<Platform, T, Buffer = Buffer<T>> + Sized + 'static,
-    Platform: From<P>,
+    O: ReadValue<Platform, T, Buffer = Buffer<T>> + 'static,
+    P: PlatformInstance + Into<Platform>,
 {
     fn from(access: AccessOp<O, P>) -> Self {
         let access: AccessOp<O, Platform> = AccessOp::wrap(access);

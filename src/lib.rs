@@ -645,6 +645,8 @@ pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
 
 pub type ArrayOp<T, O> = array::Array<T, AccessOp<O, Platform>, Platform>;
 
+pub type ArrayAccess<T> = array::Array<T, Accessor<T>, Platform>;
+
 /// Bounds on an individual array axis
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum AxisRange {
