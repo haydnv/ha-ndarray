@@ -32,6 +32,13 @@ pub enum Buffer<T: CType> {
     Host(host::Buffer<T>),
 }
 
+impl<T: CType> Buffer<T> {
+    /// Construct a new [`Buffer`] from a slice of data.
+    pub fn from_slice(slice: &[T]) -> Result<Self, Error> {
+        BufferConverter::from(slice).into_buffer()
+    }
+}
+
 impl<T: CType> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::from(self)
@@ -209,7 +216,7 @@ pub enum BufferConverter<'a, T: CType> {
 }
 
 impl<'a, T: CType> BufferConverter<'a, T> {
-    /// Return an owned [`Buffer`], allocating memory only if this is a borrow.
+    /// Return an owned [`Buffer`], allocating memory only if this [`BufferConverter`]'s data is borrowed.
     pub fn into_buffer(self) -> Result<Buffer<T>, Error> {
         match self {
             #[cfg(feature = "opencl")]
