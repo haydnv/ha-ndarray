@@ -742,8 +742,9 @@ fn range_shape(source_shape: &[usize], range: &[AxisRange]) -> Shape {
     range.iter().filter_map(|ar| ar.size()).collect()
 }
 
+/// Construct an iterator over the strides for the given shape and number of dimensions.
 #[inline]
-fn strides_for<'a>(shape: &'a [usize], ndim: usize) -> impl Iterator<Item = usize> + 'a {
+pub fn strides_for<'a>(shape: &'a [usize], ndim: usize) -> impl Iterator<Item = usize> + 'a {
     debug_assert!(ndim >= shape.len());
 
     let zeros = std::iter::repeat(0).take(ndim - shape.len());
