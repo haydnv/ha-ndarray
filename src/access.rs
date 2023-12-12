@@ -24,25 +24,25 @@ pub trait AccessMut<'a, T: CType>: Access<T> {
     fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
-pub struct AccessBuffer<B> {
+pub struct AccessBuf<B> {
     buffer: B,
 }
 
-impl<B> AccessBuffer<B> {
-    pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuffer<&mut RB>
+impl<B> AccessBuf<B> {
+    pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuf<&mut RB>
     where
         B: BorrowMut<RB>,
     {
-        AccessBuffer {
+        AccessBuf {
             buffer: self.buffer.borrow_mut(),
         }
     }
 
-    pub fn as_ref<RB: ?Sized>(&self) -> AccessBuffer<&RB>
+    pub fn as_ref<RB: ?Sized>(&self) -> AccessBuf<&RB>
     where
         B: Borrow<RB>,
     {
-        AccessBuffer {
+        AccessBuf {
             buffer: self.buffer.borrow(),
         }
     }
@@ -52,13 +52,13 @@ impl<B> AccessBuffer<B> {
     }
 }
 
-impl<B> From<B> for AccessBuffer<B> {
+impl<B> From<B> for AccessBuf<B> {
     fn from(buffer: B) -> Self {
         Self { buffer }
     }
 }
 
-impl<T, B> Access<T> for AccessBuffer<B>
+impl<T, B> Access<T> for AccessBuf<B>
 where
     T: CType,
     B: BufferInstance<T>,
@@ -76,7 +76,7 @@ where
     }
 }
 
-impl<'a, T, B> AccessMut<'a, T> for AccessBuffer<B>
+impl<'a, T, B> AccessMut<'a, T> for AccessBuf<B>
 where
     T: CType,
     B: BufferMut<'a, T>,
@@ -212,8 +212,8 @@ impl<T: CType> Access<T> for Accessor<T> {
     }
 }
 
-impl<T: CType, B: Into<Buffer<T>>> From<AccessBuffer<B>> for Accessor<T> {
-    fn from(access: AccessBuffer<B>) -> Self {
+impl<T: CType, B: Into<Buffer<T>>> From<AccessBuf<B>> for Accessor<T> {
+    fn from(access: AccessBuf<B>) -> Self {
         Self::Buffer(access.buffer.into())
     }
 }

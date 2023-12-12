@@ -11,11 +11,12 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixDual, NDArray, NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath,
-    NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll,
+    MatrixDual, NDArray, NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar,
+    NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll,
     NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWhere, NDArrayWrite,
 };
-pub use buffer::{Buffer, BufferConverter, BufferInstance};
+pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
+pub use host::StackVec;
 pub use platform::*;
 
 mod access;
@@ -640,7 +641,7 @@ pub type Strides = SmallVec<[usize; 8]>;
 
 pub type Array<T, A> = array::Array<T, A, Platform>;
 
-pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
+pub type ArrayBuf<T, B> = array::Array<T, AccessBuf<B>, Platform>;
 
 pub type ArrayOp<T, Op> = array::Array<T, AccessOp<Op>, Platform>;
 

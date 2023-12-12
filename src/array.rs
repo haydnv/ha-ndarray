@@ -117,7 +117,7 @@ impl<T: CType> Array<T, Accessor<T>, Platform> {
     }
 }
 
-impl<T, B, P> Array<T, AccessBuffer<B>, P>
+impl<T, B, P> Array<T, AccessBuf<B>, P>
 where
     T: CType,
     B: BufferInstance<T>,
@@ -143,7 +143,7 @@ where
     }
 }
 
-impl<T, P> Array<T, AccessBuffer<P::Buffer>, P>
+impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
     T: CType,
     P: Constant<T>,
@@ -169,7 +169,7 @@ where
     }
 }
 
-impl<'a, T, P> Array<T, AccessBuffer<P::Buffer>, P>
+impl<'a, T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
     T: CType,
     P: Convert<'a, T>,
@@ -239,13 +239,13 @@ where
 }
 
 // references
-impl<T, B, P> Array<T, AccessBuffer<B>, P>
+impl<T, B, P> Array<T, AccessBuf<B>, P>
 where
     T: CType,
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
-    pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuffer<&mut RB>, P>
+    pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuf<&mut RB>, P>
     where
         B: BorrowMut<RB>,
     {
@@ -257,7 +257,7 @@ where
         }
     }
 
-    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuffer<&RB>, P>
+    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuf<&RB>, P>
     where
         B: Borrow<RB>,
     {

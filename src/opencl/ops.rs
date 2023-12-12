@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use ocl::{Buffer, Kernel, Program, Queue};
 use rand::{random, Rng};
 
-use crate::access::{Access, AccessBuffer, AccessMut};
+use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Enqueue, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{strides_for, Axes, CType, Error, Float, Range, Shape, Strides};
 
@@ -794,7 +794,7 @@ pub struct Reduce<A, T: CType> {
     stride: usize,
     fold: Program,
     reduce: Program,
-    reduce_all: fn(OpenCL, AccessBuffer<Buffer<T>>) -> Result<T, Error>,
+    reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
     id: T,
 }
 
@@ -803,7 +803,7 @@ impl<A, T: CType> Reduce<A, T> {
         access: A,
         stride: usize,
         reduce: &'static str,
-        reduce_all: fn(OpenCL, AccessBuffer<Buffer<T>>) -> Result<T, Error>,
+        reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
         id: T,
     ) -> Result<Self, Error> {
         let fold = programs::reduce::fold_axis(T::TYPE, reduce)?;
@@ -824,7 +824,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "max",
-            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::max,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::max,
             T::MIN,
         )
     }
@@ -834,7 +834,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "min",
-            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::min,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::min,
             T::MAX,
         )
     }
@@ -844,7 +844,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "mul",
-            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::product,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::product,
             T::ONE,
         )
     }
@@ -854,7 +854,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "add",
-            <OpenCL as ReduceAll<AccessBuffer<Buffer<T>>, T>>::sum,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::sum,
             T::ZERO,
         )
     }
@@ -973,7 +973,7 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Reduce<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let input = self.access.read()?.to_cl()?;
         let slice = input.create_sub_buffer(None, offset, offset + self.stride)?;
-        (self.reduce_all)(OpenCL, AccessBuffer::from(slice))
+        (self.reduce_all)(OpenCL, AccessBuf::from(slice))
     }
 }
 
@@ -1233,11 +1233,11 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
     }
 }
 
-impl<'a, B, T> Write<'a, OpenCL, T> for Slice<AccessBuffer<B>, T>
+impl<'a, B, T> Write<'a, OpenCL, T> for Slice<AccessBuf<B>, T>
 where
     B: BorrowMut<Buffer<T>>,
     T: CType,
-    AccessBuffer<B>: AccessMut<'a, T>,
+    AccessBuf<B>: AccessMut<'a, T>,
 {
     type Data = CLConverter<'a, T>;
 

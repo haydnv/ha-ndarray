@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 
-use crate::access::{AccessBuffer, AccessOp};
+use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
 
 pub use buffer::*;
@@ -24,7 +24,7 @@ lazy_static! {
     };
 }
 
-pub type ArrayBuf<T> = crate::array::Array<T, AccessBuffer<ocl::Buffer<T>>, OpenCL>;
+pub type ArrayBuf<T> = crate::array::Array<T, AccessBuf<ocl::Buffer<T>>, OpenCL>;
 pub type ArrayOp<T, O> = crate::array::Array<T, AccessOp<O, OpenCL>, OpenCL>;
 
 #[cfg(test)]

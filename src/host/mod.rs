@@ -1,4 +1,4 @@
-use crate::access::AccessBuffer;
+use crate::access::AccessBuf;
 
 pub use buffer::*;
 pub use platform::*;
@@ -7,7 +7,7 @@ mod buffer;
 pub mod ops;
 mod platform;
 
-pub type ArrayBuf<T> = crate::array::Array<T, AccessBuffer<Buffer<T>>, Host>;
+pub type ArrayBuf<T> = crate::array::Array<T, AccessBuf<Buffer<T>>, Host>;
 
 #[cfg(test)]
 mod tests {
