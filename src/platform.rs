@@ -674,6 +674,65 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Platform {
     }
 }
 
+#[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
+    type Op = Unary<A, T, T::Float>;
+
+    fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.sin(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn asin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.asin(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn sinh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.sinh(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn cos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.cos(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn acos(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.acos(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn cosh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.cosh(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn tan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.tan(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn atan(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.atan(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn tanh(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.tanh(access).map(AccessOp::wrap),
+        }
+    }
+}
+
 #[cfg(feature = "opencl")]
 impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
     type Op = Unary<A, T, T::Float>;
