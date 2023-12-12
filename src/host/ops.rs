@@ -7,8 +7,8 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuffer};
-use crate::ops::{Op, ReadValue, SliceSpec, ViewSpec};
-use crate::{stackvec, strides_for, Axes, CType, Enqueue, Error, Float, Range, Shape, Strides};
+use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
+use crate::{stackvec, strides_for, Axes, CType, Error, Float, Range, Shape, Strides};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};

@@ -16,7 +16,6 @@ pub use array::{
     NDArrayReduceBoolean, NDArrayTransform, NDArrayUnary, NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance};
-use ops::*;
 pub use platform::*;
 
 mod access;
@@ -25,7 +24,7 @@ mod buffer;
 pub mod host;
 #[cfg(feature = "opencl")]
 pub mod opencl;
-mod ops;
+pub mod ops;
 mod platform;
 
 #[cfg(feature = "opencl")]
@@ -643,9 +642,11 @@ pub type Array<T, A> = array::Array<T, A, Platform>;
 
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuffer<B>, Platform>;
 
-pub type ArrayOp<T, O> = array::Array<T, AccessOp<O, Platform>, Platform>;
+pub type ArrayOp<T, Op> = array::Array<T, AccessOp<Op>, Platform>;
 
 pub type ArrayAccess<T> = array::Array<T, Accessor<T>, Platform>;
+
+pub type AccessOp<Op> = access::AccessOp<Op, Platform>;
 
 /// Bounds on an individual array axis
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -704,8 +705,8 @@ impl fmt::Debug for AxisRange {
     }
 }
 
-#[inline]
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
+#[inline]
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     if left.is_empty() || right.is_empty() {
         return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
