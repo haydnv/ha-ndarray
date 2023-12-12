@@ -912,8 +912,14 @@ pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     /// Construct a division operation with the given `rhs`.
     fn div(self, rhs: O) -> Result<Self::Output, Error>;
 
+    /// Construct a logarithm operation with the given `base`.
+    fn log(self, base: O) -> Result<Self::Output, Error>;
+
     /// Construct a multiplication operation with the given `rhs`.
     fn mul(self, rhs: O) -> Result<Self::Output, Error>;
+
+    /// Construct an operation to raise these data to the power of the given `exp`onent.
+    fn pow(self, exp: O) -> Result<Self::Output, Error>;
 
     /// Construct an array subtraction operation with the given `rhs`.
     fn sub(self, rhs: O) -> Result<Self::Output, Error>;
@@ -941,9 +947,19 @@ where
         self.apply_dual(rhs, |platform, left, right| platform.div(left, right))
     }
 
+    fn log(self, base: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("log", self.shape(), base.shape())?;
+        self.apply_dual(base, |platform, left, right| platform.log(left, right))
+    }
+
     fn mul(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
         same_shape("mul", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.mul(left, right))
+    }
+
+    fn pow(self, exp: Array<T, R, P>) -> Result<Self::Output, Error> {
+        same_shape("pow", self.shape(), exp.shape())?;
+        self.apply_dual(exp, |platform, left, right| platform.pow(left, right))
     }
 
     fn sub(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
