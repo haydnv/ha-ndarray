@@ -60,10 +60,10 @@ impl From<host::Host> for Platform {
 }
 
 impl<'a, T: CType> Convert<'a, T> for Platform {
-    type Buffer = BufferConverter<'a, T>;
+    type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        Ok(buffer)
+        buffer.into_buffer()
     }
 }
 
