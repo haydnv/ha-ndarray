@@ -7,7 +7,7 @@ use destream::{de, en};
 use crate::opencl;
 use crate::{host, CType, Error};
 
-pub trait BufferInstance<T: CType>: Send + Sync + Sized {
+pub trait BufferInstance<T: CType>: Send + Sync {
     fn read(&self) -> BufferConverter<T>;
 
     fn read_value(&self, offset: usize) -> Result<T, Error>;

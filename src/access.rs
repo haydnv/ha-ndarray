@@ -191,7 +191,7 @@ where
 }
 
 pub enum Accessor<T: CType> {
-    Buffer(Buffer<T>),
+    Buffer(Box<dyn BufferInstance<T>>),
     Op(Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>>),
 }
 
@@ -218,9 +218,9 @@ impl<T: CType> Access<T> for Accessor<T> {
     }
 }
 
-impl<T: CType, B: Into<Buffer<T>>> From<AccessBuf<B>> for Accessor<T> {
+impl<T: CType, B: BufferInstance<T> + 'static> From<AccessBuf<B>> for Accessor<T> {
     fn from(access: AccessBuf<B>) -> Self {
-        Self::Buffer(access.buffer.into())
+        Self::Buffer(Box::new(access.buffer))
     }
 }
 
