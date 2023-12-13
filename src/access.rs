@@ -55,6 +55,10 @@ impl<B> AccessBuf<B> {
         }
     }
 
+    pub fn inner(&self) -> &B {
+        &self.buffer
+    }
+
     pub fn into_inner(self) -> B {
         self.buffer
     }

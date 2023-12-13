@@ -86,7 +86,11 @@ impl<T, A, P> Array<T, A, P> {
         })
     }
 
-    pub fn into_inner(self) -> A {
+    pub fn access(&self) -> &A {
+        &self.access
+    }
+
+    pub fn into_access(self) -> A {
         self.access
     }
 }
