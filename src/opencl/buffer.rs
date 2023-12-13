@@ -29,8 +29,8 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<T: CType> BufferMut<T> for Buffer<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         if data.size() == self.size() {
             let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
@@ -43,7 +43,7 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         let buf = Buffer::builder()
             .context(OpenCL::context())
             .len(self.len())
@@ -54,7 +54,7 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
         Ok(())
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         if offset < self.len() {
             let slice = self.map().offset(offset).len(1).read();
             let mut slice = unsafe { slice.enq()? };
@@ -97,16 +97,16 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
+    fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         BufferMut::write(&mut **self, data.into())
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         BufferMut::write_value(&mut **self, value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         BufferMut::write_value_at(&mut **self, offset, value)
     }
 }

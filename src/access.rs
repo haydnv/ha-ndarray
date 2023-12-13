@@ -14,12 +14,12 @@ pub trait Access<T: CType>: Send + Sync {
     fn size(&self) -> usize;
 }
 
-pub trait AccessMut<'a, T: CType>: Access<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
+pub trait AccessMut<T: CType>: Access<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+    fn write_value(&mut self, value: T) -> Result<(), Error>;
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 pub struct AccessBuf<B> {
@@ -86,20 +86,20 @@ where
     }
 }
 
-impl<'a, T, B> AccessMut<'a, T> for AccessBuf<B>
+impl<T, B> AccessMut<T> for AccessBuf<B>
 where
     T: CType,
-    B: BufferMut<'a, T>,
+    B: BufferMut<T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.buffer.write(data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.buffer.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.buffer.write_value_at(offset, value)
     }
 }
@@ -170,22 +170,22 @@ where
     }
 }
 
-impl<'a, O, P, T> AccessMut<'a, T> for AccessOp<O, P>
+impl<O, P, T> AccessMut<T> for AccessOp<O, P>
 where
     T: CType,
-    O: ReadValue<P, T> + Write<'a, P, T>,
+    O: ReadValue<P, T> + Write<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.op.write(data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.op.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.op.write_value_at(offset, value)
     }
 }

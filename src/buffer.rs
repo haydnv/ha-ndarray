@@ -15,12 +15,12 @@ pub trait BufferInstance<T: CType>: Send + Sync {
     fn size(&self) -> usize;
 }
 
-pub trait BufferMut<'a, T: CType>: BufferInstance<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
+pub trait BufferMut<T: CType>: BufferInstance<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+    fn write_value(&mut self, value: T) -> Result<(), Error>;
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 #[derive(Clone)]
@@ -59,8 +59,8 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<T: CType> BufferMut<T> for Buffer<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => buf.write(data),
@@ -68,7 +68,7 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => buf.write_value(value),
@@ -76,7 +76,7 @@ impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
         }
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => buf.write_value_at(offset, value),
@@ -113,16 +113,16 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
+    fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         Buffer::<T>::write(*self, data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         Buffer::<T>::write_value(*self, value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         Buffer::<T>::write_value_at(*self, offset, value)
     }
 }
@@ -158,18 +158,16 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwne
 }
 
 #[cfg(feature = "freqfs")]
-impl<'a, FE: Send + Sync, T: CType> BufferMut<'a, T>
-    for freqfs::FileWriteGuardOwned<FE, Buffer<T>>
-{
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<FE: Send + Sync, T: CType> BufferMut<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         BufferMut::write(&mut **self, data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         BufferMut::write_value(&mut **self, value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         BufferMut::write_value_at(&mut **self, offset, value)
     }
 }

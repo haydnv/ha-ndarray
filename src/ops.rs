@@ -42,12 +42,12 @@ pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 }
 
-pub trait Write<'a, P: PlatformInstance, T: CType>: Enqueue<P, T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
+pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error>;
+    fn write_value(&mut self, value: T) -> Result<(), Error>;
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error>;
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
 pub trait Construct<T: CType>: PlatformInstance {
@@ -858,28 +858,28 @@ pub enum Slice<A, T> {
 impl_unary!(Slice<A, T>, T);
 
 #[cfg(feature = "opencl")]
-impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
+impl<A, T> Write<Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, T>,
-    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, T>,
+    host::ops::Slice<A, T>: Write<host::Host, T>,
+    opencl::ops::Slice<A, T>: Write<opencl::OpenCL, T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             Self::CL(op) => Write::write(op, data),
             Self::Host(op) => Write::write(op, data),
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
             Self::CL(op) => Write::write_value(op, value),
             Self::Host(op) => Write::write_value(op, value),
         }
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             Self::CL(op) => Write::write_value_at(op, offset, value),
             Self::Host(op) => Write::write_value_at(op, offset, value),
@@ -888,25 +888,25 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
+impl<A, T> Write<Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, T>,
+    host::ops::Slice<A, T>: Write<host::Host, T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             Self::Host(op) => Write::write(op, data),
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
             Self::Host(op) => Write::write_value(op, value),
         }
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             Self::Host(op) => Write::write_value_at(op, offset, value),
         }

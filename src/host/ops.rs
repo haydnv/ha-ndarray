@@ -1395,62 +1395,62 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
     }
 }
 
-impl<'a, B, T> crate::ops::Write<'a, Heap, T> for Slice<AccessBuf<B>, T>
+impl<B, T> crate::ops::Write<Heap, T> for Slice<AccessBuf<B>, T>
 where
     B: AsMut<[T]>,
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_slice()?;
         self.overwrite(&*data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.overwrite_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.overwrite_value_at(offset, value)
     }
 }
 
-impl<'a, B, T> crate::ops::Write<'a, Stack, T> for Slice<AccessBuf<B>, T>
+impl<B, T> crate::ops::Write<Stack, T> for Slice<AccessBuf<B>, T>
 where
     B: AsMut<[T]>,
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_slice()?;
         self.overwrite(&*data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.overwrite_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.overwrite_value_at(offset, value)
     }
 }
 
-impl<'a, B, T> crate::ops::Write<'a, Host, T> for Slice<AccessBuf<B>, T>
+impl<B, T> crate::ops::Write<Host, T> for Slice<AccessBuf<B>, T>
 where
     B: AsMut<[T]>,
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_slice()?;
         self.overwrite(&*data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.overwrite_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.overwrite_value_at(offset, value)
     }
 }

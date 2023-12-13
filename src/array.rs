@@ -293,7 +293,7 @@ where
 {
     pub fn as_mut<'a>(&'a mut self) -> Array<T, &'a mut AccessOp<O, P>, P>
     where
-        O: Write<'a, P, T>,
+        O: Write<P, T>,
     {
         Array {
             shape: Shape::from_slice(&self.shape),
@@ -382,25 +382,25 @@ where
 }
 
 /// Access methods for a mutable [`NDArray`]
-pub trait NDArrayWrite<'a>: NDArray + fmt::Debug + Sized {
+pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
     /// Overwrite this [`NDArray`] with the value of the `other` array.
-    fn write<O: NDArrayRead<DType = Self::DType>>(&'a mut self, other: &'a O) -> Result<(), Error>;
+    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error>;
 
     /// Overwrite this [`NDArray`] with a constant scalar `value`.
-    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error>;
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error>;
 
     /// Write the given `value` at the given `coord` of this [`NDArray`].
-    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
+    fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
 }
 
 // write ops
-impl<'a, T, A, P> NDArrayWrite<'a> for Array<T, A, P>
+impl<T, A, P> NDArrayWrite for Array<T, A, P>
 where
     T: CType,
-    A: AccessMut<'a, T>,
+    A: AccessMut<T>,
     P: Send + Sync,
 {
-    fn write<O>(&'a mut self, other: &'a O) -> Result<(), Error>
+    fn write<O>(&mut self, other: &O) -> Result<(), Error>
     where
         O: NDArrayRead<DType = Self::DType>,
     {
@@ -408,11 +408,11 @@ where
         other.read().and_then(|buf| self.access.write(buf))
     }
 
-    fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error> {
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
         self.access.write_value(value)
     }
 
-    fn write_value_at(&'a mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
+    fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
         valid_coord(coord, self.shape())?;
 
         let offset = coord

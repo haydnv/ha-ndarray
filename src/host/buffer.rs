@@ -25,16 +25,16 @@ impl<T: CType> BufferInstance<T> for StackVec<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for StackVec<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<T: CType> BufferMut<T> for StackVec<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.as_mut_slice().write_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.as_mut_slice().write_value_at(offset, value)
     }
 }
@@ -53,16 +53,16 @@ impl<T: CType> BufferInstance<T> for Vec<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for Vec<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<T: CType> BufferMut<T> for Vec<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.as_mut_slice().write_value(value)
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.as_mut_slice().write_value_at(offset, value)
     }
 }
@@ -100,8 +100,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for &'a mut [T] {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<'a, T: CType> BufferMut<T> for &'a mut [T] {
+    fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         if data.size() == self.len() {
             let data = data.to_slice()?;
             self.copy_from_slice(&*data);
@@ -115,12 +115,12 @@ impl<'a, T: CType> BufferMut<'a, T> for &'a mut [T] {
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         self.fill(value);
         Ok(())
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         if offset < self.len() {
             self[offset] = value;
             Ok(())
@@ -193,22 +193,22 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+impl<T: CType> BufferMut<T> for Buffer<T> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             Self::Heap(buf) => buf.write(data),
             Self::Stack(buf) => buf.write(data),
         }
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
             Self::Heap(buf) => buf.write_value(value),
             Self::Stack(buf) => buf.write_value(value),
         }
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
             Self::Heap(buf) => buf.write_value_at(offset, value),
             Self::Stack(buf) => buf.write_value_at(offset, value),

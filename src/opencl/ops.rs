@@ -1233,13 +1233,13 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
     }
 }
 
-impl<'a, B, T> Write<'a, OpenCL, T> for Slice<AccessBuf<B>, T>
+impl<B, T> Write<OpenCL, T> for Slice<AccessBuf<B>, T>
 where
     B: BorrowMut<Buffer<T>>,
     T: CType,
-    AccessBuf<B>: AccessMut<'a, T>,
+    AccessBuf<B>: AccessMut<T>,
 {
-    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+    fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_cl()?;
         let size_hint = self.size();
         let source = self.access.as_ref().into_inner();
@@ -1264,7 +1264,7 @@ where
         Ok(())
     }
 
-    fn write_value(&'a mut self, value: T) -> Result<(), Error> {
+    fn write_value(&mut self, value: T) -> Result<(), Error> {
         let size_hint = self.size();
         let source = self.access.as_ref().into_inner();
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
@@ -1288,7 +1288,7 @@ where
         Ok(())
     }
 
-    fn write_value_at(&'a mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.access
             .borrow_mut()
             .write_value_at(self.spec.source_offset(offset), value)
