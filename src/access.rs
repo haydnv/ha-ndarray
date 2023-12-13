@@ -57,6 +57,10 @@ impl<B> AccessBuf<B> {
         &self.buffer
     }
 
+    pub fn inner_mut(&mut self) -> &mut B {
+        &mut self.buffer
+    }
+
     pub fn into_inner(self) -> B {
         self.buffer
     }

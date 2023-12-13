@@ -1192,6 +1192,21 @@ impl<A, T: CType> Slice<A, T> {
             dtype: PhantomData,
         })
     }
+
+    pub fn try_map<'a, M, MA>(&'a mut self, map_fn: M) -> Result<Slice<MA, T>, Error>
+    where
+        M: Fn(&'a mut A) -> Result<MA, Error>,
+        MA: 'a,
+    {
+        (map_fn)(&mut self.access).map(|access| Slice {
+            access,
+            spec: self.spec.clone(),
+            read: self.read.clone(),
+            write: self.write.clone(),
+            write_value: self.write_value.clone(),
+            dtype: self.dtype,
+        })
+    }
 }
 
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {

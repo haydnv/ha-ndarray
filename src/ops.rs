@@ -858,57 +858,80 @@ pub enum Slice<A, T> {
 impl_unary!(Slice<A, T>, T);
 
 #[cfg(feature = "opencl")]
-impl<A, T> Write<Platform, T> for Slice<A, T>
+impl<T> Write<Platform, T> for Slice<AccessBuf<Buffer<T>>, T>
 where
-    A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<host::Host, T>,
-    opencl::ops::Slice<A, T>: Write<opencl::OpenCL, T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::CL(op) => Write::write(op, data),
-            Self::Host(op) => Write::write(op, data),
+            Self::CL(op) => {
+                let mut op = op.try_map(|access| match access.inner_mut() {
+                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
+                    _ => Err(Error::Unsupported(format!(
+                        "write an OpenCL buffer to a slice of a host buffer"
+                    ))),
+                })?;
+
+                op.write(data)
+            }
+            Self::Host(op) => Write::<host::Host, T>::write(op, data),
         }
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
-            Self::CL(op) => Write::write_value(op, value),
-            Self::Host(op) => Write::write_value(op, value),
+            Self::CL(op) => {
+                let mut op = op.try_map(|access| match access.inner_mut() {
+                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
+                    _ => Err(Error::Unsupported(format!(
+                        "write an OpenCL buffer to a slice of a host buffer"
+                    ))),
+                })?;
+
+                op.write_value(value)
+            }
+            Self::Host(op) => Write::<host::Host, T>::write_value(op, value),
         }
     }
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
-            Self::CL(op) => Write::write_value_at(op, offset, value),
-            Self::Host(op) => Write::write_value_at(op, offset, value),
+            Self::CL(op) => {
+                let mut op = op.try_map(|access| match access.inner_mut() {
+                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
+                    _ => Err(Error::Unsupported(format!(
+                        "write an OpenCL buffer to a slice of a host buffer"
+                    ))),
+                })?;
+
+                op.write_value_at(offset, value)
+            }
+            Self::Host(op) => Write::<host::Host, T>::write_value_at(op, offset, value),
         }
     }
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A, T> Write<Platform, T> for Slice<A, T>
+impl<B, T> Write<Platform, T> for Slice<AccessBuf<B>, T>
 where
-    A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<host::Host, T>,
+    B: BufferMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::Host(op) => Write::write(op, data),
+            Self::Host(op) => Write::<host::Host, T>::write(op, data),
         }
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
-            Self::Host(op) => Write::write_value(op, value),
+            Self::Host(op) => Write::<host::Host, T>::write_value(op, value),
         }
     }
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
-            Self::Host(op) => Write::write_value_at(op, offset, value),
+            Self::Host(op) => Write::<host::Host, T>::write_value_at(op, offset, value),
         }
     }
 }

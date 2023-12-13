@@ -9,7 +9,8 @@ use rayon::prelude::*;
 use crate::access::{Access, AccessBuf};
 use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
-    stackvec, strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
+    stackvec, strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape,
+    Strides,
 };
 
 use super::buffer::Buffer;
@@ -1310,17 +1311,16 @@ impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
 
 impl<B, T> Slice<AccessBuf<B>, T>
 where
-    B: AsMut<[T]>,
     T: CType,
-    AccessBuf<B>: Access<T>,
+    AccessBuf<B>: AccessMut<T>,
 {
-    fn overwrite(&mut self, data: &[T]) -> Result<(), Error> {
-        if data.len() == self.size() {
-            let source = self.access.as_mut().into_inner();
+    fn overwrite<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        if data.size() == self.size() {
+            let data = data.to_slice()?;
 
             for (offset, value) in data.into_iter().copied().enumerate() {
                 let source_offset = self.spec.source_offset(offset);
-                source.as_mut()[source_offset] = value;
+                self.access.write_value_at(source_offset, value)?;
             }
 
             Ok(())
@@ -1328,18 +1328,15 @@ where
             Err(Error::Bounds(format!(
                 "cannot overwrite a slice of size {} with a buffer of size {}",
                 self.size(),
-                data.len(),
+                data.size(),
             )))
         }
     }
 
     fn overwrite_value(&mut self, value: T) -> Result<(), Error> {
-        let size = self.access.size();
-        let source = self.access.as_mut().into_inner();
-
-        for offset in 0..size {
+        for offset in 0..self.access.size() {
             let source_offset = self.spec.source_offset(offset);
-            source.as_mut()[source_offset] = value;
+            self.access.write_value_at(source_offset, value)?;
         }
 
         Ok(())
@@ -1347,8 +1344,7 @@ where
 
     fn overwrite_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         let source_offset = self.spec.source_offset(offset);
-        self.access.as_mut().into_inner().as_mut()[source_offset] = value;
-        Ok(())
+        self.access.write_value_at(source_offset, value)
     }
 }
 
@@ -1397,13 +1393,11 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
 
 impl<B, T> crate::ops::Write<Heap, T> for Slice<AccessBuf<B>, T>
 where
-    B: AsMut<[T]>,
     T: CType,
-    AccessBuf<B>: Access<T>,
+    AccessBuf<B>: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        let data = data.to_slice()?;
-        self.overwrite(&*data)
+        self.overwrite(data)
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
@@ -1417,13 +1411,11 @@ where
 
 impl<B, T> crate::ops::Write<Stack, T> for Slice<AccessBuf<B>, T>
 where
-    B: AsMut<[T]>,
     T: CType,
-    AccessBuf<B>: Access<T>,
+    AccessBuf<B>: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        let data = data.to_slice()?;
-        self.overwrite(&*data)
+        self.overwrite(data)
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
@@ -1437,13 +1429,11 @@ where
 
 impl<B, T> crate::ops::Write<Host, T> for Slice<AccessBuf<B>, T>
 where
-    B: AsMut<[T]>,
     T: CType,
-    AccessBuf<B>: Access<T>,
+    AccessBuf<B>: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        let data = data.to_slice()?;
-        self.overwrite(&*data)
+        self.overwrite(data)
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
