@@ -706,7 +706,7 @@ where
 /// Unary boolean array operations
 pub trait NDArrayUnaryBoolean: NDArray + Sized {
     /// The return type of a unary operation.
-    type Output: NDArray<DType = Self::DType>;
+    type Output: NDArray<DType = u8>;
 
     /// Construct a boolean not operation.
     fn not(self) -> Result<Self::Output, Error>;
@@ -718,7 +718,7 @@ where
     A: Access<T>,
     P: ElementwiseUnaryBoolean<A, T>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = Array<u8, AccessOp<P::Op, P>, P>;
 
     fn not(self) -> Result<Self::Output, Error> {
         self.apply(|platform, access| platform.not(access))
