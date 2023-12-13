@@ -912,10 +912,10 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<B, T> Write<Platform, T> for Slice<AccessBuf<B>, T>
+impl<A, T> Write<Platform, T> for Slice<A, T>
 where
     T: CType,
-    B: BufferMut<T>,
+    A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {

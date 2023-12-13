@@ -6,7 +6,7 @@ use rand::Rng;
 use rayon::join;
 use rayon::prelude::*;
 
-use crate::access::{Access, AccessBuf};
+use crate::access::Access;
 use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
     stackvec, strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape,
@@ -1309,10 +1309,10 @@ impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
     }
 }
 
-impl<B, T> Slice<AccessBuf<B>, T>
+impl<A, T> Slice<A, T>
 where
     T: CType,
-    AccessBuf<B>: AccessMut<T>,
+    A: AccessMut<T>,
 {
     fn overwrite<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         if data.size() == self.size() {
@@ -1391,10 +1391,10 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
     }
 }
 
-impl<B, T> crate::ops::Write<Heap, T> for Slice<AccessBuf<B>, T>
+impl<A, T> crate::ops::Write<Heap, T> for Slice<A, T>
 where
     T: CType,
-    AccessBuf<B>: AccessMut<T>,
+    A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.overwrite(data)
@@ -1409,10 +1409,10 @@ where
     }
 }
 
-impl<B, T> crate::ops::Write<Stack, T> for Slice<AccessBuf<B>, T>
+impl<A, T> crate::ops::Write<Stack, T> for Slice<A, T>
 where
     T: CType,
-    AccessBuf<B>: AccessMut<T>,
+    A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.overwrite(data)
@@ -1427,10 +1427,10 @@ where
     }
 }
 
-impl<B, T> crate::ops::Write<Host, T> for Slice<AccessBuf<B>, T>
+impl<A, T> crate::ops::Write<Host, T> for Slice<A, T>
 where
     T: CType,
-    AccessBuf<B>: AccessMut<T>,
+    A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.overwrite(data)
