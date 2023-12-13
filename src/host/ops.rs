@@ -8,7 +8,9 @@ use rayon::prelude::*;
 
 use crate::access::{Access, AccessBuf};
 use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
-use crate::{stackvec, strides_for, Axes, CType, Error, Float, Range, Shape, Strides};
+use crate::{
+    stackvec, strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
+};
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
@@ -1399,10 +1401,9 @@ where
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    type Data = &'a [T];
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        self.overwrite(data)
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        let data = data.to_slice()?;
+        self.overwrite(&*data)
     }
 
     fn write_value(&'a mut self, value: T) -> Result<(), Error> {
@@ -1420,10 +1421,9 @@ where
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    type Data = &'a [T];
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        self.overwrite(data)
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        let data = data.to_slice()?;
+        self.overwrite(&*data)
     }
 
     fn write_value(&'a mut self, value: T) -> Result<(), Error> {
@@ -1441,9 +1441,8 @@ where
     T: CType,
     AccessBuf<B>: Access<T>,
 {
-    type Data = SliceConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        let data = data.to_slice()?;
         self.overwrite(&*data)
     }
 

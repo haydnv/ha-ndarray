@@ -30,10 +30,9 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    type Data = CLConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         if data.size() == self.size() {
+            let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
         } else {
             Err(Error::Bounds(format!(
@@ -99,9 +98,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
-    type Data = &'a Buffer<T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         BufferMut::write(&mut **self, data.into())
     }
 

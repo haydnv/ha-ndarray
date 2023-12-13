@@ -26,9 +26,7 @@ impl<T: CType> BufferInstance<T> for StackVec<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for StackVec<T> {
-    type Data = &'a [T];
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
 
@@ -56,9 +54,7 @@ impl<T: CType> BufferInstance<T> for Vec<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for Vec<T> {
-    type Data = &'a [T];
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
 
@@ -105,17 +101,16 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for &'a mut [T] {
-    type Data = &'a [T];
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
-        if data.len() == self.len() {
-            self.copy_from_slice(data);
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        if data.size() == self.len() {
+            let data = data.to_slice()?;
+            self.copy_from_slice(&*data);
             Ok(())
         } else {
             Err(Error::Bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
                 self.len(),
-                data.len()
+                data.size()
             )))
         }
     }
@@ -199,12 +194,10 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    type Data = SliceConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::Heap(buf) => buf.write(data.as_ref()),
-            Self::Stack(buf) => buf.write(data.as_ref()),
+            Self::Heap(buf) => buf.write(data),
+            Self::Stack(buf) => buf.write(data),
         }
     }
 

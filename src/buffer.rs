@@ -16,9 +16,7 @@ pub trait BufferInstance<T: CType>: Send + Sync + Sized {
 }
 
 pub trait BufferMut<'a, T: CType>: BufferInstance<T> {
-    type Data;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&'a mut self, value: T) -> Result<(), Error>;
 
@@ -62,13 +60,11 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for Buffer<T> {
-    type Data = BufferConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(buf) => buf.write(data.to_cl()?),
-            Self::Host(buf) => buf.write(data.to_slice()?),
+            Self::CL(buf) => buf.write(data),
+            Self::Host(buf) => buf.write(data),
         }
     }
 
@@ -118,9 +114,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<'a, T> for &'a mut Buffer<T> {
-    type Data = BufferConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         Buffer::<T>::write(*self, data)
     }
 
@@ -167,9 +161,7 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwne
 impl<'a, FE: Send + Sync, T: CType> BufferMut<'a, T>
     for freqfs::FileWriteGuardOwned<FE, Buffer<T>>
 {
-    type Data = BufferConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         BufferMut::write(&mut **self, data)
     }
 

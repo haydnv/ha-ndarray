@@ -15,9 +15,7 @@ pub trait Access<T: CType>: Send + Sync {
 }
 
 pub trait AccessMut<'a, T: CType>: Access<T> {
-    type Data;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&'a mut self, value: T) -> Result<(), Error>;
 
@@ -93,9 +91,7 @@ where
     T: CType,
     B: BufferMut<'a, T>,
 {
-    type Data = B::Data;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.buffer.write(data)
     }
 
@@ -181,9 +177,7 @@ where
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
-    type Data = O::Data;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.op.write(data)
     }
 

@@ -6,10 +6,10 @@ use rand::{random, Rng};
 
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Enqueue, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, Axes, CType, Error, Float, Range, Shape, Strides};
+use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
-use super::{programs, CLConverter, TILE_SIZE, WG_SIZE};
+use super::{programs, TILE_SIZE, WG_SIZE};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -1239,9 +1239,8 @@ where
     T: CType,
     AccessBuf<B>: AccessMut<'a, T>,
 {
-    type Data = CLConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
+        let data = data.to_cl()?;
         let size_hint = self.size();
         let source = self.access.as_ref().into_inner();
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;

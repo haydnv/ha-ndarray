@@ -394,21 +394,18 @@ pub trait NDArrayWrite<'a>: NDArray + fmt::Debug + Sized {
 }
 
 // write ops
-impl<'a, T, L, P> NDArrayWrite<'a> for Array<T, L, P>
+impl<'a, T, A, P> NDArrayWrite<'a> for Array<T, A, P>
 where
     T: CType,
-    L: AccessMut<'a, T>,
-    P: Convert<'a, T, Buffer = L::Data>,
+    A: AccessMut<'a, T>,
+    P: Send + Sync,
 {
     fn write<O>(&'a mut self, other: &'a O) -> Result<(), Error>
     where
         O: NDArrayRead<DType = Self::DType>,
     {
         same_shape("write", self.shape(), other.shape())?;
-
-        let data = other.read().and_then(|buf| self.platform.convert(buf))?;
-
-        self.access.write(data)
+        other.read().and_then(|buf| self.access.write(buf))
     }
 
     fn write_value(&'a mut self, value: Self::DType) -> Result<(), Error> {

@@ -43,9 +43,7 @@ pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P, T> {
 }
 
 pub trait Write<'a, P: PlatformInstance, T: CType>: Enqueue<P, T> {
-    type Data;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error>;
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&'a mut self, value: T) -> Result<(), Error>;
 
@@ -864,15 +862,13 @@ impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, T, Data = host::SliceConverter<'a, T>>,
-    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, T, Data = opencl::CLConverter<'a, T>>,
+    host::ops::Slice<A, T>: Write<'a, host::Host, T>,
+    opencl::ops::Slice<A, T>: Write<'a, opencl::OpenCL, T>,
 {
-    type Data = BufferConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::CL(op) => Write::write(op, data.to_cl()?),
-            Self::Host(op) => Write::write(op, data.to_slice()?),
+            Self::CL(op) => Write::write(op, data),
+            Self::Host(op) => Write::write(op, data),
         }
     }
 
@@ -896,13 +892,11 @@ impl<'a, A, T> Write<'a, Platform, T> for Slice<A, T>
 where
     A: Access<T>,
     T: CType,
-    host::ops::Slice<A, T>: Write<'a, host::Host, T, Data = host::SliceConverter<'a, T>>,
+    host::ops::Slice<A, T>: Write<'a, host::Host, T>,
 {
-    type Data = BufferConverter<'a, T>;
-
-    fn write(&'a mut self, data: Self::Data) -> Result<(), Error> {
+    fn write(&'a mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::Host(op) => Write::write(op, data.to_slice()?),
+            Self::Host(op) => Write::write(op, data),
         }
     }
 
