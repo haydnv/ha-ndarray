@@ -11,9 +11,10 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixDual, NDArray, NDArrayBoolean, NDArrayCast, NDArrayCompare, NDArrayCompareScalar,
-    NDArrayMath, NDArrayMathScalar, NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll,
-    NDArrayReduceBoolean, NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayWhere, NDArrayWrite,
+    MatrixDual, MatrixUnary, NDArray, NDArrayBoolean, NDArrayBooleanScalar, NDArrayCast,
+    NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar, NDArrayNumeric,
+    NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform,
+    NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
 pub use host::StackVec;
