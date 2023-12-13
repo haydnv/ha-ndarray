@@ -1,5 +1,6 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::ops::{ReadValue, Write};
@@ -194,9 +195,10 @@ where
     }
 }
 
+#[derive(Clone)]
 pub enum Accessor<T: CType> {
-    Buffer(Box<dyn BufferInstance<T>>),
-    Op(Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>>),
+    Buffer(Arc<dyn BufferInstance<T>>),
+    Op(Arc<dyn ReadValue<Platform, T, Buffer = Buffer<T>>>),
 }
 
 impl<T: CType> Access<T> for Accessor<T> {
@@ -224,7 +226,7 @@ impl<T: CType> Access<T> for Accessor<T> {
 
 impl<T: CType, B: BufferInstance<T> + 'static> From<AccessBuf<B>> for Accessor<T> {
     fn from(access: AccessBuf<B>) -> Self {
-        Self::Buffer(Box::new(access.buffer))
+        Self::Buffer(Arc::new(access.buffer))
     }
 }
 
@@ -236,7 +238,7 @@ where
 {
     fn from(access: AccessOp<O, P>) -> Self {
         let access: AccessOp<O, Platform> = AccessOp::wrap(access);
-        let op: Box<dyn ReadValue<Platform, T, Buffer = Buffer<T>>> = Box::new(access.op);
+        let op: Arc<dyn ReadValue<Platform, T, Buffer = Buffer<T>>> = Arc::new(access.op);
         Self::Op(op)
     }
 }
