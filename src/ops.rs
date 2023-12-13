@@ -858,54 +858,28 @@ pub enum Slice<A, T> {
 impl_unary!(Slice<A, T>, T);
 
 #[cfg(feature = "opencl")]
-impl<T> Write<Platform, T> for Slice<AccessBuf<Buffer<T>>, T>
+impl<A, T> Write<Platform, T> for Slice<A, T>
 where
+    A: AccessMut<T>,
     T: CType,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
-            Self::CL(op) => {
-                let mut op = op.try_map(|access| match access.inner_mut() {
-                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
-                    _ => Err(Error::Unsupported(format!(
-                        "write an OpenCL buffer to a slice of a host buffer"
-                    ))),
-                })?;
-
-                op.write(data)
-            }
+            Self::CL(op) => Write::<opencl::OpenCL, T>::write(op, data),
             Self::Host(op) => Write::<host::Host, T>::write(op, data),
         }
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         match self {
-            Self::CL(op) => {
-                let mut op = op.try_map(|access| match access.inner_mut() {
-                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
-                    _ => Err(Error::Unsupported(format!(
-                        "write an OpenCL buffer to a slice of a host buffer"
-                    ))),
-                })?;
-
-                op.write_value(value)
-            }
+            Self::CL(op) => Write::<opencl::OpenCL, T>::write_value(op, value),
             Self::Host(op) => Write::<host::Host, T>::write_value(op, value),
         }
     }
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         match self {
-            Self::CL(op) => {
-                let mut op = op.try_map(|access| match access.inner_mut() {
-                    Buffer::CL(buffer) => Ok(AccessBuf::from(buffer)),
-                    _ => Err(Error::Unsupported(format!(
-                        "write an OpenCL buffer to a slice of a host buffer"
-                    ))),
-                })?;
-
-                op.write_value_at(offset, value)
-            }
+            Self::CL(op) => Write::<opencl::OpenCL, T>::write_value_at(op, offset, value),
             Self::Host(op) => Write::<host::Host, T>::write_value_at(op, offset, value),
         }
     }

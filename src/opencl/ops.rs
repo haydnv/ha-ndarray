@@ -1192,21 +1192,6 @@ impl<A, T: CType> Slice<A, T> {
             dtype: PhantomData,
         })
     }
-
-    pub fn try_map<'a, M, MA>(&'a mut self, map_fn: M) -> Result<Slice<MA, T>, Error>
-    where
-        M: Fn(&'a mut A) -> Result<MA, Error>,
-        MA: 'a,
-    {
-        (map_fn)(&mut self.access).map(|access| Slice {
-            access,
-            spec: self.spec.clone(),
-            read: self.read.clone(),
-            write: self.write.clone(),
-            write_value: self.write_value.clone(),
-            dtype: self.dtype,
-        })
-    }
 }
 
 impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
@@ -1248,16 +1233,19 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
     }
 }
 
-impl<B, T> Write<OpenCL, T> for Slice<AccessBuf<B>, T>
+impl<A, T> Write<OpenCL, T> for Slice<A, T>
 where
-    B: BorrowMut<Buffer<T>>,
     T: CType,
-    AccessBuf<B>: AccessMut<T>,
+    A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_cl()?;
         let size_hint = self.size();
-        let source = self.access.as_ref().into_inner();
+        let source = self
+            .access
+            .cl_buffer()
+            .ok_or_else(|| Error::Unsupported("not an OpenCL buffer".to_string()))?;
+
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
         if self.write.is_none() {
@@ -1281,7 +1269,11 @@ where
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         let size_hint = self.size();
-        let source = self.access.as_ref().into_inner();
+        let source = self
+            .access
+            .cl_buffer()
+            .ok_or_else(|| Error::Unsupported("not an OpenCL buffer".to_string()))?;
+
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
         if self.write.is_none() {

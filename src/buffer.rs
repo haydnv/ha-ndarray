@@ -16,6 +16,11 @@ pub trait BufferInstance<T: CType>: Send + Sync {
 }
 
 pub trait BufferMut<T: CType>: BufferInstance<T> {
+    #[cfg(feature = "opencl")]
+    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        None
+    }
+
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&mut self, value: T) -> Result<(), Error>;

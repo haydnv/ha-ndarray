@@ -16,6 +16,11 @@ pub trait Access<T: CType>: Send + Sync {
 }
 
 pub trait AccessMut<T: CType>: Access<T> {
+    #[cfg(feature = "opencl")]
+    fn cl_buffer(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        None
+    }
+
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&mut self, value: T) -> Result<(), Error>;
@@ -96,6 +101,11 @@ where
     T: CType,
     B: BufferMut<T>,
 {
+    #[cfg(feature = "opencl")]
+    fn cl_buffer(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        self.buffer.cl()
+    }
+
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.buffer.write(data)
     }
