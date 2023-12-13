@@ -28,6 +28,14 @@ pub struct AccessBuf<B> {
     buffer: B,
 }
 
+impl<B: Clone> Clone for AccessBuf<B> {
+    fn clone(&self) -> Self {
+        Self {
+            buffer: self.buffer.clone(),
+        }
+    }
+}
+
 impl<B> AccessBuf<B> {
     pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuf<&mut RB>
     where

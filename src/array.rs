@@ -18,6 +18,17 @@ pub struct Array<T, A, P> {
     dtype: PhantomData<T>,
 }
 
+impl<T, A: Clone, P: Clone> Clone for Array<T, A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            access: self.access.clone(),
+            platform: self.platform.clone(),
+            dtype: self.dtype,
+        }
+    }
+}
+
 impl<T, A, P> Array<T, A, P> {
     fn apply<O, OT, Op>(self, op: Op) -> Result<Array<OT, AccessOp<O, P>, P>, Error>
     where
