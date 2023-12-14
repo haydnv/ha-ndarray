@@ -92,7 +92,7 @@ where
     }
 
     fn size(&self) -> usize {
-        self.buffer.size()
+        self.buffer.len()
     }
 }
 
@@ -228,7 +228,7 @@ impl<T: CType> Access<T> for Accessor<T> {
 
     fn size(&self) -> usize {
         match self {
-            Self::Buffer(buf) => buf.size(),
+            Self::Buffer(buf) => buf.len(),
             Self::Op(op) => op.size(),
         }
     }

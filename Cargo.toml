@@ -25,6 +25,7 @@ async-trait = { version = "0.1", optional = true }
 freqfs = { version = "0.9", optional = true }
 destream = { version = "0.7", optional = true }
 futures = { version = "0.3", optional = true }
+get-size = "0.1"
 lazy_static = "1.4"
 memoize = { version = "0.4", optional = true }
 num_cpus = "1.16"

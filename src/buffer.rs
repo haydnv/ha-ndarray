@@ -2,6 +2,7 @@ use std::fmt;
 
 #[cfg(feature = "stream")]
 use destream::{de, en};
+use get_size::GetSize;
 
 #[cfg(feature = "opencl")]
 use crate::opencl;
@@ -12,7 +13,7 @@ pub trait BufferInstance<T: CType>: Send + Sync {
 
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 
-    fn size(&self) -> usize;
+    fn len(&self) -> usize;
 }
 
 pub trait BufferMut<T: CType>: BufferInstance<T> {
@@ -42,6 +43,12 @@ impl<T: CType> Buffer<T> {
     }
 }
 
+impl<T: CType> GetSize for Buffer<T> {
+    fn get_size(&self) -> usize {
+        self.len() * std::mem::size_of::<T>()
+    }
+}
+
 impl<T: CType> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::from(self)
@@ -55,11 +62,11 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         }
     }
 
-    fn size(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(buf) => buf.size(),
-            Self::Host(buf) => buf.size(),
+            Self::CL(buf) => buf.len(),
+            Self::Host(buf) => buf.len(),
         }
     }
 }
@@ -99,8 +106,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
         BufferInstance::read_value(*self, offset)
     }
 
-    fn size(&self) -> usize {
-        BufferInstance::size(*self)
+    fn len(&self) -> usize {
+        BufferInstance::len(*self)
     }
 }
 
@@ -113,8 +120,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
         BufferInstance::read_value(&**self, offset)
     }
 
-    fn size(&self) -> usize {
-        BufferInstance::size(*self)
+    fn len(&self) -> usize {
+        BufferInstance::len(*self)
     }
 }
 
@@ -138,8 +145,8 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileReadGuardOwned
         BufferInstance::read(&**self)
     }
 
-    fn size(&self) -> usize {
-        BufferInstance::size(&**self)
+    fn len(&self) -> usize {
+        BufferInstance::len(&**self)
     }
 
     fn read_value(&self, offset: usize) -> Result<T, Error> {
@@ -153,8 +160,8 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwne
         BufferInstance::read(&**self)
     }
 
-    fn size(&self) -> usize {
-        BufferInstance::size(&**self)
+    fn len(&self) -> usize {
+        BufferInstance::len(&**self)
     }
 
     fn read_value(&self, offset: usize) -> Result<T, Error> {

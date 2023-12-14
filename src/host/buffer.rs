@@ -20,8 +20,8 @@ impl<T: CType> BufferInstance<T> for StackVec<T> {
         BufferInstance::read_value(&self.as_slice(), offset)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        StackVec::len(self)
     }
 }
 
@@ -48,8 +48,8 @@ impl<T: CType> BufferInstance<T> for Vec<T> {
         BufferInstance::read_value(&self.as_slice(), offset)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        Vec::len(self)
     }
 }
 
@@ -81,8 +81,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a [T] {
         })
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        <[T]>::len(self)
     }
 }
 
@@ -95,8 +95,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
         BufferInstance::read_value(&&**self, offset)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        <[T]>::len(self)
     }
 }
 
@@ -185,10 +185,10 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         }
     }
 
-    fn size(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
-            Self::Heap(buf) => buf.size(),
-            Self::Stack(buf) => buf.size(),
+            Self::Heap(buf) => buf.len(),
+            Self::Stack(buf) => buf.len(),
         }
     }
 }

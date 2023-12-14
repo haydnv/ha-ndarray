@@ -139,8 +139,8 @@ where
     P: PlatformInstance,
 {
     pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
-        if !shape.is_empty() && shape.iter().product::<usize>() == buffer.size() {
-            let platform = P::select(buffer.size());
+        if !shape.is_empty() && shape.iter().product::<usize>() == buffer.len() {
+            let platform = P::select(buffer.len());
             let access = buffer.into();
 
             Ok(Self {
@@ -152,7 +152,7 @@ where
         } else {
             Err(Error::Bounds(format!(
                 "cannot construct an array with shape {shape:?} from a buffer of size {}",
-                buffer.size()
+                buffer.len()
             )))
         }
     }

@@ -24,7 +24,7 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         }
     }
 
-    fn size(&self) -> usize {
+    fn len(&self) -> usize {
         self.len()
     }
 }
@@ -35,13 +35,13 @@ impl<T: CType> BufferMut<T> for Buffer<T> {
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        if data.size() == self.size() {
+        if data.size() == self.len() {
             let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
         } else {
             Err(Error::Bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
-                self.size(),
+                self.len(),
                 data.size()
             )))
         }
@@ -82,8 +82,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
         BufferInstance::read_value(*self, offset)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        Buffer::len(self)
     }
 }
 
@@ -96,8 +96,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
         BufferInstance::read_value(*self, offset)
     }
 
-    fn size(&self) -> usize {
-        self.len()
+    fn len(&self) -> usize {
+        Buffer::len(self)
     }
 }
 
