@@ -348,7 +348,7 @@ where
     }
 
     fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(Dual::sub(left, right).into())
+        Ok(Dual::mul(left, right).into())
     }
 
     fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error> {
