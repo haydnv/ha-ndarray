@@ -45,47 +45,6 @@ impl<T, A, P> Array<T, A, P> {
         })
     }
 
-    fn reduce_axis<O, Op>(
-        self,
-        op: Op,
-        axis: usize,
-        keepdims: bool,
-    ) -> Result<Array<T, AccessOp<O, P>, P>, Error>
-    where
-        T: CType,
-        A: Access<T>,
-        P: PlatformInstance,
-        Op: Fn(P, A, usize) -> Result<AccessOp<O, P>, Error>,
-    {
-        if axis >= self.ndim() {
-            return Err(Error::Bounds(format!(
-                "invalid axis {axis} for array with shape {:?}",
-                self.shape
-            )));
-        }
-
-        let mut shape = Shape::with_capacity(self.ndim());
-        shape.extend_from_slice(&self.shape[..axis]);
-
-        if keepdims {
-            shape.push(1);
-        }
-
-        if axis < self.ndim() - 1 {
-            shape.extend_from_slice(&self.shape[(axis + 1)..]);
-        }
-
-        let platform = P::select(shape.iter().product());
-        let access = (op)(platform, self.access, self.shape[axis])?;
-
-        Ok(Array {
-            shape,
-            access,
-            platform,
-            dtype: self.dtype,
-        })
-    }
-
     pub fn access(&self) -> &A {
         &self.access
     }
@@ -129,6 +88,29 @@ impl<T: CType> Array<T, Accessor<T>, Platform> {
             platform: array.platform.into(),
             dtype: array.dtype,
         }
+    }
+
+    fn reduce_axes<Op>(self, mut axes: Axes, keepdims: bool, op: Op) -> Result<Self, Error>
+    where
+        Op: Fn(Platform, Accessor<T>, usize) -> Result<Accessor<T>, Error>,
+    {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
+        let size = shape.iter().product::<usize>();
+        let stride = axes.iter().copied().map(|x| self.shape[x]).product();
+        let platform = Platform::select(size);
+
+        let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
+        let access = (op)(self.platform, access, stride)?;
+
+        Ok(Array {
+            access,
+            shape,
+            platform,
+            dtype: PhantomData,
+        })
     }
 }
 
@@ -458,41 +440,44 @@ where
 pub trait NDArrayReduce: NDArray + fmt::Debug {
     type Output: NDArray<DType = Self::DType>;
 
-    /// Construct a max-reduce operation over the given `axis`.
-    fn max(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+    /// Construct a max-reduce operation over the given `axes`.
+    fn max(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
 
-    /// Construct a min-reduce operation over the given `axis`.
-    fn min(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+    /// Construct a min-reduce operation over the given `axes`.
+    fn min(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
 
-    /// Construct a product-reduce operation over the given `axis`.
-    fn product(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+    /// Construct a product-reduce operation over the given `axes`.
+    fn product(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
 
     /// Construct a sum-reduce operation over the given `axes`.
-    fn sum(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error>;
+    fn sum(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
 }
 
-impl<T, A, P> NDArrayReduce for Array<T, A, P>
-where
-    T: CType,
-    A: Access<T>,
-    P: ReduceAxis<A, T>,
-{
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
+    type Output = Self;
 
-    fn max(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
-        self.reduce_axis(P::max, axis, keepdims)
+    fn max(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxis::max(platform, access, stride).map(Accessor::from)
+        })
     }
 
-    fn min(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
-        self.reduce_axis(P::min, axis, keepdims)
+    fn min(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxis::min(platform, access, stride).map(Accessor::from)
+        })
     }
 
-    fn product(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
-        self.reduce_axis(P::product, axis, keepdims)
+    fn product(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxis::product(platform, access, stride).map(Accessor::from)
+        })
     }
 
-    fn sum(self, axis: usize, keepdims: bool) -> Result<Self::Output, Error> {
-        self.reduce_axis(P::sum, axis, keepdims)
+    fn sum(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxis::sum(platform, access, stride).map(Accessor::from)
+        })
     }
 }
 
@@ -1404,6 +1389,49 @@ fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
     }
 
     Some([batch_size, a, b, c])
+}
+
+#[inline]
+fn permute_for_reduce<T: CType>(
+    platform: Platform,
+    access: Accessor<T>,
+    shape: Shape,
+    axes: Axes,
+) -> Result<Accessor<T>, Error> {
+    let mut permutation = Axes::with_capacity(shape.len());
+    permutation.extend((0..shape.len()).into_iter().filter(|x| !axes.contains(x)));
+    permutation.extend(axes);
+
+    if permutation.iter().copied().enumerate().all(|(i, x)| i == x) {
+        Ok(access)
+    } else {
+        platform
+            .transpose(access, shape, permutation)
+            .map(Accessor::from)
+    }
+}
+
+#[inline]
+fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape, Error> {
+    let mut shape = Shape::from_slice(shape);
+
+    for x in axes.iter().copied().rev() {
+        if x >= shape.len() {
+            return Err(Error::Bounds(format!(
+                "axis {x} is out of bounds for {shape:?}"
+            )));
+        } else if keepdims {
+            shape[x] = 1;
+        } else {
+            shape.remove(x);
+        }
+    }
+
+    if shape.is_empty() {
+        Ok(shape![1])
+    } else {
+        Ok(shape)
+    }
 }
 
 #[inline]
