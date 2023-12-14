@@ -32,8 +32,6 @@ mod tests {
         ];
 
         for (left_shape, right_shape, output_shape) in shapes {
-            println!("{left_shape:?} @ {right_shape:?}");
-
             let left = vec![1.; left_shape.iter().product()];
             let left = ArrayBuf::new(left.into(), left_shape)?;
             let right = vec![1.; right_shape.iter().product()];

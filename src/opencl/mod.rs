@@ -102,8 +102,6 @@ mod tests {
         let queue = OpenCL::queue(GPU_MIN_SIZE, &[])?;
 
         for (left_shape, right_shape, output_shape) in shapes {
-            println!("{left_shape:?} @ {right_shape:?}");
-
             let left = ocl::Buffer::builder()
                 .queue(queue.clone())
                 .len(left_shape.iter().product::<usize>())

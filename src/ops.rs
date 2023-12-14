@@ -740,8 +740,6 @@ impl SliceSpec {
         let strides = strides_for(&shape, shape.len()).collect();
         let source_strides = strides_for(source_shape, source_shape.len()).collect();
 
-        println!("for range {range:?} of {source_shape:?}, shape is {shape:?} and strides are {strides:?} (source strides are {source_strides:?})");
-
         Self {
             range,
             shape,
@@ -753,11 +751,6 @@ impl SliceSpec {
     pub fn source_offset(&self, offset: usize) -> usize {
         debug_assert!(!self.shape.is_empty());
         debug_assert_eq!(self.shape.len(), self.strides.len());
-
-        println!(
-            "offset {offset}, strides {:?}, source strides {:?}",
-            self.strides, self.source_strides
-        );
 
         let mut coord = self
             .strides
@@ -1013,8 +1006,6 @@ impl ViewSpec {
             .zip(self.source_strides.iter().copied())
             .map(|(i, source_stride)| i * source_stride) // source offset
             .sum::<usize>();
-
-        println!("source offset for {offset} is {source_offset} (strides are {:?}, source strides are {:?})", self.strides, self.source_strides);
 
         source_offset
     }

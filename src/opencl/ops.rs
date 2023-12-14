@@ -1535,6 +1535,5 @@ fn pad_dim(dim: usize, size: usize) -> usize {
 fn inspect<T: CType>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
     let mut inspect = vec![T::ZERO; buffer.len()];
     buffer.read(inspect.as_mut_slice()).enq()?;
-    println!("{name}: {inspect:?}");
     Ok(())
 }
