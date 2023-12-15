@@ -98,7 +98,11 @@ pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
         }}
 
         inline {c_type} div(const {c_type} left, const {c_type} right) {{
-            return left / right;
+            if (right == 0) {{
+                return 0;
+            }} else {{
+                return left / right;
+            }}
         }}
 
         inline {c_type} mul(const {c_type} left, const {c_type} right) {{
