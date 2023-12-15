@@ -237,8 +237,8 @@ c_type!(
     Sub::sub,
     Rem::rem,
     f32::round,
-    max_f32,
     f32::powf,
+    max_f32,
     min_f32
 );
 
@@ -547,7 +547,7 @@ macro_rules! float_type {
             }
 
             fn cosh(self) -> Self {
-                <$t>::tanh(self)
+                <$t>::cosh(self)
             }
 
             fn tan(self) -> Self {
