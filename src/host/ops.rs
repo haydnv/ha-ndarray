@@ -569,7 +569,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for MatDiag<A, T> {
         let input = self.access.read()?.to_slice()?;
 
         let diagonals = input
-            .par_chunks_exact(self.batch_size)
+            .par_chunks_exact(self.dim * self.dim)
             .map(|matrix| {
                 matrix
                     .par_chunks_exact(self.dim)
@@ -590,7 +590,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for MatDiag<A, T> {
         let input = self.access.read()?.to_slice()?;
 
         let diagonals = input
-            .chunks_exact(self.batch_size)
+            .chunks_exact(self.dim * self.dim)
             .map(|matrix| {
                 matrix
                     .chunks_exact(self.dim)

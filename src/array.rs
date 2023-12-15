@@ -1325,10 +1325,7 @@ where
             let batch_size = self.shape.iter().rev().skip(2).product();
             let dim = self.shape.last().copied().expect("dim");
 
-            let mut shape = Shape::with_capacity(self.ndim() - 1);
-            shape.extend(self.shape.iter().rev().skip(2).copied().rev());
-            shape.push(dim);
-
+            let shape = self.shape.iter().rev().skip(1).rev().copied().collect();
             let platform = P::select(batch_size * dim * dim);
             let access = platform.diag(self.access, batch_size, dim)?;
 

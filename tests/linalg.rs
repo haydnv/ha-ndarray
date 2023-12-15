@@ -1,6 +1,14 @@
 use ha_ndarray::*;
 
 #[test]
+fn test_diag() -> Result<(), Error> {
+    let x = ArrayOp::range(0, 9, shape![3, 3])?;
+    let diag = x.diag()?;
+    assert_eq!(&*diag.read()?.to_slice()?, &[0, 4, 8]);
+    Ok(())
+}
+
+#[test]
 fn test_matmul_12x20() -> Result<(), Error> {
     let l = ArrayBuf::new((0..12).into_iter().collect::<Vec<_>>(), shape![3, 4])?;
     let r = ArrayBuf::new((0..20).into_iter().collect::<Vec<_>>(), shape![4, 5])?;
