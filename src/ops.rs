@@ -996,6 +996,8 @@ impl ViewSpec {
             .iter()
             .copied()
             .zip(self.shape.iter().copied())
+            .rev()
+            .take(self.source_strides.len())
             .map(|(stride, dim)| {
                 if stride == 0 {
                     0
@@ -1003,8 +1005,8 @@ impl ViewSpec {
                     (offset / stride) % dim
                 }
             }) // coord
-            .zip(self.source_strides.iter().copied())
-            .map(|(i, source_stride)| i * source_stride) // source offset
+            .zip(self.source_strides.iter().rev().copied())
+            .map(|(i, source_stride)| i * source_stride)
             .sum::<usize>();
 
         source_offset

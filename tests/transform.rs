@@ -1,7 +1,15 @@
 use ha_ndarray::*;
 
 #[test]
-fn test_broadcast() -> Result<(), Error> {
+fn test_broadcast_small() -> Result<(), Error> {
+    let data = vec![5, 1];
+    let strides = ArrayBuf::new(data.to_vec(), shape![2])?.broadcast(shape![1, 2])?;
+    assert_eq!(&*strides.read()?.to_slice()?, &data);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_large() -> Result<(), Error> {
     let input = ArrayBuf::new(vec![1u32; 600], shape![300, 1, 2])?;
     let output = input.broadcast(shape![300, 250, 2])?;
     assert_eq!(output.shape(), &[300, 250, 2]);
@@ -97,5 +105,15 @@ fn test_transpose_3d() -> Result<(), Error> {
     let actual = input.transpose(Some(axes![2, 0, 1]))?;
     assert!(expected.eq(actual)?.all()?);
 
+    Ok(())
+}
+
+#[test]
+fn test_offsets_to_coords() -> Result<(), Error> {
+    let coords = ArrayBuf::new(stackvec![0, 1], shape![1, 2])?;
+    let strides = ArrayBuf::new(vec![5, 1], shape![2])?.broadcast(coords.shape().into())?;
+    let offsets = coords.mul(strides).map(ArrayAccess::from)?;
+    let offsets = offsets.sum(axes![1], false)?;
+    assert_eq!(offsets.read()?.to_slice()?.into_vec(), vec![1]);
     Ok(())
 }
