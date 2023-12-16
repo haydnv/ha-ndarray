@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::access::{Access, AccessOp};
 use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
@@ -5,7 +7,7 @@ use crate::opencl;
 use crate::ops::*;
 use crate::{host, Axes, CType, Error, Float, Range, Shape};
 
-pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync {
+pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync + fmt::Debug {
     fn select(size_hint: usize) -> Self;
 }
 
@@ -21,7 +23,7 @@ pub trait Convert<'a, T: CType>: PlatformInstance {
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Platform {
     #[cfg(feature = "opencl")]
     CL(opencl::OpenCL),

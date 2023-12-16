@@ -16,10 +16,12 @@ pub trait BufferInstance<T: CType>: Send + Sync {
     fn len(&self) -> usize;
 }
 
-pub trait BufferMut<T: CType>: BufferInstance<T> {
+pub trait BufferMut<T: CType>: BufferInstance<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
-        None
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
+        Err(Error::Unsupported(format!(
+            "not an OpenCL buffer: {self:?}"
+        )))
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
@@ -73,7 +75,7 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 
 impl<T: CType> BufferMut<T> for Buffer<T> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => buf.cl(),
@@ -136,7 +138,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
 
 impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Buffer::<T>::cl(&mut **self)
     }
 
@@ -186,7 +188,7 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwne
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: CType> BufferMut<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         BufferMut::cl(&mut **self)
     }
 

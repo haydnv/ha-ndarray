@@ -158,7 +158,7 @@ impl TryFrom<Platform> for CLPlatform {
 }
 
 /// The OpenCL platform
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct OpenCL;
 
 impl OpenCL {

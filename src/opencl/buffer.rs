@@ -30,8 +30,8 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 }
 
 impl<T: CType> BufferMut<T> for Buffer<T> {
-    fn cl(&mut self) -> Option<&mut Buffer<T>> {
-        Some(self)
+    fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
+        Ok(self)
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -102,8 +102,8 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
-    fn cl(&mut self) -> Option<&mut Buffer<T>> {
-        Some(*self)
+    fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
+        Ok(*self)
     }
 
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {

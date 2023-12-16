@@ -17,7 +17,7 @@ use super::ops::*;
 
 pub const VEC_MIN_SIZE: usize = 64;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Stack;
 
 impl PlatformInstance for Stack {
@@ -90,7 +90,7 @@ where
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Heap;
 
 impl PlatformInstance for Heap {
@@ -163,7 +163,7 @@ where
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Host {
     Stack(Stack),
     Heap(Heap),

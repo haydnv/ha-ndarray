@@ -853,7 +853,7 @@ impl_unary!(Slice<A, T>, T);
 #[cfg(feature = "opencl")]
 impl<A, T> Write<Platform, T> for Slice<A, T>
 where
-    A: AccessMut<T>,
+    A: AccessMut<T> + std::fmt::Debug,
     T: CType,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {

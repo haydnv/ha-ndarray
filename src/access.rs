@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, BorrowMut};
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -15,10 +16,12 @@ pub trait Access<T: CType>: Send + Sync {
     fn size(&self) -> usize;
 }
 
-pub trait AccessMut<T: CType>: Access<T> {
+pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
-    fn cl_buffer(&mut self) -> Option<&mut ocl::Buffer<T>> {
-        None
+    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
+        Err(Error::Unsupported(format!(
+            "not an OpenCL buffer: {self:?}"
+        )))
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
@@ -102,7 +105,7 @@ where
     B: BufferMut<T>,
 {
     #[cfg(feature = "opencl")]
-    fn cl_buffer(&mut self) -> Option<&mut ocl::Buffer<T>> {
+    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         self.buffer.cl()
     }
 
@@ -116,6 +119,12 @@ where
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.buffer.write_value_at(offset, value)
+    }
+}
+
+impl<B: fmt::Debug> fmt::Debug for AccessBuf<B> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "access {:?}", self.buffer)
     }
 }
 
@@ -202,6 +211,17 @@ where
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         self.op.write_value_at(offset, value)
+    }
+}
+
+impl<O, P: fmt::Debug> fmt::Debug for AccessOp<O, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "access op {:?} on {:?}",
+            std::any::type_name::<O>(),
+            self.platform
+        )
     }
 }
 

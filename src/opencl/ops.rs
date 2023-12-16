@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::fmt;
 use std::marker::PhantomData;
 
 use ocl::{Buffer, Kernel, Program, Queue};
@@ -1236,15 +1237,12 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
 impl<A, T> Write<OpenCL, T> for Slice<A, T>
 where
     T: CType,
-    A: AccessMut<T>,
+    A: AccessMut<T> + fmt::Debug,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         let data = data.to_cl()?;
         let size_hint = self.size();
-        let source = self
-            .access
-            .cl_buffer()
-            .ok_or_else(|| Error::Unsupported("not an OpenCL buffer".to_string()))?;
+        let source = self.access.cl_buffer()?;
 
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
@@ -1269,10 +1267,7 @@ where
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         let size_hint = self.size();
-        let source = self
-            .access
-            .cl_buffer()
-            .ok_or_else(|| Error::Unsupported("not an OpenCL buffer".to_string()))?;
+        let source = self.access.cl_buffer()?;
 
         let queue = OpenCL::queue(size_hint, &[source.default_queue()])?;
 
