@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
-use crate::ops::{ReadValue, Write};
+use crate::ops::{ReadOp, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
 
@@ -158,7 +158,7 @@ impl<O, P> From<O> for AccessOp<O, P> {
 impl<O, P, T> Access<T> for AccessOp<O, P>
 where
     T: CType,
-    O: ReadValue<P, T>,
+    O: ReadOp<P, T>,
     P: PlatformInstance,
 {
     fn read(&self) -> Result<BufferConverter<'static, T>, Error> {
@@ -177,7 +177,7 @@ where
 impl<'a, O, P, T> Access<T> for &'a AccessOp<O, P>
 where
     T: CType,
-    O: ReadValue<P, T>,
+    O: ReadOp<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
@@ -197,7 +197,7 @@ where
 impl<O, P, T> AccessMut<T> for AccessOp<O, P>
 where
     T: CType,
-    O: ReadValue<P, T> + Write<P, T>,
+    O: ReadOp<P, T> + Write<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
 {
@@ -228,7 +228,7 @@ impl<O, P: fmt::Debug> fmt::Debug for AccessOp<O, P> {
 #[derive(Clone)]
 pub enum Accessor<T: CType> {
     Buffer(Arc<dyn BufferInstance<T>>),
-    Op(Arc<dyn ReadValue<Platform, T, Buffer = Buffer<T>>>),
+    Op(Arc<dyn ReadOp<Platform, T, Buffer = Buffer<T>>>),
 }
 
 impl<T: CType> Access<T> for Accessor<T> {
@@ -267,12 +267,12 @@ where
 impl<T, O, P> From<AccessOp<O, P>> for Accessor<T>
 where
     T: CType,
-    O: ReadValue<Platform, T, Buffer = Buffer<T>> + 'static,
+    O: ReadOp<Platform, T, Buffer = Buffer<T>> + 'static,
     P: PlatformInstance + Into<Platform>,
 {
     fn from(access: AccessOp<O, P>) -> Self {
         let access: AccessOp<O, Platform> = AccessOp::wrap(access);
-        let op: Arc<dyn ReadValue<Platform, T, Buffer = Buffer<T>>> = Arc::new(access.op);
+        let op: Arc<dyn ReadOp<Platform, T, Buffer = Buffer<T>>> = Arc::new(access.op);
         Self::Op(op)
     }
 }

@@ -317,6 +317,9 @@ pub trait NDArray: Send + Sync {
     /// The data type of the elements in this array
     type DType: CType;
 
+    /// The platform used to construct operations on this array.
+    type Platform: PlatformInstance;
+
     /// Return the number of dimensions in this array.
     fn ndim(&self) -> usize {
         self.shape().len()
@@ -334,10 +337,11 @@ pub trait NDArray: Send + Sync {
 impl<T, A, P> NDArray for Array<T, A, P>
 where
     T: CType,
-    A: Send + Sync,
-    P: Send + Sync,
+    A: Access<T>,
+    P: PlatformInstance,
 {
     type DType = T;
+    type Platform = P;
 
     fn shape(&self) -> &[usize] {
         &self.shape
@@ -395,7 +399,7 @@ impl<T, A, P> NDArrayWrite for Array<T, A, P>
 where
     T: CType,
     A: AccessMut<T>,
-    P: Send + Sync,
+    P: PlatformInstance,
 {
     fn write<O>(&mut self, other: &O) -> Result<(), Error>
     where
@@ -426,10 +430,10 @@ where
 
 /// Array cast operations
 pub trait NDArrayCast<OT: CType>: NDArray + Sized {
-    type Output: NDArray<DType = OT>;
+    type Output: Access<OT>;
 
     /// Construct a new array cast operation.
-    fn cast(self) -> Result<Self::Output, Error>;
+    fn cast(self) -> Result<Array<OT, Self::Output, Self::Platform>, Error>;
 }
 
 impl<IT, OT, A, P> NDArrayCast<OT> for Array<IT, A, P>
@@ -439,9 +443,9 @@ where
     A: Access<IT>,
     P: ElementwiseCast<A, IT, OT>,
 {
-    type Output = Array<OT, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn cast(self) -> Result<Self::Output, Error> {
+    fn cast(self) -> Result<Array<OT, AccessOp<P::Op, P>, P>, Error> {
         Ok(Array {
             shape: self.shape,
             access: self.platform.cast(self.access)?,
@@ -453,43 +457,75 @@ where
 
 /// Axis-wise array reduce operations
 pub trait NDArrayReduce: NDArray + fmt::Debug {
-    type Output: NDArray<DType = Self::DType>;
+    type Output: Access<Self::DType>;
 
     /// Construct a max-reduce operation over the given `axes`.
-    fn max(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
+    fn max(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a min-reduce operation over the given `axes`.
-    fn min(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
+    fn min(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a product-reduce operation over the given `axes`.
-    fn product(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
+    fn product(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a sum-reduce operation over the given `axes`.
-    fn sum(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error>;
+    fn sum(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
-    type Output = Self;
+    type Output = Accessor<T>;
 
-    fn max(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+    fn max(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxis::max(platform, access, stride).map(Accessor::from)
         })
     }
 
-    fn min(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+    fn min(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxis::min(platform, access, stride).map(Accessor::from)
         })
     }
 
-    fn product(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+    fn product(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxis::product(platform, access, stride).map(Accessor::from)
         })
     }
 
-    fn sum(self, axes: Axes, keepdims: bool) -> Result<Self::Output, Error> {
+    fn sum(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxis::sum(platform, access, stride).map(Accessor::from)
         })
@@ -499,22 +535,25 @@ impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
 /// Array transform operations
 pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
     /// The type returned by `broadcast`
-    type Broadcast: NDArray<DType = Self::DType>;
+    type Broadcast: Access<Self::DType>;
 
     /// The type returned by `slice`
-    type Slice: NDArray<DType = Self::DType>;
+    type Slice: Access<Self::DType>;
 
     /// The type returned by `transpose`
-    type Transpose: NDArray<DType = Self::DType>;
+    type Transpose: Access<Self::DType>;
 
     /// Broadcast this array into the given `shape`.
-    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error>;
+    fn broadcast(
+        self,
+        shape: Shape,
+    ) -> Result<Array<Self::DType, Self::Broadcast, Self::Platform>, Error>;
 
     /// Reshape this `array`.
     fn reshape(self, shape: Shape) -> Result<Self, Error>;
 
     /// Construct a slice of this array.
-    fn slice(self, range: Range) -> Result<Self::Slice, Error>;
+    fn slice(self, range: Range) -> Result<Array<Self::DType, Self::Slice, Self::Platform>, Error>;
 
     /// Contract the given `axes` of this array.
     /// This will return an error if any of the `axes` have dimension > 1.
@@ -525,7 +564,10 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
 
     /// Transpose this array according to the given `permutation`.
     /// If no permutation is given, the array axes will be reversed.
-    fn transpose(self, permutation: Option<Axes>) -> Result<Self::Transpose, Error>;
+    fn transpose(
+        self,
+        permutation: Option<Axes>,
+    ) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTransform for Array<T, A, P>
@@ -534,11 +576,11 @@ where
     A: Access<T>,
     P: Transform<A, T>,
 {
-    type Broadcast = Array<T, AccessOp<P::Broadcast, P>, P>;
-    type Slice = Array<T, AccessOp<P::Slice, P>, P>;
-    type Transpose = Array<T, AccessOp<P::Transpose, P>, P>;
+    type Broadcast = AccessOp<P::Broadcast, P>;
+    type Slice = AccessOp<P::Slice, P>;
+    type Transpose = AccessOp<P::Transpose, P>;
 
-    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
+    fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error> {
         if !can_broadcast(self.shape(), &shape) {
             return Err(Error::Bounds(format!(
                 "cannot broadcast {self:?} into {shape:?}"
@@ -625,7 +667,10 @@ where
         Ok(self)
     }
 
-    fn transpose(self, permutation: Option<Axes>) -> Result<Self::Transpose, Error> {
+    fn transpose(
+        self,
+        permutation: Option<Axes>,
+    ) -> Result<Array<T, AccessOp<P::Transpose, P>, P>, Error> {
         let permutation = if let Some(axes) = permutation {
             if axes.len() == self.ndim()
                 && axes.iter().copied().all(|x| x < self.ndim())
@@ -660,19 +705,19 @@ where
 /// Unary array operations
 pub trait NDArrayUnary: NDArray + Sized {
     /// The return type of a unary operation.
-    type Output: NDArray<DType = Self::DType>;
+    type Output: Access<Self::DType>;
 
     /// Construct an absolute value operation.
-    fn abs(self) -> Result<Self::Output, Error>;
+    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an exponentiation operation.
-    fn exp(self) -> Result<Self::Output, Error>;
+    fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a natural logarithm operation.
-    fn ln(self) -> Result<Self::Output, Error>;
+    fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an integer rounding operation.
-    fn round(self) -> Result<Self::Output, Error>;
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
@@ -681,24 +726,24 @@ where
     A: Access<T>,
     P: ElementwiseUnary<A, T>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn abs(self) -> Result<Self::Output, Error> {
+    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.abs(access))
     }
 
-    fn exp(self) -> Result<Self::Output, Error> {
+    fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.exp(access))
     }
 
-    fn ln(self) -> Result<Self::Output, Error>
+    fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
     where
         P: ElementwiseUnary<A, T>,
     {
         self.apply(|platform, access| platform.ln(access))
     }
 
-    fn round(self) -> Result<Self::Output, Error> {
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.round(access))
     }
 }
@@ -706,10 +751,10 @@ where
 /// Unary boolean array operations
 pub trait NDArrayUnaryBoolean: NDArray + Sized {
     /// The return type of a unary operation.
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
     /// Construct a boolean not operation.
-    fn not(self) -> Result<Self::Output, Error>;
+    fn not(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayUnaryBoolean for Array<T, A, P>
@@ -718,9 +763,9 @@ where
     A: Access<T>,
     P: ElementwiseUnaryBoolean<A, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn not(self) -> Result<Self::Output, Error> {
+    fn not(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.not(access))
     }
 }
@@ -730,16 +775,16 @@ pub trait NDArrayBoolean<O>: NDArray + Sized
 where
     O: NDArray<DType = Self::DType>,
 {
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
     /// Construct a boolean and comparison with the `other` array.
-    fn and(self, other: O) -> Result<Self::Output, Error>;
+    fn and(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a boolean or comparison with the `other` array.
-    fn or(self, other: O) -> Result<Self::Output, Error>;
+    fn or(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a boolean xor comparison with the `other` array.
-    fn xor(self, other: O) -> Result<Self::Output, Error>;
+    fn xor(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, L, R, P> NDArrayBoolean<Array<T, R, P>> for Array<T, L, P>
@@ -749,19 +794,19 @@ where
     R: Access<T>,
     P: ElementwiseBoolean<L, R, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn and(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn and(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("and", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.and(left, right))
     }
 
-    fn or(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn or(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("or", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.or(left, right))
     }
 
-    fn xor(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn xor(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("xor", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.xor(left, right))
     }
@@ -769,16 +814,25 @@ where
 
 /// Boolean array operations with a scalar argument
 pub trait NDArrayBooleanScalar: NDArray + Sized {
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
     /// Construct a boolean and operation with the `other` value.
-    fn and_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn and_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a boolean or operation with the `other` value.
-    fn or_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn or_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a boolean xor operation with the `other` value.
-    fn xor_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn xor_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayBooleanScalar for Array<T, A, P>
@@ -787,36 +841,45 @@ where
     A: Access<T>,
     P: ElementwiseBooleanScalar<A, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn and_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn and_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.and_scalar(access, other))
     }
 
-    fn or_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn or_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.or_scalar(access, other))
     }
 
-    fn xor_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn xor_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.xor_scalar(access, other))
     }
 }
 
 /// Array comparison operations
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
-    fn eq(self, other: O) -> Result<Self::Output, Error>;
+    fn eq(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
-    fn ge(self, other: O) -> Result<Self::Output, Error>;
+    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
-    fn gt(self, other: O) -> Result<Self::Output, Error>;
+    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
-    fn le(self, other: O) -> Result<Self::Output, Error>;
+    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
-    fn lt(self, other: O) -> Result<Self::Output, Error>;
+    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
-    fn ne(self, other: O) -> Result<Self::Output, Error>;
+    fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
@@ -826,59 +889,77 @@ where
     R: Access<T>,
     P: ElementwiseCompare<L, R, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn eq(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn eq(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.eq(left, right))
     }
 
-    fn ge(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.ge(left, right))
     }
 
-    fn gt(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.gt(left, right))
     }
 
-    fn le(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.le(left, right))
     }
 
-    fn lt(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.lt(left, right))
     }
 
-    fn ne(self, other: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn ne(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.ne(left, right))
     }
 }
 
 pub trait NDArrayCompareScalar: NDArray + Sized {
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
     /// Construct an equality comparison with the `other` value.
-    fn eq_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn eq_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a greater-than comparison with the `other` value.
-    fn gt_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn gt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct an equal-or-greater-than comparison with the `other` value.
-    fn ge_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn ge_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct a less-than comparison with the `other` value.
-    fn lt_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn lt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct an equal-or-less-than comparison with the `other` value.
-    fn le_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn le_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Construct an not-equal comparison with the `other` value.
-    fn ne_scalar(self, other: Self::DType) -> Result<Self::Output, Error>;
+    fn ne_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
@@ -887,57 +968,75 @@ where
     A: Access<T>,
     P: ElementwiseScalarCompare<A, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn eq_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn eq_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.eq_scalar(access, other))
     }
 
-    fn gt_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn gt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.gt_scalar(access, other))
     }
 
-    fn ge_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn ge_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.ge_scalar(access, other))
     }
 
-    fn lt_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn lt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.lt_scalar(access, other))
     }
 
-    fn le_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn le_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.le_scalar(access, other))
     }
 
-    fn ne_scalar(self, other: Self::DType) -> Result<Self::Output, Error> {
+    fn ne_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.ne_scalar(access, other))
     }
 }
 
 /// Array arithmetic operations
 pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
-    type Output: NDArray<DType = Self::DType>;
+    type Output: Access<Self::DType>;
 
     /// Construct an addition operation with the given `rhs`.
-    fn add(self, rhs: O) -> Result<Self::Output, Error>;
+    fn add(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a division operation with the given `rhs`.
-    fn div(self, rhs: O) -> Result<Self::Output, Error>;
+    fn div(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a logarithm operation with the given `base`.
-    fn log(self, base: O) -> Result<Self::Output, Error>;
+    fn log(self, base: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a multiplication operation with the given `rhs`.
-    fn mul(self, rhs: O) -> Result<Self::Output, Error>;
+    fn mul(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an operation to raise these data to the power of the given `exp`onent.
-    fn pow(self, exp: O) -> Result<Self::Output, Error>;
+    fn pow(self, exp: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an array subtraction operation with the given `rhs`.
-    fn sub(self, rhs: O) -> Result<Self::Output, Error>;
+    fn sub(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a modulo operation with the given `rhs`.
-    fn rem(self, rhs: O) -> Result<Self::Output, Error>;
+    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
@@ -947,39 +1046,60 @@ where
     R: Access<T>,
     P: ElementwiseDual<L, R, T>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn add(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn add(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("add", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.add(left, right))
     }
 
-    fn div(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn div(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("div", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.div(left, right))
     }
 
-    fn log(self, base: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn log(
+        self,
+        base: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("log", self.shape(), base.shape())?;
         self.apply_dual(base, |platform, left, right| platform.log(left, right))
     }
 
-    fn mul(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn mul(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("mul", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.mul(left, right))
     }
 
-    fn pow(self, exp: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn pow(
+        self,
+        exp: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("pow", self.shape(), exp.shape())?;
         self.apply_dual(exp, |platform, left, right| platform.pow(left, right))
     }
 
-    fn sub(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn sub(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("sub", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.sub(left, right))
     }
 
-    fn rem(self, rhs: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn rem(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         same_shape("rem", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.rem(left, right))
     }
@@ -987,28 +1107,49 @@ where
 
 /// Array arithmetic operations with a scalar argument
 pub trait NDArrayMathScalar: NDArray + Sized {
-    type Output: NDArray<DType = Self::DType>;
+    type Output: Access<Self::DType>;
 
     /// Construct a scalar addition operation.
-    fn add_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+    fn add_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar division operation.
-    fn div_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+    fn div_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar logarithm operation.
-    fn log_scalar(self, base: Self::DType) -> Result<Self::Output, Error>;
+    fn log_scalar(
+        self,
+        base: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar multiplication operation.
-    fn mul_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+    fn mul_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar exponentiation operation.
-    fn pow_scalar(self, exp: Self::DType) -> Result<Self::Output, Error>;
+    fn pow_scalar(
+        self,
+        exp: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar modulo operation.
-    fn rem_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+    fn rem_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a scalar subtraction operation.
-    fn sub_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error>;
+    fn sub_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayMathScalar for Array<T, A, P>
@@ -1017,13 +1158,19 @@ where
     A: Access<T>,
     P: ElementwiseScalar<A, T>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn add_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+    fn add_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, left| platform.add_scalar(left, rhs))
     }
 
-    fn div_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+    fn div_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         if rhs != T::ZERO {
             self.apply(|platform, left| platform.div_scalar(left, rhs))
         } else {
@@ -1033,23 +1180,38 @@ where
         }
     }
 
-    fn log_scalar(self, base: Self::DType) -> Result<Self::Output, Error> {
+    fn log_scalar(
+        self,
+        base: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, arg| platform.log_scalar(arg, base))
     }
 
-    fn mul_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+    fn mul_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, left| platform.mul_scalar(left, rhs))
     }
 
-    fn pow_scalar(self, exp: Self::DType) -> Result<Self::Output, Error> {
+    fn pow_scalar(
+        self,
+        exp: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, arg| platform.pow_scalar(arg, exp))
     }
 
-    fn rem_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+    fn rem_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, left| platform.rem_scalar(left, rhs))
     }
 
-    fn sub_scalar(self, rhs: Self::DType) -> Result<Self::Output, Error> {
+    fn sub_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, left| platform.sub_scalar(left, rhs))
     }
 }
@@ -1059,13 +1221,13 @@ pub trait NDArrayNumeric: NDArray + Sized
 where
     Self::DType: Float,
 {
-    type Output: NDArray<DType = u8>;
+    type Output: Access<u8>;
 
     /// Test which elements of this array are infinite.
-    fn is_inf(self) -> Result<Self::Output, Error>;
+    fn is_inf(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Test which elements of this array are not-a-number.
-    fn is_nan(self) -> Result<Self::Output, Error>;
+    fn is_nan(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayNumeric for Array<T, A, P>
@@ -1074,13 +1236,13 @@ where
     A: Access<T>,
     P: ElementwiseNumeric<A, T>,
 {
-    type Output = Array<u8, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn is_inf(self) -> Result<Self::Output, Error> {
+    fn is_inf(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.is_inf(access))
     }
 
-    fn is_nan(self) -> Result<Self::Output, Error> {
+    fn is_nan(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.is_nan(access))
     }
 }
@@ -1160,34 +1322,34 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
 
 /// Array trigonometry methods
 pub trait NDArrayTrig: NDArray + Sized {
-    type Output: NDArray<DType = <Self::DType as CType>::Float>;
+    type Output: Access<<Self::DType as CType>::Float>;
 
     /// Construct a new sine operation.
-    fn sin(self) -> Result<Self::Output, Error>;
+    fn sin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arcsine operation.
-    fn asin(self) -> Result<Self::Output, Error>;
+    fn asin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic sine operation.
-    fn sinh(self) -> Result<Self::Output, Error>;
+    fn sinh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new cos operation.
-    fn cos(self) -> Result<Self::Output, Error>;
+    fn cos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arccosine operation.
-    fn acos(self) -> Result<Self::Output, Error>;
+    fn acos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic cosine operation.
-    fn cosh(self) -> Result<Self::Output, Error>;
+    fn cosh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new tangent operation.
-    fn tan(self) -> Result<Self::Output, Error>;
+    fn tan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arctangent operation.
-    fn atan(self) -> Result<Self::Output, Error>;
+    fn atan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic tangent operation.
-    fn tanh(self) -> Result<Self::Output, Error>;
+    fn tanh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTrig for Array<T, A, P>
@@ -1196,53 +1358,56 @@ where
     A: Access<T>,
     P: ElementwiseTrig<A, T>,
 {
-    type Output = Array<T::Float, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn sin(self) -> Result<Self::Output, Error> {
+    fn sin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sin(access))
     }
 
-    fn asin(self) -> Result<Self::Output, Error> {
+    fn asin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.asin(access))
     }
 
-    fn sinh(self) -> Result<Self::Output, Error> {
+    fn sinh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sinh(access))
     }
 
-    fn cos(self) -> Result<Self::Output, Error> {
+    fn cos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cos(access))
     }
 
-    fn acos(self) -> Result<Self::Output, Error> {
+    fn acos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.acos(access))
     }
 
-    fn cosh(self) -> Result<Self::Output, Error> {
+    fn cosh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cosh(access))
     }
 
-    fn tan(self) -> Result<Self::Output, Error> {
+    fn tan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tan(access))
     }
 
-    fn atan(self) -> Result<Self::Output, Error> {
+    fn atan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.atan(access))
     }
 
-    fn tanh(self) -> Result<Self::Output, Error> {
+    fn tanh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tanh(access))
     }
 }
 
 /// Conditional selection (boolean logic) methods
-pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug {
-    type Output: NDArray<DType = T>;
+pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug
+where
+    T: CType,
+{
+    type Output: Access<T>;
 
     /// Construct a boolean selection operation.
     /// The resulting array will return values from `then` where `self` is `true`
     /// and from `or_else` where `self` is `false`.
-    fn cond(self, then: L, or_else: R) -> Result<Self::Output, Error>;
+    fn cond(self, then: L, or_else: R) -> Result<Array<T, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
@@ -1253,9 +1418,13 @@ where
     R: Access<T>,
     P: GatherCond<A, L, R, T>,
 {
-    type Output = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn cond(self, then: Array<T, L, P>, or_else: Array<T, R, P>) -> Result<Self::Output, Error> {
+    fn cond(
+        self,
+        then: Array<T, L, P>,
+        or_else: Array<T, R, P>,
+    ) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         same_shape("cond", self.shape(), then.shape())?;
         same_shape("cond", self.shape(), or_else.shape())?;
 
@@ -1277,10 +1446,10 @@ pub trait MatrixDual<O>: NDArray + fmt::Debug
 where
     O: NDArray<DType = Self::DType> + fmt::Debug,
 {
-    type MatMul: NDArray<DType = Self::DType>;
+    type Output: Access<Self::DType>;
 
     /// Construct an operation to multiply this matrix or batch of matrices with the `other`.
-    fn matmul(self, other: O) -> Result<Self::MatMul, Error>;
+    fn matmul(self, other: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, L, R, P> MatrixDual<Array<T, R, P>> for Array<T, L, P>
@@ -1290,9 +1459,12 @@ where
     R: Access<T>,
     P: LinAlgDual<L, R, T>,
 {
-    type MatMul = Array<T, AccessOp<P::Op, P>, P>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn matmul(self, other: Array<T, R, P>) -> Result<Self::MatMul, Error> {
+    fn matmul(
+        self,
+        other: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         let dims = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
             Error::Bounds(format!(
                 "invalid dimensions for matrix multiply: {:?} and {:?}",
@@ -1320,11 +1492,11 @@ where
 
 /// Matrix unary operations
 pub trait MatrixUnary: NDArray + fmt::Debug {
-    type Diag: NDArray<DType = Self::DType>;
+    type Diag: Access<Self::DType>;
 
     /// Construct an operation to read the diagonal(s) of this matrix or batch of matrices.
     /// This will return an error if the last two dimensions of the batch are unequal.
-    fn diag(self) -> Result<Self::Diag, Error>;
+    fn diag(self) -> Result<Array<Self::DType, Self::Diag, Self::Platform>, Error>;
 }
 
 impl<T, A, P> MatrixUnary for Array<T, A, P>
@@ -1333,9 +1505,9 @@ where
     A: Access<T>,
     P: LinAlgUnary<A, T>,
 {
-    type Diag = Array<T, AccessOp<P::Op, P>, P>;
+    type Diag = AccessOp<P::Op, P>;
 
-    fn diag(self) -> Result<Self::Diag, Error> {
+    fn diag(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
         if self.ndim() >= 2 && self.shape.last() == self.shape.iter().nth_back(1) {
             let batch_size = self.shape.iter().rev().skip(2).product();
             let dim = self.shape.last().copied().expect("dim");

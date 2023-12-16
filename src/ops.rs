@@ -38,8 +38,23 @@ pub trait Enqueue<P: PlatformInstance, T: CType>: Op {
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
-pub trait ReadValue<P: PlatformInstance, T: CType>: Enqueue<P, T> {
+pub trait ReadValue<P: PlatformInstance, T: CType>: Op {
     fn read_value(&self, offset: usize) -> Result<T, Error>;
+}
+
+pub trait ReadOp<P, T>: Enqueue<P, T> + ReadValue<P, T>
+where
+    P: PlatformInstance,
+    T: CType,
+{
+}
+
+impl<O, P, T> ReadOp<P, T> for O
+where
+    O: Enqueue<P, T> + ReadValue<P, T>,
+    P: PlatformInstance,
+    T: CType,
+{
 }
 
 pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
@@ -57,7 +72,7 @@ pub trait Construct<T: CType>: PlatformInstance {
 }
 
 pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn and(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -67,7 +82,7 @@ pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
 }
 
 pub trait ElementwiseBooleanScalar<A, T>: PlatformInstance {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -82,13 +97,13 @@ where
     IT: CType,
     OT: CType,
 {
-    type Op: Enqueue<Self, OT>;
+    type Op: ReadOp<Self, OT>;
 
     fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -104,7 +119,7 @@ pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
 }
 
 pub trait ElementwiseScalarCompare<A, T>: PlatformInstance {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -125,7 +140,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn add(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -147,7 +162,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -169,7 +184,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn is_inf(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -181,7 +196,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T::Float>;
+    type Op: ReadOp<Self, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -207,7 +222,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -223,7 +238,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, u8>;
+    type Op: ReadOp<Self, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -235,7 +250,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -246,7 +261,7 @@ where
     R: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn matmul(self, left: L, right: R, dims: [usize; 4])
         -> Result<AccessOp<Self::Op, Self>, Error>;
@@ -257,7 +272,7 @@ where
     A: Access<T>,
     T: CType,
 {
-    type Op: Enqueue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn diag(
         self,
@@ -291,7 +306,7 @@ pub trait ReduceAll<A, T>: PlatformInstance {
 }
 
 pub trait ReduceAxis<A: Access<T>, T: CType>: PlatformInstance {
-    type Op: ReadValue<Self, T>;
+    type Op: ReadOp<Self, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -303,9 +318,9 @@ pub trait ReduceAxis<A: Access<T>, T: CType>: PlatformInstance {
 }
 
 pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
-    type Broadcast: ReadValue<Self, T>;
-    type Slice: ReadValue<Self, T>;
-    type Transpose: ReadValue<Self, T>;
+    type Broadcast: ReadOp<Self, T>;
+    type Slice: ReadOp<Self, T>;
+    type Transpose: ReadOp<Self, T>;
 
     fn broadcast(
         self,
