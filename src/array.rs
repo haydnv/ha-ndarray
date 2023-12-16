@@ -120,9 +120,8 @@ where
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
-    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
+    fn new_inner(platform: P, buffer: B, shape: Shape) -> Result<Self, Error> {
         if !shape.is_empty() && shape.iter().product::<usize>() == buffer.len() {
-            let platform = P::select(buffer.len());
             let access = buffer.into();
 
             Ok(Self {
@@ -134,9 +133,25 @@ where
         } else {
             Err(Error::Bounds(format!(
                 "cannot construct an array with shape {shape:?} from a buffer of size {}",
-                buffer.len()
+                buffer.len(),
             )))
         }
+    }
+
+    pub fn convert<'a, FB>(buffer: FB, shape: Shape) -> Result<Self, Error>
+    where
+        FB: Into<BufferConverter<'a, T>>,
+        P: Convert<'a, T, Buffer = B>,
+    {
+        let buffer = buffer.into();
+        let platform = P::select(buffer.len());
+        let buffer = platform.convert(buffer)?;
+        Self::new_inner(platform, buffer, shape)
+    }
+
+    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
+        let platform = P::select(buffer.len());
+        Self::new_inner(platform, buffer, shape)
     }
 }
 
