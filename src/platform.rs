@@ -63,7 +63,11 @@ impl<'a, T: CType> Convert<'a, T> for Platform {
     type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.into_buffer()
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.convert(buffer).map(Buffer::CL),
+            Self::Host(host) => host.convert(buffer).map(Buffer::Host),
+        }
     }
 }
 

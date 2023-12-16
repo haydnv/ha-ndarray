@@ -35,14 +35,14 @@ impl<T: CType> BufferMut<T> for Buffer<T> {
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        if data.size() == self.len() {
+        if data.len() == self.len() {
             let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
         } else {
             Err(Error::Bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
                 self.len(),
-                data.size()
+                data.len()
             )))
         }
     }
@@ -148,7 +148,7 @@ impl<'a, T: CType> CLConverter<'a, T> {
     }
 
     /// Return the number of elements in this buffer.
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Self::Owned(buffer) => buffer.len(),
             Self::Borrowed(buffer) => buffer.len(),

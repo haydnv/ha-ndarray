@@ -1,4 +1,5 @@
 use ha_ndarray::*;
+use std::iter;
 
 #[test]
 fn test_broadcast_small() -> Result<(), Error> {
@@ -45,6 +46,25 @@ fn test_slice_2d() -> Result<(), Error> {
         expected.read()?.to_slice()?,
         actual.read()?.to_slice()?
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_slice_and_write() -> Result<(), Error> {
+    let mut input = ArrayBuf::constant(0, shape![512])?;
+    let mut slice = input.as_mut().slice(range![(128..256).into()])?;
+    slice.write_value(1)?;
+
+    let expected = iter::repeat(0)
+        .take(128)
+        .chain(iter::repeat(1).take(128))
+        .chain(iter::repeat(0).take(256))
+        .collect::<Vec<_>>();
+
+    let actual = input.read()?.to_slice()?;
+
+    assert_eq!(expected, &*actual);
 
     Ok(())
 }

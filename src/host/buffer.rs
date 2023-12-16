@@ -102,7 +102,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
 
 impl<'a, T: CType> BufferMut<T> for &'a mut [T] {
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
-        if data.size() == self.len() {
+        if data.len() == self.len() {
             let data = data.to_slice()?;
             self.copy_from_slice(&*data);
             Ok(())
@@ -110,7 +110,7 @@ impl<'a, T: CType> BufferMut<T> for &'a mut [T] {
             Err(Error::Bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
                 self.len(),
-                data.size()
+                data.len()
             )))
         }
     }
@@ -238,7 +238,7 @@ pub enum SliceConverter<'a, T> {
 
 impl<'a, T> SliceConverter<'a, T> {
     /// Return the number of elements in this buffer.
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Self::Heap(vec) => vec.len(),
             Self::Stack(vec) => vec.len(),

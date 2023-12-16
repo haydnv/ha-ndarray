@@ -1315,7 +1315,7 @@ where
     A: AccessMut<T>,
 {
     fn overwrite<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        if data.size() == self.size() {
+        if data.len() == self.size() {
             let data = data.to_slice()?;
 
             for (offset, value) in data.into_iter().copied().enumerate() {
@@ -1328,7 +1328,7 @@ where
             Err(Error::Bounds(format!(
                 "cannot overwrite a slice of size {} with a buffer of size {}",
                 self.size(),
-                data.size(),
+                data.len(),
             )))
         }
     }

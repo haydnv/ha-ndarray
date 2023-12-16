@@ -135,6 +135,11 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
 }
 
 impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
+    #[cfg(feature = "opencl")]
+    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        Buffer::<T>::cl(&mut **self)
+    }
+
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         Buffer::<T>::write(*self, data)
     }
@@ -180,6 +185,11 @@ impl<FE: Send + Sync, T: CType> BufferInstance<T> for freqfs::FileWriteGuardOwne
 
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: CType> BufferMut<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
+    #[cfg(feature = "opencl")]
+    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        BufferMut::cl(&mut **self)
+    }
+
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         BufferMut::write(&mut **self, data)
     }
@@ -237,11 +247,11 @@ impl<'a, T: CType> BufferConverter<'a, T> {
     }
 
     /// Return the number of elements in this [`Buffer`].
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(buffer) => buffer.size(),
-            Self::Host(buffer) => buffer.size(),
+            Self::CL(buffer) => buffer.len(),
+            Self::Host(buffer) => buffer.len(),
         }
     }
 

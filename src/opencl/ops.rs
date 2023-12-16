@@ -218,7 +218,7 @@ where
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?.to_cl()?;
         let right = self.right.read()?.to_cl()?;
-        debug_assert_eq!(left.size(), right.size());
+        debug_assert_eq!(left.len(), right.len());
 
         let queue = OpenCL::queue(left.len(), &[left.default_queue(), right.default_queue()])?;
 
@@ -310,8 +310,8 @@ where
         let then = self.then.read()?;
         let or_else = self.or_else.read()?;
 
-        debug_assert_eq!(cond.size(), then.size());
-        debug_assert_eq!(cond.size(), or_else.size());
+        debug_assert_eq!(cond.len(), then.len());
+        debug_assert_eq!(cond.len(), or_else.len());
 
         let (cond, (then, or_else)) = (cond.to_cl()?, (then.to_cl()?, or_else.to_cl()?));
 

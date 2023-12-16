@@ -34,6 +34,14 @@ impl<T: CType> Constant<T> for Stack {
     }
 }
 
+impl<'a, T: CType> Convert<'a, T> for Stack {
+    type Buffer = StackVec<T>;
+
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_slice().map(|buf| buf.into_stackvec())
+    }
+}
+
 impl<A, T> ReduceAll<A, T> for Stack
 where
     A: Access<T>,
@@ -96,6 +104,14 @@ impl<T: CType> Constant<T> for Heap {
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
         Ok(vec![value; size])
+    }
+}
+
+impl<'a, T: CType> Convert<'a, T> for Heap {
+    type Buffer = Vec<T>;
+
+    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+        buffer.to_slice().map(|buf| buf.into_vec())
     }
 }
 
@@ -178,7 +194,10 @@ impl<'a, T: CType> Convert<'a, T> for Host {
     type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.to_slice().map(|buf| buf.into_buffer())
+        match self {
+            Self::Heap(heap) => heap.convert(buffer).map(Buffer::Heap),
+            Self::Stack(stack) => stack.convert(buffer).map(Buffer::Stack),
+        }
     }
 }
 
