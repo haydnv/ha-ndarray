@@ -17,7 +17,7 @@ use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
 
 use super::ops::*;
-use super::{programs, CLConverter};
+use super::programs;
 use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
@@ -256,10 +256,13 @@ impl<T: CType> Constant<T> for OpenCL {
 }
 
 impl<'a, T: CType> Convert<'a, T> for OpenCL {
-    type Buffer = CLConverter<'a, T>;
+    type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.to_cl().map_err(Error::from)
+        buffer
+            .to_cl()
+            .map_err(Error::from)
+            .and_then(|buf| buf.into_buffer())
     }
 }
 

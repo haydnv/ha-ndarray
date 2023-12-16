@@ -16,7 +16,7 @@ pub trait Constant<T: CType>: PlatformInstance {
 }
 
 pub trait Convert<'a, T: CType>: PlatformInstance {
-    type Buffer;
+    type Buffer: BufferInstance<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
 }

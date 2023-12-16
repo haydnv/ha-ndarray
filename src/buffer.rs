@@ -72,6 +72,15 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
 }
 
 impl<T: CType> BufferMut<T> for Buffer<T> {
+    #[cfg(feature = "opencl")]
+    fn cl(&mut self) -> Option<&mut ocl::Buffer<T>> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(buf) => buf.cl(),
+            Self::Host(buf) => buf.cl(),
+        }
+    }
+
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             #[cfg(feature = "opencl")]
@@ -347,6 +356,8 @@ macro_rules! decode_buffer {
                 self,
                 mut array: A,
             ) -> Result<Self::Value, A::Error> {
+                use crate::platform::{Convert, PlatformInstance};
+
                 const BUF_SIZE: usize = 4_096;
                 let mut data = self.data;
 
@@ -360,9 +371,9 @@ macro_rules! decode_buffer {
                     }
                 }
 
-                data.shrink_to_fit();
-
-                Ok(Buffer::Host(data.into()))
+                crate::Platform::select(data.len())
+                    .convert(data.into())
+                    .map_err(de::Error::custom)
             }
         }
 

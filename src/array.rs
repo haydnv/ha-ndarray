@@ -571,8 +571,8 @@ where
         }
 
         let shape = range_shape(self.shape(), &range);
+        let access = self.platform.slice(self.access, &self.shape, range)?;
         let platform = P::select(shape.iter().product());
-        let access = platform.slice(self.access, &self.shape, range)?;
 
         Ok(Array {
             shape,

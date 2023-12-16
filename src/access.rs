@@ -234,7 +234,11 @@ impl<T: CType> Access<T> for Accessor<T> {
     }
 }
 
-impl<T: CType, B: BufferInstance<T> + 'static> From<AccessBuf<B>> for Accessor<T> {
+impl<T, B> From<AccessBuf<B>> for Accessor<T>
+where
+    T: CType,
+    B: BufferInstance<T> + 'static,
+{
     fn from(access: AccessBuf<B>) -> Self {
         Self::Buffer(Arc::new(access.buffer))
     }

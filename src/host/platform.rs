@@ -12,7 +12,7 @@ use crate::ops::{
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
 
-use super::buffer::{Buffer, SliceConverter};
+use super::buffer::Buffer;
 use super::ops::*;
 
 pub const VEC_MIN_SIZE: usize = 64;
@@ -175,10 +175,10 @@ impl<T: CType> Constant<T> for Host {
 }
 
 impl<'a, T: CType> Convert<'a, T> for Host {
-    type Buffer = SliceConverter<'a, T>;
+    type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
-        buffer.to_slice()
+        buffer.to_slice().map(|buf| buf.into_buffer())
     }
 }
 
