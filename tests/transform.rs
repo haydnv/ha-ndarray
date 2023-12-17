@@ -5,7 +5,7 @@ use std::iter;
 fn test_broadcast_small() -> Result<(), Error> {
     let data = vec![5, 1];
     let strides = ArrayBuf::new(data.to_vec(), shape![2])?.broadcast(shape![1, 2])?;
-    assert_eq!(&*strides.read()?.to_slice()?, &data);
+    assert_eq!(&*strides.buffer()?.to_slice()?, &data);
     Ok(())
 }
 
@@ -43,8 +43,8 @@ fn test_slice_2d() -> Result<(), Error> {
     assert!(
         expected.as_ref().eq(actual.as_ref())?.all()?,
         "expected {:?} but found {:?}",
-        expected.read()?.to_slice()?,
-        actual.read()?.to_slice()?
+        expected.buffer()?.to_slice()?,
+        actual.buffer()?.to_slice()?
     );
 
     Ok(())
@@ -62,7 +62,7 @@ fn test_slice_and_write() -> Result<(), Error> {
         .chain(iter::repeat(0).take(256))
         .collect::<Vec<_>>();
 
-    let actual = input.read()?.to_slice()?;
+    let actual = input.buffer()?.to_slice()?;
 
     assert_eq!(expected, &*actual);
 
@@ -134,6 +134,6 @@ fn test_offsets_to_coords() -> Result<(), Error> {
     let strides = ArrayBuf::new(vec![5, 1], shape![2])?.broadcast(coords.shape().into())?;
     let offsets = coords.mul(strides).map(ArrayAccess::from)?;
     let offsets = offsets.sum(axes![1], false)?;
-    assert_eq!(offsets.read()?.to_slice()?.into_vec(), vec![1]);
+    assert_eq!(offsets.buffer()?.to_slice()?.into_vec(), vec![1]);
     Ok(())
 }

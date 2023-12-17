@@ -42,7 +42,7 @@ mod tests {
             let actual = left.matmul(right)?;
             assert_eq!(actual.shape(), output_shape.as_slice());
 
-            let actual = actual.read()?.to_slice()?;
+            let actual = actual.buffer()?.to_slice()?;
             assert!(
                 actual.iter().copied().all(|n| n == expected as f32),
                 "expected {expected} but found {actual:?}"

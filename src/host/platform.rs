@@ -34,10 +34,10 @@ impl<T: CType> Constant<T> for Stack {
     }
 }
 
-impl<'a, T: CType> Convert<'a, T> for Stack {
+impl<T: CType> Convert<T> for Stack {
     type Buffer = StackVec<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+    fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
         buffer.to_slice().map(|buf| buf.into_stackvec())
     }
 }
@@ -107,10 +107,10 @@ impl<T: CType> Constant<T> for Heap {
     }
 }
 
-impl<'a, T: CType> Convert<'a, T> for Heap {
+impl<T: CType> Convert<T> for Heap {
     type Buffer = Vec<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+    fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
         buffer.to_slice().map(|buf| buf.into_vec())
     }
 }
@@ -190,10 +190,10 @@ impl<T: CType> Constant<T> for Host {
     }
 }
 
-impl<'a, T: CType> Convert<'a, T> for Host {
+impl<T: CType> Convert<T> for Host {
     type Buffer = Buffer<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+    fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
         match self {
             Self::Heap(heap) => heap.convert(buffer).map(Buffer::Heap),
             Self::Stack(stack) => stack.convert(buffer).map(Buffer::Stack),

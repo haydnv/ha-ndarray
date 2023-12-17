@@ -16,7 +16,7 @@ fn test_reduce_sum_range_axis() -> Result<(), Error> {
     let actual = array.sum(axes![1], false)?;
     let expected = ArrayBuf::new(vec![5, 7, 9, 11, 13], shape![1, 5])?;
 
-    println!("actual: {:?}", actual.read()?.to_slice()?);
+    println!("actual: {:?}", actual.buffer()?.to_slice()?);
 
     assert!(actual.eq(expected)?.all()?);
     Ok(())

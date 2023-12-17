@@ -255,10 +255,10 @@ impl<T: CType> Constant<T> for OpenCL {
     }
 }
 
-impl<'a, T: CType> Convert<'a, T> for OpenCL {
+impl<T: CType> Convert<T> for OpenCL {
     type Buffer = Buffer<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+    fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
         buffer
             .to_cl()
             .map_err(Error::from)

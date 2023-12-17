@@ -17,10 +17,10 @@ pub trait Constant<T: CType>: PlatformInstance {
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error>;
 }
 
-pub trait Convert<'a, T: CType>: PlatformInstance {
+pub trait Convert<T: CType>: PlatformInstance {
     type Buffer: BufferInstance<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error>;
+    fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -61,10 +61,10 @@ impl From<host::Host> for Platform {
     }
 }
 
-impl<'a, T: CType> Convert<'a, T> for Platform {
+impl<T: CType> Convert<T> for Platform {
     type Buffer = Buffer<T>;
 
-    fn convert(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
+    fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.convert(buffer).map(Buffer::CL),

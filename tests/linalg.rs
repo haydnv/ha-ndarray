@@ -4,7 +4,7 @@ use ha_ndarray::*;
 fn test_diag() -> Result<(), Error> {
     let x = ArrayOp::range(0, 9, shape![3, 3])?;
     let diag = x.diag()?;
-    assert_eq!(&*diag.read()?.to_slice()?, &[0, 4, 8]);
+    assert_eq!(&*diag.buffer()?.to_slice()?, &[0, 4, 8]);
     Ok(())
 }
 

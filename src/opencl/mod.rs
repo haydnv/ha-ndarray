@@ -61,7 +61,7 @@ mod tests {
         assert_eq!(actual.shape(), &[2, 2]);
 
         let expected = vec![2, 3, 6, 11];
-        assert_eq!(actual.read()?.to_slice()?.to_vec(), expected);
+        assert_eq!(actual.buffer()?.to_slice()?.to_vec(), expected);
 
         Ok(())
     }
@@ -81,7 +81,7 @@ mod tests {
             70, 76, 82, 88, 94, 190, 212, 234, 256, 278, 310, 348, 386, 424, 462,
         ];
 
-        assert_eq!(actual.read()?.to_slice()?.to_vec(), expected);
+        assert_eq!(actual.buffer()?.to_slice()?.to_vec(), expected);
 
         Ok(())
     }
@@ -122,7 +122,7 @@ mod tests {
             let actual = left.matmul(right)?;
             assert_eq!(actual.shape(), output_shape.as_slice());
 
-            let actual = actual.read()?.to_slice()?;
+            let actual = actual.buffer()?.to_slice()?;
             assert!(
                 actual.iter().copied().all(|n| n == expected as f32),
                 "expected {expected} but found {actual:?}"

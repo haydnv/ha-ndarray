@@ -141,7 +141,7 @@ where
     pub fn convert<'a, FB>(buffer: FB, shape: Shape) -> Result<Self, Error>
     where
         FB: Into<BufferConverter<'a, T>>,
-        P: Convert<'a, T, Buffer = B>,
+        P: Convert<T, Buffer = B>,
     {
         let buffer = buffer.into();
         let platform = P::select(buffer.len());
@@ -181,13 +181,15 @@ where
     }
 }
 
-impl<'a, T, P> Array<T, AccessBuf<P::Buffer>, P>
+impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
     T: CType,
-    P: Convert<'a, T>,
+    P: Convert<T>,
 {
-    pub fn copy<A: Access<T>>(source: &'a Array<T, A, P>) -> Result<Self, Error> {
-        let buffer = source.read().and_then(|buf| source.platform.convert(buf))?;
+    pub fn copy<A: Access<T>>(source: &Array<T, A, P>) -> Result<Self, Error> {
+        let buffer = source
+            .buffer()
+            .and_then(|buf| source.platform.convert(buf))?;
 
         Ok(Self {
             shape: source.shape.clone(),
@@ -350,10 +352,24 @@ where
 
 /// Access methods for an [`NDArray`]
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
-    /// Read the value of this [`NDArray`].
-    fn read(&self) -> Result<BufferConverter<Self::DType>, Error>;
+    /// Read the value of this [`NDArray`] into a [`BufferConverter`].
+    fn buffer(&self) -> Result<BufferConverter<Self::DType>, Error>;
 
-    /// Read the value at one `coord` in this [`NDArray`].
+    /// Return an [`ArrayBuf`] with the same data as this [`NDArray`], allocating a new buffer only if needed.
+    fn into_read(
+        self,
+    ) -> Result<
+        Array<
+            Self::DType,
+            AccessBuf<<Self::Platform as Convert<Self::DType>>::Buffer>,
+            Self::Platform,
+        >,
+        Error,
+    >
+    where
+        Self::Platform: Convert<Self::DType>;
+
+    /// Read the value at a specific `coord` in this [`NDArray`].
     fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error>;
 }
 
@@ -363,11 +379,26 @@ where
     A: Access<T>,
     P: PlatformInstance,
 {
-    fn read(&self) -> Result<BufferConverter<Self::DType>, Error> {
+    fn buffer(&self) -> Result<BufferConverter<T>, Error> {
         self.access.read()
     }
 
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
+    fn into_read(self) -> Result<Array<Self::DType, AccessBuf<P::Buffer>, Self::Platform>, Error>
+    where
+        P: Convert<T>,
+    {
+        let buffer = self.buffer().and_then(|buf| self.platform.convert(buf))?;
+        debug_assert_eq!(buffer.len(), self.size());
+
+        Ok(Array {
+            shape: self.shape,
+            access: buffer.into(),
+            platform: self.platform,
+            dtype: self.dtype,
+        })
+    }
+
+    fn read_value(&self, coord: &[usize]) -> Result<T, Error> {
         valid_coord(coord, self.shape())?;
 
         let strides = strides_for(self.shape(), self.ndim());
@@ -406,7 +437,7 @@ where
         O: NDArrayRead<DType = Self::DType>,
     {
         same_shape("write", self.shape(), other.shape())?;
-        other.read().and_then(|buf| self.access.write(buf))
+        other.buffer().and_then(|buf| self.access.write(buf))
     }
 
     fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
