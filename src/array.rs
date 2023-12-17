@@ -1325,31 +1325,49 @@ pub trait NDArrayTrig: NDArray + Sized {
     type Output: Access<<Self::DType as CType>::Float>;
 
     /// Construct a new sine operation.
-    fn sin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn sin(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arcsine operation.
-    fn asin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn asin(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic sine operation.
-    fn sinh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn sinh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new cos operation.
-    fn cos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn cos(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arccosine operation.
-    fn acos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn acos(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic cosine operation.
-    fn cosh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn cosh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new tangent operation.
-    fn tan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn tan(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arctangent operation.
-    fn atan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn atan(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic tangent operation.
-    fn tanh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn tanh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTrig for Array<T, A, P>
@@ -1360,39 +1378,39 @@ where
 {
     type Output = AccessOp<P::Op, P>;
 
-    fn sin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn sin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sin(access))
     }
 
-    fn asin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn asin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.asin(access))
     }
 
-    fn sinh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn sinh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sinh(access))
     }
 
-    fn cos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn cos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cos(access))
     }
 
-    fn acos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn acos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.acos(access))
     }
 
-    fn cosh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn cosh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cosh(access))
     }
 
-    fn tan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn tan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tan(access))
     }
 
-    fn atan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn atan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.atan(access))
     }
 
-    fn tanh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn tanh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tanh(access))
     }
 }
