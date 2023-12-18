@@ -45,6 +45,38 @@ impl<T, A, P> Array<T, A, P> {
         })
     }
 
+    fn reduce_axes<Op>(
+        self,
+        mut axes: Axes,
+        keepdims: bool,
+        op: Op,
+    ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
+    where
+        T: CType,
+        A: Access<T>,
+        P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
+        Op: Fn(P, Accessor<T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
+        Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+    {
+        axes.sort();
+        axes.dedup();
+
+        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
+        let size = shape.iter().product::<usize>();
+        let stride = axes.iter().copied().map(|x| self.shape[x]).product();
+        let platform = P::select(size);
+
+        let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
+        let access = (op)(self.platform, access, stride)?;
+
+        Ok(Array {
+            access,
+            shape,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+
     pub fn access(&self) -> &A {
         &self.access
     }
@@ -88,29 +120,6 @@ impl<T: CType> Array<T, Accessor<T>, Platform> {
             platform: array.platform.into(),
             dtype: array.dtype,
         }
-    }
-
-    fn reduce_axes<Op>(self, mut axes: Axes, keepdims: bool, op: Op) -> Result<Self, Error>
-    where
-        Op: Fn(Platform, Accessor<T>, usize) -> Result<Accessor<T>, Error>,
-    {
-        axes.sort();
-        axes.dedup();
-
-        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
-        let size = shape.iter().product::<usize>();
-        let stride = axes.iter().copied().map(|x| self.shape[x]).product();
-        let platform = Platform::select(size);
-
-        let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
-        let access = (op)(self.platform, access, stride)?;
-
-        Ok(Array {
-            access,
-            shape,
-            platform,
-            dtype: PhantomData,
-        })
     }
 }
 
@@ -519,8 +528,14 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
-impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
-    type Output = Accessor<T>;
+impl<T, A, P> NDArrayReduce for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
+    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+{
+    type Output = AccessOp<P::Op, P>;
 
     fn max(
         self,
@@ -528,7 +543,7 @@ impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
         keepdims: bool,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
-            ReduceAxis::max(platform, access, stride).map(Accessor::from)
+            ReduceAxes::max(platform, access, stride)
         })
     }
 
@@ -538,7 +553,7 @@ impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
         keepdims: bool,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
-            ReduceAxis::min(platform, access, stride).map(Accessor::from)
+            ReduceAxes::min(platform, access, stride)
         })
     }
 
@@ -548,7 +563,7 @@ impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
         keepdims: bool,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
-            ReduceAxis::product(platform, access, stride).map(Accessor::from)
+            ReduceAxes::product(platform, access, stride)
         })
     }
 
@@ -558,7 +573,7 @@ impl<T: CType> NDArrayReduce for Array<T, Accessor<T>, Platform> {
         keepdims: bool,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
-            ReduceAxis::sum(platform, access, stride).map(Accessor::from)
+            ReduceAxes::sum(platform, access, stride)
         })
     }
 }
@@ -1625,18 +1640,24 @@ fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
 }
 
 #[inline]
-fn permute_for_reduce<T: CType>(
-    platform: Platform,
-    access: Accessor<T>,
+fn permute_for_reduce<T, A, P>(
+    platform: P,
+    access: A,
     shape: Shape,
     axes: Axes,
-) -> Result<Accessor<T>, Error> {
+) -> Result<Accessor<T>, Error>
+where
+    T: CType,
+    A: Access<T>,
+    P: Transform<A, T>,
+    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+{
     let mut permutation = Axes::with_capacity(shape.len());
     permutation.extend((0..shape.len()).into_iter().filter(|x| !axes.contains(x)));
     permutation.extend(axes);
 
     if permutation.iter().copied().enumerate().all(|(i, x)| i == x) {
-        Ok(access)
+        Ok(Accessor::from(access))
     } else {
         platform
             .transpose(access, shape, permutation)

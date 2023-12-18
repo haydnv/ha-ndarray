@@ -7,7 +7,7 @@ use crate::ops::{
     Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
     ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
     ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual,
-    LinAlgUnary, Random, ReduceAll, ReduceAxis, Transform,
+    LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
@@ -583,7 +583,7 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Host {
+impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Host {
     type Op = Reduce<A, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {

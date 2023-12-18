@@ -305,7 +305,7 @@ pub trait ReduceAll<A, T>: PlatformInstance {
     fn sum(self, access: A) -> Result<T, Error>;
 }
 
-pub trait ReduceAxis<A: Access<T>, T: CType>: PlatformInstance {
+pub trait ReduceAxes<A: Access<T>, T: CType>: PlatformInstance {
     type Op: ReadOp<Self, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;

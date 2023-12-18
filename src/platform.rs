@@ -1130,63 +1130,63 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Platform {
+impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
     type Op = Reduce<A, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::Host(host) => ReduceAxis::max(host, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::max(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::Host(host) => ReduceAxis::min(host, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::min(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::Host(host) => ReduceAxis::product(host, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::product(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::Host(host) => ReduceAxis::sum(host, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::sum(host, access, stride).map(AccessOp::wrap),
         }
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ReduceAxis<A, T> for Platform {
+impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
     type Op = Reduce<A, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(cl) => ReduceAxis::max(cl, access, stride).map(AccessOp::wrap),
-            Self::Host(host) => ReduceAxis::max(host, access, stride).map(AccessOp::wrap),
+            Self::CL(cl) => ReduceAxes::max(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::max(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(cl) => ReduceAxis::min(cl, access, stride).map(AccessOp::wrap),
-            Self::Host(host) => ReduceAxis::min(host, access, stride).map(AccessOp::wrap),
+            Self::CL(cl) => ReduceAxes::min(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::min(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(cl) => ReduceAxis::product(cl, access, stride).map(AccessOp::wrap),
-            Self::Host(host) => ReduceAxis::product(host, access, stride).map(AccessOp::wrap),
+            Self::CL(cl) => ReduceAxes::product(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::product(host, access, stride).map(AccessOp::wrap),
         }
     }
 
     fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(cl) => ReduceAxis::sum(cl, access, stride).map(AccessOp::wrap),
-            Self::Host(host) => ReduceAxis::sum(host, access, stride).map(AccessOp::wrap),
+            Self::CL(cl) => ReduceAxes::sum(cl, access, stride).map(AccessOp::wrap),
+            Self::Host(host) => ReduceAxes::sum(host, access, stride).map(AccessOp::wrap),
         }
     }
 }
