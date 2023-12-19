@@ -1,3 +1,5 @@
+//! The OpenCL platform
+
 use lazy_static::lazy_static;
 
 use crate::access::{AccessBuf, AccessOp};

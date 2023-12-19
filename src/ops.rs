@@ -1,3 +1,5 @@
+//! Array operations
+
 use crate::access::*;
 use crate::buffer::Buffer;
 #[cfg(feature = "opencl")]

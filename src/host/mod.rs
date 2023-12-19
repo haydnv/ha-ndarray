@@ -1,3 +1,5 @@
+//! The host platform (i.e. the CPU and main memory)
+
 use crate::access::AccessBuf;
 
 pub use buffer::*;

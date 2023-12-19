@@ -8,29 +8,39 @@ use crate::ops::{ReadOp, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
 
+/// A type which allows accessing array data.
 pub trait Access<T: CType>: Send + Sync {
+    /// Read the data of this accessor as a [`BufferConverter`].
     fn read(&self) -> Result<BufferConverter<T>, Error>;
 
+    /// Access a single value.
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 
+    /// Return the data size.
     fn size(&self) -> usize;
 }
 
+/// A type which allows accessing array data mutably.
 pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
+    /// Borrow the array data as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
     fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Err(Error::Unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
     }
 
+    /// Overwrite these data with the given `data`.
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
+    /// Overwrite these data with a single value.
     fn write_value(&mut self, value: T) -> Result<(), Error>;
 
+    /// Overwrite a single value.
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
+/// A struct which provides n-dimensional access to an underlying [`BufferInstance`].
 pub struct AccessBuf<B> {
     buffer: B,
 }
@@ -44,6 +54,7 @@ impl<B: Clone> Clone for AccessBuf<B> {
 }
 
 impl<B> AccessBuf<B> {
+    /// Construct an [`AccessBuf`] from a mutable reference to this buffer.
     pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuf<&mut RB>
     where
         B: BorrowMut<RB>,
@@ -53,6 +64,7 @@ impl<B> AccessBuf<B> {
         }
     }
 
+    /// Construct an [`AccessBuf`] from a reference to this buffer.
     pub fn as_ref<RB: ?Sized>(&self) -> AccessBuf<&RB>
     where
         B: Borrow<RB>,
@@ -62,14 +74,17 @@ impl<B> AccessBuf<B> {
         }
     }
 
+    /// Borrow the underlying [`BufferInstance`] of this [`AccessBuf`].
     pub fn inner(&self) -> &B {
         &self.buffer
     }
 
+    /// Borrow the underlying [`BufferInstance`] of this [`AccessBuf`] mutably.
     pub fn inner_mut(&mut self) -> &mut B {
         &mut self.buffer
     }
 
+    /// Destructure this [`AccessBuf`] into its underlying [`BufferInstance`].
     pub fn into_inner(self) -> B {
         self.buffer
     }
@@ -128,12 +143,14 @@ impl<B: fmt::Debug> fmt::Debug for AccessBuf<B> {
     }
 }
 
+/// A struct which provides n-dimensional access to the result of an array operation.
 pub struct AccessOp<O, P> {
     op: O,
     platform: PhantomData<P>,
 }
 
 impl<O, P> AccessOp<O, P> {
+    /// Convert the given [`AccessOp`] to a more general type of [`PlatformIntance`].
     pub fn wrap<FO, FP>(access: AccessOp<FO, FP>) -> Self
     where
         FO: Into<O>,
@@ -225,6 +242,8 @@ impl<O, P: fmt::Debug> fmt::Debug for AccessOp<O, P> {
     }
 }
 
+/// A general-purpose implementor of [`Access`] used to elide recursive types.
+/// Uses an [`Arc`] so that cloning does not allocate.
 #[derive(Clone)]
 pub enum Accessor<T: CType> {
     Buffer(Arc<dyn BufferInstance<T>>),

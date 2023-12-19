@@ -364,7 +364,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     /// Read the value of this [`NDArray`] into a [`BufferConverter`].
     fn buffer(&self) -> Result<BufferConverter<Self::DType>, Error>;
 
-    /// Return an [`ArrayBuf`] with the same data as this [`NDArray`], allocating a new buffer only if needed.
+    /// Buffer this [`NDArray`] into a new, owned array, allocating only if needed.
     fn into_read(
         self,
     ) -> Result<
@@ -915,16 +915,22 @@ where
 pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     type Output: Access<u8>;
 
+    /// Elementwise equality comparison
     fn eq(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
+    /// Elementwise greater-than-or-equal comparison
     fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
+    /// Elementwise greater-than comparison
     fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
+    /// Elementwise less-than-or-equal comparison
     fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
+    /// Elementwise less-than comparison
     fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
+    /// Elementwise not-equal comparison
     fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
@@ -968,6 +974,7 @@ where
     }
 }
 
+/// Array-scalar comparison operations
 pub trait NDArrayCompareScalar: NDArray + Sized {
     type Output: Access<u8>;
 

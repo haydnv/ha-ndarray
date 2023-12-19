@@ -9,6 +9,7 @@ use crate::{CType, Error};
 
 use super::VEC_MIN_SIZE;
 
+/// A stack-allocated buffer.
 pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 impl<T: CType> BufferInstance<T> for StackVec<T> {

@@ -29,121 +29,165 @@ pub mod opencl;
 pub mod ops;
 mod platform;
 
+/// A numeric type supported by ha-ndarray.
 #[cfg(feature = "opencl")]
 pub trait CType:
     ocl::OclPrm + PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
 {
     // type information
 
+    /// The C-language type name of this data type.
     const TYPE: &'static str;
 
+    /// The maximum value of this data type.
     const MAX: Self;
 
+    /// The minimum value of this data type.
     const MIN: Self;
 
+    /// The zero value of this data type.
     const ZERO: Self;
 
+    /// The one value of this data type.
     const ONE: Self;
 
+    /// Whether this is a floating-point data type.
     const IS_FLOAT: bool;
 
+    /// The floating-point type used to represent this type in floating-point-only operations.
     type Float: Float;
 
     // constructors
 
+    /// Construct an instance of this type from a [`f64`].
     fn from_f64(float: f64) -> Self;
 
+    /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
 
     // arithmetic
 
+    /// Construct an instance of this type from a [`f64`].
     fn abs(self) -> Self;
 
+    /// Add two instances of this type.
     fn add(self, other: Self) -> Self;
 
+    /// Divide two instances of this type.
     fn div(self, other: Self) -> Self;
 
+    /// Multiply two instances of this type.
     fn mul(self, other: Self) -> Self;
 
+    /// Subtract two instances of this type.
     fn sub(self, other: Self) -> Self;
 
+    /// Compute the remainder of `self.div(other)`.
     fn rem(self, other: Self) -> Self;
 
     // comparisons
 
+    /// Return the minimum of two values of this type.
     fn min(l: Self, r: Self) -> Self;
 
+    /// Return the maximum of two values of this type.
     fn max(l: Self, r: Self) -> Self;
 
     // logarithms
 
+    /// Raise this value to the power of the given `exp`onent.
     fn pow(self, exp: Self) -> Self;
 
     // conversions
 
+    /// Round this value to the nearest integer.
     fn round(self) -> Self;
 
+    /// Return the minimum of two values of this type.
     fn to_f64(self) -> f64;
 
+    /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
 }
 
+/// A numeric type supported by ha-ndarray.
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
     PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
 {
     // type information
 
+    /// The C-language type name of this data type.
     const TYPE: &'static str;
 
+    /// The maximum value of this data type.
     const MAX: Self;
 
+    /// The minimum value of this data type.
     const MIN: Self;
 
+    /// The zero value of this data type.
     const ZERO: Self;
 
+    /// The one value of this data type.
     const ONE: Self;
 
+    /// Whether this is a floating-point data type.
     const IS_FLOAT: bool;
 
+    /// The floating-point type used to represent this type in floating-point-only operations.
     type Float: Float;
 
     // constructors
 
+    /// Construct an instance of this type from a [`f64`].
     fn from_f64(float: f64) -> Self;
 
+    /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
 
     // arithmetic
 
+    /// Construct an instance of this type from a [`f64`].
     fn abs(self) -> Self;
 
+    /// Add two instances of this type.
     fn add(self, other: Self) -> Self;
 
+    /// Divide two instances of this type.
     fn div(self, other: Self) -> Self;
 
+    /// Multiply two instances of this type.
     fn mul(self, other: Self) -> Self;
 
+    /// Subtract two instances of this type.
     fn sub(self, other: Self) -> Self;
 
+    /// Compute the remainder of `self.div(other)`.
     fn rem(self, other: Self) -> Self;
 
     // comparisons
 
+    /// Return the minimum of two values of this type.
     fn min(l: Self, r: Self) -> Self;
 
+    /// Return the maximum of two values of this type.
     fn max(l: Self, r: Self) -> Self;
 
     // logarithms
 
+    /// Raise this value to the power of the given `exp`onent.
     fn pow(self, exp: Self) -> Self;
 
     // conversions
 
+    /// Round this value to the nearest integer.
     fn round(self) -> Self;
 
+    /// Return the minimum of two values of this type.
     fn to_f64(self) -> f64;
 
+    /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
 }
 
@@ -452,6 +496,7 @@ fn min_f64(l: f64, r: f64) -> f64 {
     }
 }
 
+/// A floating-point [`CType`].
 pub trait Float: CType<Float = Self> {
     // numeric methods
     /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
@@ -632,22 +677,31 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A list of n-dimensional array axes
 pub type Axes = SmallVec<[usize; 8]>;
 
+/// An n-dimensional selection range, used to slice an array
 pub type Range = SmallVec<[AxisRange; 8]>;
 
+/// The shape of an n-dimensional array
 pub type Shape = SmallVec<[usize; 8]>;
 
+/// The strides used to access an n-dimensional array
 pub type Strides = SmallVec<[usize; 8]>;
 
+/// An n-dimensional array on the top-level [`Platform`]
 pub type Array<T, A> = array::Array<T, A, Platform>;
 
+/// An n-dimensional array backed by a buffer on the top-level [`Platform`]
 pub type ArrayBuf<T, B> = array::Array<T, AccessBuf<B>, Platform>;
 
+/// The result of an n-dimensional array operation
 pub type ArrayOp<T, Op> = array::Array<T, AccessOp<Op>, Platform>;
 
+/// A general type of n-dimensional array used to elide recursive types
 pub type ArrayAccess<T> = array::Array<T, Accessor<T>, Platform>;
 
+/// An accessor for the result of an n-dimensional array operation on the top-level [`Platform`]
 pub type AccessOp<Op> = access::AccessOp<Op, Platform>;
 
 /// Bounds on an individual array axis

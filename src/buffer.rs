@@ -8,29 +8,39 @@ use get_size::GetSize;
 use crate::opencl;
 use crate::{host, CType, Error};
 
+/// A data buffer
 pub trait BufferInstance<T: CType>: Send + Sync {
+    /// Borrow this buffer as a [`BufferConverter`].
     fn read(&self) -> BufferConverter<T>;
 
+    /// Read a single value in this buffer.
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 
+    /// Return the length of this buffer.
     fn len(&self) -> usize;
 }
 
+/// A mutable data buffer
 pub trait BufferMut<T: CType>: BufferInstance<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
+    /// Borrow this buffer as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
     fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Err(Error::Unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
     }
 
+    /// Overwrite this buffer.
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
+    /// Overwrite this buffer with a single value.
     fn write_value(&mut self, value: T) -> Result<(), Error>;
 
+    /// Overwrite a single value in this buffer.
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
+/// A general-purpose buffer which can represent a buffer on any supported platform.
 #[derive(Clone)]
 pub enum Buffer<T: CType> {
     #[cfg(feature = "opencl")]
