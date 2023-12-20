@@ -29,7 +29,7 @@ pub mod opencl;
 pub mod ops;
 mod platform;
 
-/// A numeric type supported by ha-ndarray.
+/// A numeric type supported by ha-ndarray
 #[cfg(feature = "opencl")]
 pub trait CType:
     ocl::OclPrm + PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
@@ -110,7 +110,7 @@ pub trait CType:
     fn to_float(self) -> Self::Float;
 }
 
-/// A numeric type supported by ha-ndarray.
+/// A numeric type supported by ha-ndarray
 #[cfg(not(feature = "opencl"))]
 pub trait CType:
     PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
@@ -496,7 +496,7 @@ fn min_f64(l: f64, r: f64) -> f64 {
     }
 }
 
-/// A floating-point [`CType`].
+/// A floating-point [`CType`]
 pub trait Float: CType<Float = Self> {
     // numeric methods
     /// Return `true` if this [`Float`] is infinite (positive or negative infinity).

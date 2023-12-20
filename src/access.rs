@@ -8,7 +8,7 @@ use crate::ops::{ReadOp, Write};
 use crate::platform::PlatformInstance;
 use crate::{Buffer, CType, Error, Platform};
 
-/// A type which allows accessing array data.
+/// A type which allows accessing array data
 pub trait Access<T: CType>: Send + Sync {
     /// Read the data of this accessor as a [`BufferConverter`].
     fn read(&self) -> Result<BufferConverter<T>, Error>;
@@ -20,7 +20,7 @@ pub trait Access<T: CType>: Send + Sync {
     fn size(&self) -> usize;
 }
 
-/// A type which allows accessing array data mutably.
+/// A type which allows accessing array data mutably
 pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
     /// Borrow the array data as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
@@ -40,7 +40,7 @@ pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
-/// A struct which provides n-dimensional access to an underlying [`BufferInstance`].
+/// A struct which provides n-dimensional access to an underlying [`BufferInstance`]
 pub struct AccessBuf<B> {
     buffer: B,
 }

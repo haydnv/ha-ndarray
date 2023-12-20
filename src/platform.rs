@@ -7,30 +7,30 @@ use crate::opencl;
 use crate::ops::*;
 use crate::{host, Axes, CType, Error, Float, Range, Shape};
 
-/// A ha-ndarray platform.
+/// A ha-ndarray platform
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync + fmt::Debug {
     /// Select a specific sub-platform based on data size.
     fn select(size_hint: usize) -> Self;
 }
 
-/// Construct a new buffer filled with a single value.
+/// Constructor for a new buffer filled with a single value
 pub trait Constant<T: CType>: PlatformInstance {
-    /// The type of buffer use by this platform.
+    /// The type of buffer use by this platform
     type Buffer: BufferInstance<T>;
 
     /// Construct a new buffer filled with a single value.
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error>;
 }
 
-/// Convert a [`BufferConverter`] into an owned, platform-specific buffer.
+/// Converter to construct an owned, platform-specific buffer
 pub trait Convert<T: CType>: PlatformInstance {
-    /// The type of buffer use by this platform.
+    /// The type of buffer use by this platform
     type Buffer: BufferInstance<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error>;
 }
 
-/// The global platform, responsible for delegating to specific hardware platforms.
+/// The global platform, responsible for delegating to specific hardware platforms
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Platform {
     #[cfg(feature = "opencl")]
