@@ -1,6 +1,9 @@
-use ocl::{Error, Program};
+use memoize::memoize;
+use ocl::Program;
 
-use crate::{CDatatype, Context};
+use crate::Error;
+
+use super::build;
 
 const LIB: &'static str = r#"
 const float pi = 3.14159;
@@ -37,7 +40,8 @@ float random(const ulong seed, const ulong offset) {
 }
 "#;
 
-pub fn random_normal(context: &Context) -> Result<Program, Error> {
+#[memoize]
+pub fn random_normal() -> Result<Program, Error> {
     let src = format!(
         r#"
         {LIB}
@@ -71,10 +75,11 @@ pub fn random_normal(context: &Context) -> Result<Program, Error> {
         "#
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }
 
-pub fn random_uniform(context: &Context) -> Result<Program, Error> {
+#[memoize]
+pub fn random_uniform() -> Result<Program, Error> {
     let src = format!(
         r#"
         {LIB}
@@ -86,21 +91,21 @@ pub fn random_uniform(context: &Context) -> Result<Program, Error> {
         "#
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }
 
-pub fn range<T: CDatatype>(context: &Context) -> Result<Program, Error> {
+#[memoize]
+pub fn range(c_type: &'static str) -> Result<Program, Error> {
     let src = format!(
         r#"
         {LIB}
 
-        __kernel void range(const double step, __global {dtype}* output) {{
+        __kernel void range(const {c_type} start, const double step, __global {c_type}* output) {{
             const ulong offset = get_global_id(0);
-            output[offset] = offset * step;
+            output[offset] = start + (offset * step);
         }}
         "#,
-        dtype = T::TYPE_STR
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }

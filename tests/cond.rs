@@ -1,26 +1,23 @@
-use std::sync::Arc;
-
 use ha_ndarray::*;
 
 #[test]
 fn test_cond() -> Result<(), Error> {
-    let context = Context::new(0, 0, None)?;
-    let size = 10;
+    let size = 2048;
 
     let data = (0..size)
         .into_iter()
         .map(|n| if n % 2 == 0 { 1 } else { 0 })
         .collect::<Vec<_>>();
 
-    let cond = ArrayBase::<Arc<Vec<_>>>::with_context(context.clone(), vec![size], Arc::new(data))?;
+    let cond = ArrayBuf::new(data, shape![size])?;
 
-    let left = ArrayBase::<Vec<_>>::with_context(context.clone(), vec![size], vec![1.; size])?;
-    let right = ArrayBase::<Vec<_>>::with_context(context, vec![size], vec![0.; size])?;
+    let then = ArrayBuf::constant(1., shape![size])?;
+    let or_else = ArrayBuf::constant(0., shape![size])?;
 
-    let result = cond.clone().cond(left, right)?;
+    let actual = cond.as_ref::<[u8]>().cond(then, or_else)?;
 
-    let cond = cond.cast::<f32>()?;
-    let eq = result.eq(cond)?;
+    let cond: Array<f32, _> = cond.as_ref::<[u8]>().cast()?;
+    let eq = actual.eq(cond)?;
     assert!(eq.all()?);
 
     Ok(())

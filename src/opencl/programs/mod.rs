@@ -1,23 +1,16 @@
 use std::fmt;
 
-mod construct;
-mod elementwise;
-mod gather;
-mod linalg;
-mod reduce;
-mod slice;
-mod view;
+use crate::Error;
 
-pub use construct::*;
-pub use elementwise::*;
-pub use gather::*;
-pub use linalg::*;
-pub use reduce::*;
-pub use slice::*;
-pub use view::*;
+use super::{OpenCL, TILE_SIZE, WG_SIZE};
 
-pub(crate) const TILE_SIZE: usize = 8;
-pub(crate) const WG_SIZE: usize = 64;
+pub mod constructors;
+pub mod elementwise;
+pub mod gather;
+pub mod linalg;
+pub mod reduce;
+pub mod slice;
+pub mod view;
 
 struct ArrayFormat<'a, T> {
     arr: &'a [T],
@@ -39,4 +32,12 @@ impl<'a, T: fmt::Display> fmt::Display for ArrayFormat<'a, T> {
 
         f.write_str(" }")
     }
+}
+
+#[inline]
+fn build(src: &str) -> Result<ocl::Program, Error> {
+    ocl::Program::builder()
+        .source(src)
+        .build(OpenCL::context())
+        .map_err(Error::from)
 }

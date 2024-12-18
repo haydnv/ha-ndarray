@@ -1,29 +1,32 @@
 use std::fmt;
 
-use ocl::{Error, Program};
+use memoize::memoize;
+use ocl::Program;
 
-use crate::{AxisBound, CDatatype, Context};
+use crate::ops::SliceSpec;
+use crate::{AxisRange, Error};
 
-use super::ArrayFormat;
+use super::{build, ArrayFormat};
 
-struct Bounds<'a> {
-    axes: &'a [AxisBound],
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct RangeFormat<'a> {
+    axes: &'a [AxisRange],
 }
 
-impl<'a> Bounds<'a> {
+impl<'a> RangeFormat<'a> {
     fn max_indices(&self) -> usize {
         self.axes
             .iter()
             .map(|bound| match bound {
-                AxisBound::At(_) => 1,
-                AxisBound::In(_, _, _) => 0,
-                AxisBound::Of(indices) => indices.len(),
+                AxisRange::At(_) => 1,
+                AxisRange::In(_, _, _) => 0,
+                AxisRange::Of(indices) => indices.len(),
             })
             .fold(1, Ord::max)
     }
 }
 
-impl<'a> fmt::Display for Bounds<'a> {
+impl<'a> fmt::Display for RangeFormat<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("{ ")?;
 
@@ -31,15 +34,15 @@ impl<'a> fmt::Display for Bounds<'a> {
             f.write_str("{ ")?;
 
             match bound {
-                AxisBound::At(i) => {
+                AxisRange::At(i) => {
                     write!(f, ".btype=AT, ")?;
                     write!(f, "{{ .at_index={i} }}")?;
                 }
-                AxisBound::In(start, stop, step) => {
+                AxisRange::In(start, stop, step) => {
                     write!(f, ".btype=IN, ")?;
                     write!(f, "{{ .in_range={{ {start}, {stop}, {step}, 0 }} }}")?;
                 }
-                AxisBound::Of(indices) => {
+                AxisRange::Of(indices) => {
                     write!(f, ".btype=OF, ")?;
 
                     f.write_str("{{ .of_indices={ ")?;
@@ -59,24 +62,20 @@ impl<'a> fmt::Display for Bounds<'a> {
     }
 }
 
-pub fn read_slice<T: CDatatype>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisBound],
-    source_strides: &[usize],
-) -> Result<Program, Error> {
-    let ndim = shape.len();
-    assert_eq!(ndim, strides.len());
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn read_slice(c_type: &'static str, spec: SliceSpec) -> Result<Program, Error> {
+    let ndim = spec.shape.len();
+    let source_ndim = spec.range.len();
 
-    let source_ndim = axes.len();
-    assert_eq!(source_ndim, source_strides.len());
+    let dims = ArrayFormat::from(spec.shape.as_slice());
+    let strides = ArrayFormat::from(spec.strides.as_slice());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let bounds = RangeFormat {
+        axes: spec.range.as_slice(),
+    };
 
-    let bounds = Bounds { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let source_strides = ArrayFormat::from(spec.source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -100,8 +99,8 @@ pub fn read_slice<T: CDatatype>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void read_slice(
-                __global const {dtype}* restrict input,
-                __global {dtype}* restrict output)
+                __global const {c_type}* restrict input,
+                __global {c_type}* restrict output)
         {{
             const ulong offset_out = get_global_id(0);
 
@@ -145,31 +144,26 @@ pub fn read_slice<T: CDatatype>(
             output[offset_out] = input[offset_in];
         }}
         "#,
-        dtype = T::TYPE_STR,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }
 
-pub fn write_to_slice<T: CDatatype>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisBound],
-    source_strides: &[usize],
-) -> Result<Program, Error> {
-    let ndim = shape.len();
-    assert_eq!(ndim, strides.len());
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn write_to_slice(c_type: &'static str, spec: SliceSpec) -> Result<Program, Error> {
+    let ndim = spec.shape.len();
+    let source_ndim = spec.range.len();
 
-    let source_ndim = axes.len();
-    assert_eq!(source_ndim, source_strides.len());
+    let dims = ArrayFormat::from(spec.shape.as_slice());
+    let strides = ArrayFormat::from(spec.strides.as_slice());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let bounds = RangeFormat {
+        axes: spec.range.as_slice(),
+    };
 
-    let bounds = Bounds { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let source_strides = ArrayFormat::from(spec.source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -193,8 +187,8 @@ pub fn write_to_slice<T: CDatatype>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void write_slice(
-                __global {dtype}* restrict output,
-                __global const {dtype}* restrict input)
+                __global {c_type}* restrict output,
+                __global const {c_type}* restrict input)
         {{
             const ulong offset_in = get_global_id(0);
 
@@ -238,31 +232,26 @@ pub fn write_to_slice<T: CDatatype>(
             output[offset_out] = input[offset_in];
         }}
         "#,
-        dtype = T::TYPE_STR,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }
 
-pub fn write_value_to_slice<T: CDatatype>(
-    context: &Context,
-    shape: &[usize],
-    strides: &[usize],
-    axes: &[AxisBound],
-    source_strides: &[usize],
-) -> Result<Program, Error> {
-    let ndim = shape.len();
-    assert_eq!(ndim, strides.len());
+// TODO: use the SharedCache option
+#[memoize(Capacity: 1024)]
+pub fn write_value_to_slice(c_type: &'static str, spec: SliceSpec) -> Result<Program, Error> {
+    let ndim = spec.shape.len();
+    let source_ndim = spec.range.len();
 
-    let source_ndim = axes.len();
-    assert_eq!(source_ndim, source_strides.len());
+    let dims = ArrayFormat::from(spec.shape.as_slice());
+    let strides = ArrayFormat::from(spec.strides.as_slice());
 
-    let dims = ArrayFormat::from(shape);
-    let strides = ArrayFormat::from(strides);
+    let bounds = RangeFormat {
+        axes: spec.range.as_slice(),
+    };
 
-    let bounds = Bounds { axes };
-    let source_strides = ArrayFormat::from(source_strides);
+    let source_strides = ArrayFormat::from(spec.source_strides.as_slice());
 
     let src = format!(
         r#"
@@ -286,8 +275,8 @@ pub fn write_value_to_slice<T: CDatatype>(
         const ulong source_strides[{source_ndim}] = {source_strides};
 
         __kernel void write_slice_value(
-                __global {dtype}* restrict output,
-                const {dtype} input)
+                __global {c_type}* restrict output,
+                const {c_type} input)
         {{
             const ulong offset_in = get_global_id(0);
 
@@ -331,9 +320,8 @@ pub fn write_value_to_slice<T: CDatatype>(
             output[offset_out] = input;
         }}
         "#,
-        dtype = T::TYPE_STR,
         max_indices = bounds.max_indices(),
     );
 
-    Program::builder().source(src).build(context.cl_context())
+    build(&src)
 }

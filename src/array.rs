@@ -1,2299 +1,1724 @@
-use std::cmp::Ordering;
-use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
-use std::sync::{Arc, RwLock};
-use std::{fmt, iter};
+use std::borrow::{Borrow, BorrowMut};
+use std::fmt;
+use std::marker::PhantomData;
 
-use rayon::prelude::*;
-
-use super::ops::*;
-use super::{
-    offset_of, strides_for, AsBuffer, AxisBound, Buffer, BufferConverter, BufferConverterMut,
-    BufferInstance, BufferRead, BufferWrite, CDatatype, Context, Error, NDArray, NDArrayRead,
-    NDArrayTransform, NDArrayWrite, Queue, Shape,
+use crate::access::*;
+use crate::buffer::BufferInstance;
+use crate::ops::*;
+use crate::platform::PlatformInstance;
+use crate::{
+    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert,
+    Error, Float, Platform, Range, Shape,
 };
 
-/// A generic n-dimensional array
-pub enum Array<T: CDatatype> {
-    Base(ArrayBase<Box<dyn BufferRead<DType = T>>>),
-    Op(ArrayOp<Arc<dyn super::ops::Op<Out = T>>>),
-    Slice(Box<ArraySlice<Self>>),
-    View(Box<ArrayView<Self>>),
-}
-
-macro_rules! array_dispatch {
-    ($this:ident, $var:ident, $call:expr) => {
-        match $this {
-            Self::Base($var) => $call,
-            Self::Op($var) => $call,
-            Self::Slice($var) => $call,
-            Self::View($var) => $call,
-        }
-    };
-}
-
-impl<T: CDatatype> NDArray for Array<T> {
-    type DType = T;
-
-    fn context(&self) -> &Context {
-        array_dispatch!(self, this, this.context())
-    }
-
-    fn shape(&self) -> &[usize] {
-        array_dispatch!(self, this, this.shape())
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for Array<T> {
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        array_dispatch!(self, this, this.read(queue))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        array_dispatch!(self, this, this.read_value(coord))
-    }
-}
-
-impl<T: CDatatype> NDArrayTransform for Array<T> {
-    type Broadcast = Self;
-    type Expand = Self;
-    type Reshape = Self;
-    type Slice = Self;
-    type Transpose = Self;
-
-    fn broadcast(self, shape: Shape) -> Result<Self, Error> {
-        array_dispatch!(self, this, this.broadcast(shape).map(Self::from))
-    }
-
-    fn expand_dims(self, axes: Vec<usize>) -> Result<Self, Error> {
-        array_dispatch!(self, this, this.expand_dims(axes).map(Self::from))
-    }
-
-    fn reshape(self, shape: Shape) -> Result<Self, Error> {
-        array_dispatch!(self, this, this.reshape(shape).map(Self::from))
-    }
-
-    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self, Error> {
-        array_dispatch!(self, this, this.slice(bounds).map(Self::from))
-    }
-
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self, Error> {
-        array_dispatch!(self, this, this.transpose(axes).map(Self::from))
-    }
-}
-
-impl<T: CDatatype> fmt::Debug for Array<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        array_dispatch!(self, this, this.fmt(f))
-    }
-}
-
-#[derive(Clone)]
-/// An n-dimensional array with a specific buffer type
-pub struct ArrayBase<Buf> {
-    context: Context,
+pub struct Array<T, A, P> {
     shape: Shape,
-    data: Buf,
+    access: A,
+    platform: P,
+    dtype: PhantomData<T>,
 }
 
-impl<Buf> ArrayBase<Buf> {
-    fn new_inner(context: Context, shape: Shape, size: usize, data: Buf) -> Result<Self, Error> {
-        if shape.iter().copied().any(|dim| dim == 0) {
-            Err(Error::Bounds(format!(
-                "cannot construct an array of shape {shape:?}"
-            )))
-        } else if shape.iter().product::<usize>() == size {
-            Ok(Self {
-                context,
-                data,
-                shape,
-            })
-        } else {
-            Err(Error::Bounds(format!(
-                "expected {} elements for an array of shape {:?} but found {}",
-                shape.iter().product::<usize>(),
-                shape,
-                size,
-            )))
-        }
-    }
-
-    /// Destructure this [`ArrayBase`] into its underlying buffer.
-    pub fn into_inner(self) -> Buf {
-        self.data
-    }
-}
-
-macro_rules! construct_array {
-    ($buf:ty) => {
-        impl<T: CDatatype> ArrayBase<$buf> {
-            pub fn new(shape: Shape, data: $buf) -> Result<Self, Error> {
-                Context::default().and_then(|cxt| Self::with_context(cxt, shape, data))
-            }
-
-            pub fn with_context(context: Context, shape: Shape, data: $buf) -> Result<Self, Error> {
-                Self::new_inner(context, shape, data.len(), data)
-            }
-        }
-    };
-}
-
-construct_array!(Vec<T>);
-construct_array!(Arc<Vec<T>>);
-#[cfg(feature = "opencl")]
-construct_array!(ocl::Buffer<T>);
-#[cfg(feature = "opencl")]
-construct_array!(Arc<ocl::Buffer<T>>);
-construct_array!(Buffer<T>);
-construct_array!(Arc<Buffer<T>>);
-
-macro_rules! construct_array_lock {
-    ($buf:ty) => {
-        impl<T: CDatatype> ArrayBase<Arc<RwLock<$buf>>> {
-            pub fn new(shape: Shape, data: $buf) -> Result<Self, Error> {
-                let context = Context::default()?;
-                let size = data.len();
-                let data = Arc::new(RwLock::new(data));
-                Self::new_inner(context, shape, size, data)
-            }
-
-            pub fn with_context(context: Context, shape: Shape, data: $buf) -> Result<Self, Error> {
-                let size = data.len();
-                let data = Arc::new(RwLock::new(data));
-                Self::new_inner(context, shape, size, data)
-            }
-        }
-    };
-}
-
-construct_array_lock!(Vec<T>);
-#[cfg(feature = "opencl")]
-construct_array_lock!(ocl::Buffer<T>);
-construct_array_lock!(Buffer<T>);
-
-#[cfg(feature = "freqfs")]
-impl<FE, T: CDatatype> ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>> {
-    /// Construct a new [`ArrayBase`].
-    pub fn new(
-        shape: Shape,
-        data: freqfs::FileReadGuardOwned<FE, Buffer<T>>,
-    ) -> Result<Self, Error> {
-        Context::default().and_then(|context| Self::with_context(context, shape, data))
-    }
-
-    /// Construct a new [`ArrayBase`] with the given context.
-    pub fn with_context(
-        context: Context,
-        shape: Shape,
-        data: freqfs::FileReadGuardOwned<FE, Buffer<T>>,
-    ) -> Result<Self, Error> {
-        Self::new_inner(context, shape, data.len(), data)
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE: Send + Sync, T: CDatatype> ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>> {
-    /// Construct a new [`ArrayBase`].
-    pub fn new(
-        shape: Shape,
-        data: freqfs::FileWriteGuardOwned<FE, Buffer<T>>,
-    ) -> Result<Self, Error> {
-        Context::default().and_then(|context| Self::with_context(context, shape, data))
-    }
-
-    /// Construct a new [`ArrayBase`] with the given context.
-    pub fn with_context(
-        context: Context,
-        shape: Shape,
-        data: freqfs::FileWriteGuardOwned<FE, Buffer<T>>,
-    ) -> Result<Self, Error> {
-        Self::new_inner(context, shape, data.len(), data)
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Vec<T>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_host(&queue)?.into_vec();
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-
-    /// Access this [`ArrayBase`]'s buffer as a slice.
-    pub fn as_slice(&self) -> &[T] {
-        &self.data
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Arc<Vec<T>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_host(&queue)?;
-        let data = Arc::new(data.into_vec());
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-
-    /// Access this [`ArrayBase`]'s buffer as a slice.
-    pub fn as_slice(&self) -> &[T] {
-        &self.data
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Arc<RwLock<Vec<T>>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_host(&queue)?;
-        let data = Arc::new(RwLock::new(data.into_vec()));
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> ArrayBase<ocl::Buffer<T>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue)?.into_buffer()?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> ArrayBase<Arc<ocl::Buffer<T>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue)?;
-        let data = data.into_buffer().map(Arc::new)?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.to_cl_buffer(&queue)?;
-        let data = data.into_buffer().map(RwLock::new).map(Arc::new)?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Buffer<T>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.read(&queue)?;
-        let data = data.into_buffer()?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Arc<Buffer<T>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.read(&queue)?;
-        let data = data.into_buffer().map(Arc::new)?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-impl<T: CDatatype> ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    /// Construct a new [`ArrayBase`] by copying the `other`.
-    pub fn copy<O: NDArrayRead<DType = T>>(other: &O) -> Result<Self, Error> {
-        let context = other.context().clone();
-        let queue = Queue::new(context.clone(), other.size())?;
-
-        let shape = other.shape().to_vec();
-        let data = other.read(&queue)?;
-        let data = data.into_buffer().map(RwLock::new).map(Arc::new)?;
-
-        Ok(Self {
-            context,
-            data,
-            shape,
-        })
-    }
-}
-
-impl<Buf: BufferInstance> NDArray for ArrayBase<Buf> {
-    type DType = Buf::DType;
-
-    fn context(&self) -> &Context {
-        &self.context
-    }
-
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Box<dyn BufferRead<DType = T>>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        Ok(self.data.read())
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Vec<T>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&self.data[..]))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        Ok(self.data[offset])
-    }
-}
-
-impl<T: CDatatype> AsBuffer for ArrayBase<Vec<T>> {
-    fn as_buffer(&self) -> BufferConverter<Self::DType> {
-        (&self.data).into()
-    }
-
-    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
-        (&mut self.data).into()
-    }
-}
-
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Vec<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-            let buffer = other.read(&queue)?;
-            self.data.write(buffer)
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        self.data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, &self.shape);
-        self.data.write_value_at(offset, value)
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Vec<T>>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&self.data[..]))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        Ok(self.data[offset])
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Vec<T>>>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        let data = RwLock::read(&self.data).expect("read buffer");
-        Ok(BufferConverter::from(data.to_vec()))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-
-        let data = RwLock::read(&self.data).expect("read buffer");
-        let offset = offset_of(coord, self.shape());
-        Ok(data[offset])
-    }
-}
-
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Vec<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-            let buffer = other.read(&queue)?;
-            let mut data = self.data.write().expect("write buffer");
-            data.write(buffer)
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        let mut data = self.data.write().expect("write buffer");
-        data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-
-        let mut data = self.data.write().expect("write buffer");
-        let offset = offset_of(coord, &self.shape);
-        data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> NDArrayRead for ArrayBase<ocl::Buffer<T>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&self.data))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> AsBuffer for ArrayBase<ocl::Buffer<T>> {
-    fn as_buffer(&self) -> BufferConverter<Self::DType> {
-        (&self.data).into()
-    }
-
-    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
-        (&mut self.data).into()
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<ocl::Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-
-            other
-                .read(&queue)
-                .and_then(|buffer| BufferWrite::write(&mut self.data, buffer))
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        self.data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, &self.shape);
-        self.data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<ocl::Buffer<T>>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&*self.data))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        let data = RwLock::read(&self.data).expect("read buffer");
-
-        let cl_queue = queue.cl_queue(data.default_queue());
-        let mut copy = ocl::Buffer::builder()
-            .queue(cl_queue)
-            .len(data.len())
-            .build()?;
-
-        data.copy(&mut copy, None, None).enq()?;
-
-        Ok(BufferConverter::from(copy))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let data = RwLock::read(&self.data).expect("read buffer");
-        let offset = offset_of(coord, self.shape());
-        data.read_value(offset)
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<ocl::Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-            let buffer = other.read(&queue)?;
-
-            let mut data = self.data.write().expect("write buffer");
-            BufferWrite::write(&mut *data, buffer)
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        let mut data = self.data.write().expect("write buffer");
-        data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let mut data = self.data.write().expect("write buffer");
-        let offset = offset_of(coord, &self.shape);
-        data.write_value_at(offset, value)
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Buffer<T>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&self.data))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-impl<T: CDatatype> AsBuffer for ArrayBase<Buffer<T>> {
-    fn as_buffer(&self) -> BufferConverter<Self::DType> {
-        (&self.data).into()
-    }
-
-    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
-        (&mut self.data).into()
-    }
-}
-
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Buffer<T>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-
-            other
-                .read(&queue)
-                .and_then(|buffer| self.data.write(buffer))
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        self.data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, &self.shape);
-        self.data.write_value_at(offset, value)
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<Buffer<T>>> {
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        Ok(BufferConverter::from(&*self.data))
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-impl<T: CDatatype> NDArrayRead for ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    #[allow(unused_variables)]
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<T>, Error> {
-        let data = RwLock::read(&self.data).expect("read buffer");
-
-        match &*data {
-            Buffer::Host(buffer) => Ok(BufferConverter::from(buffer.to_vec())),
-            #[cfg(feature = "opencl")]
-            Buffer::CL(buffer) => {
-                let cl_queue = queue.cl_queue(buffer.default_queue());
-                let mut copy = ocl::Buffer::builder()
-                    .queue(cl_queue)
-                    .len(buffer.len())
-                    .build()?;
-
-                buffer.copy(&mut copy, None, None).enq()?;
-
-                Ok(BufferConverter::from(copy))
-            }
-        }
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let data = RwLock::read(&self.data).expect("read buffer");
-        let offset = offset_of(coord, self.shape());
-        data.read_value(offset)
-    }
-}
-
-impl<'a, T: CDatatype> NDArrayWrite for ArrayBase<Arc<RwLock<Buffer<T>>>> {
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-            let buffer = other.read(&queue)?;
-            let mut data = self.data.write().expect("write buffer");
-            data.write(buffer)
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        let mut data = self.data.write().expect("write buffer");
-        data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let mut data = self.data.write().expect("write buffer");
-        let offset = offset_of(coord, &self.shape);
-        data.write_value_at(offset, value)
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> NDArrayRead for ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>
-where
-    FE: Send + Sync,
-    T: CDatatype,
-{
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        Ok(self.data.read())
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> NDArrayRead for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
-where
-    FE: Send + Sync,
-    T: CDatatype,
-{
-    fn read(&self, _queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        Ok(self.data.clone().into())
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, self.shape());
-        self.data.read_value(offset)
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> AsBuffer for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
-where
-    FE: Send + Sync,
-    T: CDatatype,
-{
-    fn as_buffer(&self) -> BufferConverter<Self::DType> {
-        (&*self.data).into()
-    }
-
-    fn as_buffer_mut(&mut self) -> BufferConverterMut<Self::DType> {
-        (&mut *self.data).into()
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<'a, FE, T> NDArrayWrite for ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>
-where
-    FE: Send + Sync,
-    T: CDatatype,
-{
-    fn write<O: NDArrayRead<DType = T>>(&mut self, other: &O) -> Result<(), Error> {
-        if self.shape == other.shape() {
-            let queue = Queue::new(self.context().clone(), self.size())?;
-
-            other
-                .read(&queue)
-                .and_then(|buffer| self.data.write(buffer))
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot write {:?} to {:?}",
-                other, self
-            )))
-        }
-    }
-
-    fn write_value(&mut self, value: T) -> Result<(), Error> {
-        self.data.write_value(value)
-    }
-
-    fn write_value_at(&mut self, coord: &[usize], value: T) -> Result<(), Error> {
-        validate_coord(self, coord)?;
-        let offset = offset_of(coord, &self.shape);
-        self.data.write_value_at(offset, value)
-    }
-}
-
-impl<Buf: BufferInstance> NDArrayTransform for ArrayBase<Buf>
-where
-    Self: NDArrayRead,
-{
-    type Broadcast = ArrayView<Self>;
-    type Expand = Self;
-    type Reshape = Self;
-    type Slice = ArraySlice<Self>;
-    type Transpose = ArrayView<Self>;
-
-    fn broadcast(self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        ArrayView::broadcast(self, shape)
-    }
-
-    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(&self, axes)?;
-
-        Ok(Self {
-            context: self.context,
-            data: self.data,
-            shape,
-        })
-    }
-
-    fn reshape(self, shape: Shape) -> Result<Self, Error> {
-        if shape.iter().product::<usize>() == self.size() {
-            Ok(Self {
-                context: self.context,
-                shape,
-                data: self.data,
-            })
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot reshape from {:?} to {:?}",
-                self.shape, shape
-            )))
-        }
-    }
-
-    fn slice(self, bounds: Vec<AxisBound>) -> Result<ArraySlice<Self>, Error> {
-        ArraySlice::new(self, bounds)
-    }
-
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<ArrayView<Self>, Error> {
-        let axes = permutation(&self, axes)?;
-
-        let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
-
-        let source_strides = strides_for(&self.shape, self.ndim());
-        let strides = axes.into_iter().map(|x| source_strides[x]).collect();
-
-        ArrayView::new(self, shape, strides)
-    }
-}
-
-macro_rules! impl_base_op {
-    ($op:ident, $name:ident) => {
-        impl<T, LB, RB> $op<ArrayBase<RB>> for ArrayBase<LB>
-        where
-            T: CDatatype,
-            LB: BufferInstance<DType = T>,
-            RB: BufferInstance<DType = T>,
-        {
-            type Output = ArrayOp<ArrayDual<T, ArrayBase<LB>, ArrayBase<RB>>>;
-
-            fn $name(self, rhs: ArrayBase<RB>) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs).expect("op");
-                ArrayOp { op, shape }
-            }
-        }
-    };
-}
-
-impl_base_op!(Add, add);
-impl_base_op!(Div, div);
-impl_base_op!(Mul, mul);
-impl_base_op!(Rem, rem);
-impl_base_op!(Sub, sub);
-
-macro_rules! impl_base_dual_op {
-    ($op:ident, $name:ident, $o:ty) => {
-        impl<T: CDatatype, Buf: BufferInstance<DType = T>, O> $op<$o> for ArrayBase<Buf>
-        where
-            $o: NDArray<DType = T>,
-        {
-            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
-
-            fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs).expect("op");
-                ArrayOp { op, shape }
-            }
-        }
-    };
-}
-
-impl_base_dual_op!(Add, add, ArrayOp<O>);
-impl_base_dual_op!(Div, div, ArrayOp<O>);
-impl_base_dual_op!(Mul, mul, ArrayOp<O>);
-impl_base_dual_op!(Rem, rem, ArrayOp<O>);
-impl_base_dual_op!(Sub, sub, ArrayOp<O>);
-
-impl_base_dual_op!(Add, add, ArraySlice<O>);
-impl_base_dual_op!(Div, div, ArraySlice<O>);
-impl_base_dual_op!(Mul, mul, ArraySlice<O>);
-impl_base_dual_op!(Rem, rem, ArraySlice<O>);
-impl_base_dual_op!(Sub, sub, ArraySlice<O>);
-
-impl_base_dual_op!(Add, add, ArrayView<O>);
-impl_base_dual_op!(Div, div, ArrayView<O>);
-impl_base_dual_op!(Mul, mul, ArrayView<O>);
-impl_base_dual_op!(Rem, rem, ArrayView<O>);
-impl_base_dual_op!(Sub, sub, ArrayView<O>);
-
-macro_rules! impl_base_scalar_op {
-    ($op:ident, $name:ident) => {
-        impl<T: CDatatype, Buf: BufferInstance<DType = T>> $op<T> for ArrayBase<Buf> {
-            type Output = ArrayOp<ArrayScalar<T, Self>>;
-
-            fn $name(self, rhs: T) -> Self::Output {
-                let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs).expect("op");
-                ArrayOp::new(shape, op)
-            }
-        }
-    };
-}
-
-impl_base_scalar_op!(Add, add);
-impl_base_scalar_op!(Div, div);
-impl_base_scalar_op!(Mul, mul);
-impl_base_scalar_op!(Rem, rem);
-impl_base_scalar_op!(Sub, sub);
-
-impl<Buf: BufferInstance> Neg for ArrayBase<Buf> {
-    type Output = ArrayOp<ArrayUnary<Buf::DType, <Buf::DType as CDatatype>::Neg, Self>>;
-
-    fn neg(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self).expect("op");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<Buf: BufferInstance> Not for ArrayBase<Buf> {
-    type Output = ArrayOp<ArrayUnary<Buf::DType, u8, Self>>;
-
-    fn not(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self).expect("op");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Arc<Vec<T>>> {
-    fn from(base: ArrayBase<Vec<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: base.data.into(),
-            shape: base.shape,
+impl<T, A: Clone, P: Clone> Clone for Array<T, A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            access: self.access.clone(),
+            platform: self.platform.clone(),
+            dtype: self.dtype,
         }
     }
 }
 
-impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Box<dyn BufferRead<DType = T>>> {
-    fn from(base: ArrayBase<Vec<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: Box::new(Arc::new(base.data)),
-            shape: base.shape,
-        }
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Buffer<T>> {
-    fn from(base: ArrayBase<Vec<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: base.data.into(),
-            shape: base.shape,
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Arc<ocl::Buffer<T>>> {
-    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: base.data.into(),
-            shape: base.shape,
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Buffer<T>> {
-    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: base.data.into(),
-            shape: base.shape,
-        }
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Vec<T>>> for ArrayBase<Arc<Buffer<T>>> {
-    fn from(base: ArrayBase<Vec<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: Arc::new(Buffer::Host(base.data)),
-            shape: base.shape,
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Arc<Buffer<T>>> {
-    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: Arc::new(Buffer::CL(base.data)),
-            shape: base.shape,
-        }
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for ArrayBase<Box<dyn BufferRead<DType = T>>> {
-    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: Box::new(Arc::new(base.data)),
-            shape: base.shape,
-        }
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Buffer<T>>> for ArrayBase<Arc<Buffer<T>>> {
-    fn from(base: ArrayBase<Buffer<T>>) -> Self {
-        ArrayBase {
-            context: base.context,
-            data: base.data.into(),
-            shape: base.shape,
-        }
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Vec<T>>> for Array<T> {
-    fn from(base: ArrayBase<Vec<T>>) -> Self {
-        Self::Base(base.into())
-    }
-}
-
-#[cfg(feature = "opencl")]
-impl<T: CDatatype> From<ArrayBase<ocl::Buffer<T>>> for Array<T> {
-    fn from(base: ArrayBase<ocl::Buffer<T>>) -> Self {
-        Self::Base(base.into())
-    }
-}
-
-macro_rules! array_from_base {
-    ($base:ty) => {
-        impl<T: CDatatype> From<$base> for Array<T> {
-            fn from(base: $base) -> Self {
-                Self::Base(ArrayBase {
-                    context: base.context,
-                    shape: base.shape,
-                    data: Box::new(base.data),
-                })
-            }
-        }
-    };
-}
-
-array_from_base!(ArrayBase<Arc<Vec<T>>>);
-#[cfg(feature = "opencl")]
-array_from_base!(ArrayBase<Arc<ocl::Buffer<T>>>);
-array_from_base!(ArrayBase<Buffer<T>>);
-array_from_base!(ArrayBase<Arc<Buffer<T>>>);
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> From<ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>> for Array<T>
-where
-    FE: Send + Sync + 'static,
-    T: CDatatype,
-{
-    fn from(base: ArrayBase<freqfs::FileReadGuardOwned<FE, Buffer<T>>>) -> Self {
-        Self::Base(ArrayBase {
-            context: base.context,
-            shape: base.shape,
-            data: Box::new(base.data),
-        })
-    }
-}
-
-#[cfg(feature = "freqfs")]
-impl<FE, T> From<ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>> for Array<T>
-where
-    FE: Send + Sync + 'static,
-    T: CDatatype,
-{
-    fn from(base: ArrayBase<freqfs::FileWriteGuardOwned<FE, Buffer<T>>>) -> Self {
-        Self::Base(ArrayBase {
-            context: base.context,
-            shape: base.shape,
-            data: Box::new(base.data),
-        })
-    }
-}
-
-impl<T: CDatatype> From<ArrayBase<Box<dyn BufferRead<DType = T>>>> for Array<T> {
-    fn from(base: ArrayBase<Box<dyn BufferRead<DType = T>>>) -> Self {
-        Self::Base(base)
-    }
-}
-
-impl<Buf: BufferInstance> fmt::Debug for ArrayBase<Buf> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} array with shape {:?}",
-            Buf::DType::TYPE_STR,
-            self.shape
-        )
-    }
-}
-
-#[derive(Clone)]
-/// An array operation
-pub struct ArrayOp<Op> {
-    op: Op,
-    shape: Shape,
-}
-
-impl<Op> ArrayOp<Op> {
-    /// Construct a new array operation.
-    pub fn new(shape: Shape, op: Op) -> Self {
-        Self { op, shape }
-    }
-}
-
-impl<Op: super::ops::Op> NDArray for ArrayOp<Op> {
-    type DType = Op::Out;
-
-    fn context(&self) -> &Context {
-        self.op.context()
-    }
-
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-}
-
-impl<Op: super::ops::Op> NDArrayRead for ArrayOp<Op> {
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<Op::Out>, Error> {
-        self.op.enqueue(queue).map(BufferConverter::from)
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        self.op.read_value(coord)
-    }
-}
-
-impl<Op: super::ops::Op> NDArrayTransform for ArrayOp<Op> {
-    type Broadcast = ArrayView<Self>;
-    type Expand = Self;
-    type Reshape = Self;
-    type Slice = ArraySlice<Self>;
-    type Transpose = ArrayView<Self>;
-
-    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
-        ArrayView::broadcast(self, shape)
-    }
-
-    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(&self, axes)?;
-        self.reshape(shape)
-    }
-
-    fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error> {
-        if shape.iter().product::<usize>() == self.size() {
-            Ok(Self { shape, op: self.op })
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot reshape {:?} into {:?} (wrong size)",
-                self, shape
-            )))
-        }
-    }
-
-    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self, bounds)
-    }
-
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(&self, axes)?;
-        let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
-        let strides = strides_for(self.shape(), self.ndim());
-        let strides = axes.into_iter().map(|x| strides[x]).collect();
-        ArrayView::new(self, shape, strides)
-    }
-}
-
-macro_rules! impl_op_dual_op {
-    ($op:ident, $name:ident, $o:ty) => {
-        impl<T: CDatatype, Op: super::ops::Op<Out = T>, O> $op<$o> for ArrayOp<Op>
-        where
-            $o: NDArray<DType = T>,
-        {
-            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
-
-            fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs).expect("op");
-                ArrayOp { op, shape }
-            }
-        }
-    };
-}
-
-impl_op_dual_op!(Add, add, ArrayBase<O>);
-impl_op_dual_op!(Div, div, ArrayBase<O>);
-impl_op_dual_op!(Mul, mul, ArrayBase<O>);
-impl_op_dual_op!(Rem, rem, ArrayBase<O>);
-impl_op_dual_op!(Sub, sub, ArrayBase<O>);
-
-impl_op_dual_op!(Add, add, ArrayOp<O>);
-impl_op_dual_op!(Div, div, ArrayOp<O>);
-impl_op_dual_op!(Mul, mul, ArrayOp<O>);
-impl_op_dual_op!(Rem, rem, ArrayOp<O>);
-impl_op_dual_op!(Sub, sub, ArrayOp<O>);
-
-impl_op_dual_op!(Add, add, ArraySlice<O>);
-impl_op_dual_op!(Div, div, ArraySlice<O>);
-impl_op_dual_op!(Mul, mul, ArraySlice<O>);
-impl_op_dual_op!(Rem, rem, ArraySlice<O>);
-impl_op_dual_op!(Sub, sub, ArraySlice<O>);
-
-impl_op_dual_op!(Add, add, ArrayView<O>);
-impl_op_dual_op!(Div, div, ArrayView<O>);
-impl_op_dual_op!(Mul, mul, ArrayView<O>);
-impl_op_dual_op!(Rem, rem, ArrayView<O>);
-impl_op_dual_op!(Sub, sub, ArrayView<O>);
-
-macro_rules! impl_op_scalar_op {
-    ($op:ident, $name:ident) => {
-        impl<T: CDatatype, Op: super::ops::Op<Out = T>> $op<T> for ArrayOp<Op> {
-            type Output = ArrayOp<ArrayScalar<Op::Out, Self>>;
-
-            fn $name(self, rhs: Op::Out) -> Self::Output {
-                let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs).expect("op");
-                ArrayOp::new(shape, op)
-            }
-        }
-    };
-}
-
-impl_op_scalar_op!(Add, add);
-impl_op_scalar_op!(Mul, mul);
-impl_op_scalar_op!(Div, div);
-impl_op_scalar_op!(Rem, rem);
-impl_op_scalar_op!(Sub, sub);
-
-impl<Op: super::ops::Op> Neg for ArrayOp<Op> {
-    type Output = ArrayOp<ArrayUnary<Op::Out, <Op::Out as CDatatype>::Neg, Self>>;
-
-    fn neg(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self).expect("op");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<Op: super::ops::Op> Not for ArrayOp<Op> {
-    type Output = ArrayOp<ArrayUnary<Op::Out, u8, Self>>;
-
-    fn not(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self).expect("op");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<Op: super::ops::Op + 'static> From<ArrayOp<Op>> for Array<Op::Out> {
-    fn from(op: ArrayOp<Op>) -> Self {
-        Self::Op(ArrayOp {
-            op: Arc::new(op.op),
-            shape: op.shape,
-        })
-    }
-}
-
-impl<Op: super::ops::Op> fmt::Debug for ArrayOp<Op> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} array result with shape {:?}",
-            Op::Out::TYPE_STR,
-            self.shape
-        )
-    }
-}
-
-#[derive(Clone)]
-/// A slice of a larger array
-pub struct ArraySlice<A> {
-    source: A,
-    bounds: Vec<AxisBound>,
-    shape: Shape,
-    strides: Vec<usize>,
-    source_strides: Vec<usize>,
-    #[cfg(feature = "opencl")]
-    kernel_read_op: ocl::Program,
-    #[cfg(feature = "opencl")]
-    kernel_write_op: ocl::Program,
-    #[cfg(feature = "opencl")]
-    kernel_write_value_op: ocl::Program,
-}
-
-impl<A: NDArray + fmt::Debug> ArraySlice<A> {
-    /// Construct a new slice with the `bounds` of the given `source` array.
-    pub fn new(source: A, mut bounds: Vec<AxisBound>) -> Result<Self, Error> {
-        if source.shape().is_empty() {
-            return Err(Error::Bounds("array shape cannot be empty".to_string()));
-        } else if bounds.len() > source.ndim() {
-            return Err(Error::Bounds(format!(
-                "shape {:?} does not support slice bounds {:?}",
-                source.shape(),
-                bounds
-            )));
-        }
-
-        for (bound, dim) in bounds.iter().zip(source.shape()) {
-            match bound {
-                AxisBound::At(i) => check_bound(i, dim, true)?,
-                AxisBound::In(start, stop, _step) => {
-                    check_bound(start, dim, false)?;
-                    check_bound(stop, dim, false)?;
-                }
-                AxisBound::Of(indices) => {
-                    for i in indices {
-                        check_bound(i, dim, true)?;
-                    }
-                }
-            }
-        }
-
-        let tail_bounds = source
-            .shape()
-            .iter()
-            .rev()
-            .take(source.ndim() - bounds.len())
-            .copied()
-            .map(|dim| AxisBound::In(0, dim, 1))
-            .rev();
-
-        bounds.extend(tail_bounds);
-
-        debug_assert_eq!(source.ndim(), bounds.len());
-
-        let shape = bounds
-            .iter()
-            .map(|bound| bound.size())
-            .filter(|size| *size > 0)
-            .collect::<Vec<usize>>();
-
-        if shape.is_empty() || shape.iter().product::<usize>() == 0 {
-            return Err(Error::Bounds(format!(
-                "cannot slice {bounds:?} from {source:?}"
-            )));
-        }
-
-        let strides = strides_for(&shape, shape.len());
-        let source_strides = strides_for(source.shape(), source.ndim());
-
-        #[cfg(feature = "opencl")]
-        let kernel_read_op = crate::cl_programs::read_slice::<A::DType>(
-            source.context(),
-            &shape,
-            &strides,
-            &bounds,
-            &source_strides,
-        )?;
-
-        #[cfg(feature = "opencl")]
-        let kernel_write_op = crate::cl_programs::write_to_slice::<A::DType>(
-            source.context(),
-            &shape,
-            &strides,
-            &bounds,
-            &source_strides,
-        )?;
-
-        #[cfg(feature = "opencl")]
-        let kernel_write_value_op = crate::cl_programs::write_value_to_slice::<A::DType>(
-            source.context(),
-            &shape,
-            &strides,
-            &bounds,
-            &source_strides,
-        )?;
-
-        Ok(Self {
-            source,
-            bounds,
-            shape,
-            strides,
-            source_strides,
-            #[cfg(feature = "opencl")]
-            kernel_read_op,
-            #[cfg(feature = "opencl")]
-            kernel_write_op,
-            #[cfg(feature = "opencl")]
-            kernel_write_value_op,
-        })
-    }
-
-    fn source_offset(
-        offset: usize,
-        strides: &[usize],
-        shape: &[usize],
-        source_strides: &[usize],
-        bounds: &[AxisBound],
-    ) -> usize {
-        debug_assert!(!shape.is_empty());
-        debug_assert_eq!(shape.len(), strides.len());
-
-        let coord = strides
-            .iter()
-            .copied()
-            .zip(shape)
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            })
-            .collect::<Vec<usize>>();
-
-        let mut offset = 0;
-        let mut x = 0;
-        for (stride, bound) in source_strides.iter().zip(bounds.iter()) {
-            let i = match bound {
-                AxisBound::At(i) => *i,
-                AxisBound::In(start, stop, step) => {
-                    let i = start + (coord[x] * step);
-                    debug_assert!(i < *stop);
-                    x += 1;
-                    i
-                }
-                AxisBound::Of(indices) => {
-                    let i = indices[coord[x]];
-                    x += 1;
-                    i
-                }
-            };
-
-            offset += i * stride;
-        }
-
-        offset
-    }
-
-    fn read_vec(&self, source: &[A::DType]) -> Result<Vec<A::DType>, Error> {
-        let output = (0..self.size())
-            .into_par_iter()
-            .map(|offset_out| {
-                let offset_in = Self::source_offset(
-                    offset_out,
-                    &self.strides,
-                    &self.shape,
-                    &self.source_strides,
-                    &self.bounds,
-                );
-
-                source[offset_in]
-            })
-            .collect();
-
-        Ok(output)
-    }
-
-    fn write_slice<Data>(
-        size: usize,
-        strides: &[usize],
-        shape: &[usize],
-        source_strides: &[usize],
-        bounds: &[AxisBound],
-        source: &mut [A::DType],
-        data: Data,
-    ) -> Result<(), Error>
+impl<T, A, P> Array<T, A, P> {
+    fn apply<O, OT, Op>(self, op: Op) -> Result<Array<OT, AccessOp<O, P>, P>, Error>
     where
-        Data: Iterator<Item = A::DType>,
+        P: Copy,
+        Op: Fn(P, A) -> Result<AccessOp<O, P>, Error>,
     {
-        for (offset, value) in (0..size).into_iter().zip(data) {
-            let source_offset = Self::source_offset(offset, strides, shape, source_strides, bounds);
-            source[source_offset] = value;
-        }
+        let access = (op)(self.platform, self.access)?;
 
-        Ok(())
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 
-    #[cfg(feature = "opencl")]
-    fn read_cl(&self, source: &ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
-        let cl_queue = source.default_queue().expect("queue").clone();
+    fn reduce_axes<Op>(
+        self,
+        mut axes: Axes,
+        keepdims: bool,
+        op: Op,
+    ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
+    where
+        T: CType,
+        A: Access<T>,
+        P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
+        Op: Fn(P, Accessor<T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
+        Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+    {
+        axes.sort();
+        axes.dedup();
 
-        let output = ocl::Buffer::builder()
-            .queue(cl_queue.clone())
-            .len(self.size())
-            .build()?;
+        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
+        let size = shape.iter().product::<usize>();
+        let stride = axes.iter().copied().map(|x| self.shape[x]).product();
+        let platform = P::select(size);
 
-        let kernel = ocl::Kernel::builder()
-            .name("read_slice")
-            .program(&self.kernel_read_op)
-            .queue(cl_queue)
-            .global_work_size(output.len())
-            .arg(source)
-            .arg(&output)
-            .build()?;
+        let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
+        let access = (op)(self.platform, access, stride)?;
 
-        unsafe { kernel.enq()? }
-
-        Ok(output)
+        Ok(Array {
+            access,
+            shape,
+            platform,
+            dtype: PhantomData,
+        })
     }
 
-    #[cfg(feature = "opencl")]
-    fn write_cl(
-        kernel_write_op: &ocl::Program,
-        source: &mut ocl::Buffer<A::DType>,
-        data: &ocl::Buffer<A::DType>,
-    ) -> Result<(), Error> {
-        let cl_queue = source.default_queue().expect("queue").clone();
-
-        let kernel = ocl::Kernel::builder()
-            .name("write_slice")
-            .program(kernel_write_op)
-            .queue(cl_queue)
-            .global_work_size(data.len())
-            .arg(source)
-            .arg(data)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        Ok(())
+    pub fn access(&self) -> &A {
+        &self.access
     }
 
-    #[cfg(feature = "opencl")]
-    fn write_cl_value(
-        kernel_write_value_op: &ocl::Program,
-        source: &mut ocl::Buffer<A::DType>,
-        value: A::DType,
-        size: usize,
-    ) -> Result<(), Error> {
-        let cl_queue = source.default_queue().expect("queue").clone();
-
-        let kernel = ocl::Kernel::builder()
-            .name("write_slice")
-            .program(&kernel_write_value_op)
-            .queue(cl_queue)
-            .global_work_size(size)
-            .arg(source)
-            .arg(value)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        Ok(())
+    pub fn into_access(self) -> A {
+        self.access
     }
 }
 
-impl<A: NDArray> NDArray for ArraySlice<A> {
-    type DType = A::DType;
+impl<T, L, P> Array<T, L, P> {
+    fn apply_dual<O, OT, R, Op>(
+        self,
+        other: Array<T, R, P>,
+        op: Op,
+    ) -> Result<Array<OT, AccessOp<O, P>, P>, Error>
+    where
+        P: Copy,
+        Op: Fn(P, L, R) -> Result<AccessOp<O, P>, Error>,
+    {
+        let access = (op)(self.platform, self.access, other.access)?;
 
-    fn context(&self) -> &Context {
-        self.source.context()
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
+}
+
+// constructors
+impl<T: CType> Array<T, Accessor<T>, Platform> {
+    pub fn from<A, P>(array: Array<T, A, P>) -> Self
+    where
+        Accessor<T>: From<A>,
+        Platform: From<P>,
+    {
+        Self {
+            shape: array.shape,
+            access: array.access.into(),
+            platform: array.platform.into(),
+            dtype: array.dtype,
+        }
+    }
+}
+
+impl<T, B, P> Array<T, AccessBuf<B>, P>
+where
+    T: CType,
+    B: BufferInstance<T>,
+    P: PlatformInstance,
+{
+    fn new_inner(platform: P, buffer: B, shape: Shape) -> Result<Self, Error> {
+        if !shape.is_empty() && shape.iter().product::<usize>() == buffer.len() {
+            let access = buffer.into();
+
+            Ok(Self {
+                shape,
+                access,
+                platform,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "cannot construct an array with shape {shape:?} from a buffer of size {}",
+                buffer.len(),
+            )))
+        }
+    }
+
+    pub fn convert<'a, FB>(buffer: FB, shape: Shape) -> Result<Self, Error>
+    where
+        FB: Into<BufferConverter<'a, T>>,
+        P: Convert<T, Buffer = B>,
+    {
+        let buffer = buffer.into();
+        let platform = P::select(buffer.len());
+        let buffer = platform.convert(buffer)?;
+        Self::new_inner(platform, buffer, shape)
+    }
+
+    pub fn new(buffer: B, shape: Shape) -> Result<Self, Error> {
+        let platform = P::select(buffer.len());
+        Self::new_inner(platform, buffer, shape)
+    }
+}
+
+impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
+where
+    T: CType,
+    P: Constant<T>,
+{
+    pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
+        if !shape.is_empty() {
+            let size = shape.iter().product();
+            let platform = P::select(size);
+            let buffer = platform.constant(value, size)?;
+            let access = buffer.into();
+
+            Ok(Self {
+                shape,
+                access,
+                platform,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(
+                "cannot construct an array with an empty shape".to_string(),
+            ))
+        }
+    }
+}
+
+impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
+where
+    T: CType,
+    P: Convert<T>,
+{
+    pub fn copy<A: Access<T>>(source: &Array<T, A, P>) -> Result<Self, Error> {
+        let buffer = source
+            .buffer()
+            .and_then(|buf| source.platform.convert(buf))?;
+
+        Ok(Self {
+            shape: source.shape.clone(),
+            access: buffer.into(),
+            platform: source.platform,
+            dtype: source.dtype,
+        })
+    }
+}
+
+// op constructors
+impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
+where
+    P: Construct<T>,
+{
+    pub fn range(start: T, stop: T, shape: Shape) -> Result<Self, Error> {
+        let size = shape.iter().product();
+        let platform = P::select(size);
+
+        platform.range(start, stop, size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<P: PlatformInstance> Array<f32, AccessOp<P::Normal, P>, P>
+where
+    P: Random,
+{
+    pub fn random_normal(size: usize) -> Result<Self, Error> {
+        let platform = P::select(size);
+        let shape = shape![size];
+
+        platform.random_normal(size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<P: PlatformInstance> Array<f32, AccessOp<P::Uniform, P>, P>
+where
+    P: Random,
+{
+    pub fn random_uniform(size: usize) -> Result<Self, Error> {
+        let platform = P::select(size);
+        let shape = shape![size];
+
+        platform.random_uniform(size).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+// references
+impl<T, B, P> Array<T, AccessBuf<B>, P>
+where
+    T: CType,
+    B: BufferInstance<T>,
+    P: PlatformInstance,
+{
+    pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuf<&mut RB>, P>
+    where
+        B: BorrowMut<RB>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: self.access.as_mut(),
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+
+    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuf<&RB>, P>
+    where
+        B: Borrow<RB>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: self.access.as_ref(),
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+}
+
+impl<T, O, P> Array<T, AccessOp<O, P>, P>
+where
+    T: CType,
+    O: Enqueue<P, T>,
+    P: PlatformInstance,
+{
+    pub fn as_mut<'a>(&'a mut self) -> Array<T, &'a mut AccessOp<O, P>, P>
+    where
+        O: Write<P, T>,
+    {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: &mut self.access,
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+
+    pub fn as_ref(&self) -> Array<T, &AccessOp<O, P>, P> {
+        Array {
+            shape: Shape::from_slice(&self.shape),
+            access: &self.access,
+            platform: self.platform,
+            dtype: PhantomData,
+        }
+    }
+}
+
+// traits
+
+/// An n-dimensional array
+pub trait NDArray: Send + Sync {
+    /// The data type of the elements in this array
+    type DType: CType;
+
+    /// The platform used to construct operations on this array.
+    type Platform: PlatformInstance;
+
+    /// Return the number of dimensions in this array.
+    fn ndim(&self) -> usize {
+        self.shape().len()
+    }
+
+    /// Return the number of elements in this array.
+    fn size(&self) -> usize {
+        self.shape().iter().product()
+    }
+
+    /// Borrow the shape of this array.
+    fn shape(&self) -> &[usize];
+}
+
+impl<T, A, P> NDArray for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: PlatformInstance,
+{
+    type DType = T;
+    type Platform = P;
 
     fn shape(&self) -> &[usize] {
         &self.shape
     }
 }
 
-impl<A: NDArrayRead> NDArrayRead for ArraySlice<A> {
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        let source_queue = Queue::new(queue.context().clone(), self.source.size())?;
+/// Access methods for an [`NDArray`]
+pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
+    /// Read the value of this [`NDArray`] into a [`BufferConverter`].
+    fn buffer(&self) -> Result<BufferConverter<Self::DType>, Error>;
 
-        match self.source.read(&source_queue)? {
-            BufferConverter::Host(source) => {
-                self.read_vec(source.as_ref()).map(BufferConverter::from)
-            }
-            #[cfg(feature = "opencl")]
-            BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
-        }
+    /// Buffer this [`NDArray`] into a new, owned array, allocating only if needed.
+    fn into_read(
+        self,
+    ) -> Result<
+        Array<
+            Self::DType,
+            AccessBuf<<Self::Platform as Convert<Self::DType>>::Buffer>,
+            Self::Platform,
+        >,
+        Error,
+    >
+    where
+        Self::Platform: Convert<Self::DType>;
+
+    /// Read the value at a specific `coord` in this [`NDArray`].
+    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error>;
+}
+
+impl<T, A, P> NDArrayRead for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: PlatformInstance,
+{
+    fn buffer(&self) -> Result<BufferConverter<T>, Error> {
+        self.access.read()
     }
 
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
+    fn into_read(self) -> Result<Array<Self::DType, AccessBuf<P::Buffer>, Self::Platform>, Error>
+    where
+        P: Convert<T>,
+    {
+        let buffer = self.buffer().and_then(|buf| self.platform.convert(buf))?;
+        debug_assert_eq!(buffer.len(), self.size());
 
-        let offset = offset_of(coord, self.shape());
-        let offset = Self::source_offset(
-            offset,
-            &self.strides,
-            &self.shape,
-            &self.source_strides,
-            &self.bounds,
-        );
+        Ok(Array {
+            shape: self.shape,
+            access: buffer.into(),
+            platform: self.platform,
+            dtype: self.dtype,
+        })
+    }
 
-        let source_coord = self
-            .source_strides
+    fn read_value(&self, coord: &[usize]) -> Result<T, Error> {
+        valid_coord(coord, self.shape())?;
+
+        let strides = strides_for(self.shape(), self.ndim());
+
+        let offset = coord
             .iter()
-            .copied()
-            .zip(self.source.shape())
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            })
-            .collect::<Vec<usize>>();
+            .zip(strides)
+            .map(|(i, stride)| i * stride)
+            .sum();
 
-        self.source.read_value(&source_coord)
+        self.access.read_value(offset)
     }
 }
 
-impl<'a, Buf: BufferWrite> NDArrayWrite for ArraySlice<ArrayBase<Buf>>
+/// Access methods for a mutable [`NDArray`]
+pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
+    /// Overwrite this [`NDArray`] with the value of the `other` array.
+    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error>;
+
+    /// Overwrite this [`NDArray`] with a constant scalar `value`.
+    fn write_value(&mut self, value: Self::DType) -> Result<(), Error>;
+
+    /// Write the given `value` at the given `coord` of this [`NDArray`].
+    fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error>;
+}
+
+// write ops
+impl<T, A, P> NDArrayWrite for Array<T, A, P>
 where
-    ArrayBase<Buf>: AsBuffer,
+    T: CType,
+    A: AccessMut<T>,
+    P: PlatformInstance,
 {
-    fn write<O: NDArrayRead<DType = Self::DType>>(&mut self, other: &O) -> Result<(), Error> {
-        let size = self.size();
-        let queue = Queue::new(self.context().clone(), size)?;
-        let that = other.read(&queue)?;
-
-        match self.source.as_buffer_mut() {
-            BufferConverterMut::Host(mut this) => {
-                let that = that.to_slice()?;
-
-                Self::write_slice(
-                    size,
-                    &self.strides,
-                    &self.shape,
-                    &self.source_strides,
-                    &self.bounds,
-                    this.as_mut(),
-                    that.as_ref().into_iter().copied(),
-                )
-            }
-            #[cfg(feature = "opencl")]
-            BufferConverterMut::CL(mut this) => {
-                let that = that.to_cl(&queue)?;
-                Self::write_cl(&self.kernel_write_op, this.as_mut(), that.as_ref())
-            }
-        }
+    fn write<O>(&mut self, other: &O) -> Result<(), Error>
+    where
+        O: NDArrayRead<DType = Self::DType>,
+    {
+        same_shape("write", self.shape(), other.shape())?;
+        other.buffer().and_then(|buf| self.access.write(buf))
     }
 
     fn write_value(&mut self, value: Self::DType) -> Result<(), Error> {
-        let size = self.size();
-
-        match self.source.as_buffer_mut() {
-            BufferConverterMut::Host(mut this) => Self::write_slice(
-                size,
-                &self.strides,
-                &self.shape,
-                &self.source_strides,
-                &self.bounds,
-                this.as_mut(),
-                iter::repeat(value).take(size),
-            ),
-            #[cfg(feature = "opencl")]
-            BufferConverterMut::CL(mut this) => {
-                Self::write_cl_value(&self.kernel_write_value_op, this.as_mut(), value, size)
-            }
-        }
+        self.access.write_value(value)
     }
 
     fn write_value_at(&mut self, coord: &[usize], value: Self::DType) -> Result<(), Error> {
-        let offset = offset_of(coord, &self.shape);
-        let source_offset = Self::source_offset(
-            offset,
-            &self.strides,
-            &self.shape,
-            &self.source_strides,
-            &self.bounds,
-        );
+        valid_coord(coord, self.shape())?;
 
-        match self.source.as_buffer_mut() {
-            BufferConverterMut::Host(mut slice) => {
-                slice.as_mut()[source_offset] = value;
-                Ok(())
-            }
-            #[cfg(feature = "opencl")]
-            BufferConverterMut::CL(mut buffer) => {
-                buffer.as_mut().write_value_at(source_offset, value)
-            }
-        }
+        let offset = coord
+            .iter()
+            .zip(strides_for(self.shape(), self.ndim()))
+            .map(|(i, stride)| i * stride)
+            .sum();
+
+        self.access.write_value_at(offset, value)
     }
 }
 
-impl<A: NDArrayRead + fmt::Debug> NDArrayTransform for ArraySlice<A> {
-    type Broadcast = ArrayView<Self>;
-    type Expand = ArrayView<Self>;
-    type Reshape = ArrayView<Self>;
-    type Slice = ArraySlice<Self>;
-    type Transpose = ArrayView<Self>;
+// op traits
 
-    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
-        ArrayView::broadcast(self, shape)
-    }
+/// Array cast operations
+pub trait NDArrayCast<OT: CType>: NDArray + Sized {
+    type Output: Access<OT>;
 
-    fn expand_dims(self, axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        let shape = expand_dims(&self, axes)?;
-        let strides = strides_for(&shape, shape.len());
-        ArrayView::new(self, shape, strides)
-    }
-
-    fn reshape(self, shape: Shape) -> Result<ArrayView<Self>, Error> {
-        if shape.iter().product::<usize>() == self.size() {
-            let strides = strides_for(&shape, shape.len());
-            ArrayView::new(self, shape, strides)
-        } else {
-            Err(Error::Bounds(format!(
-                "cannot reshape {:?} into {:?}",
-                self, shape
-            )))
-        }
-    }
-
-    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self, bounds)
-    }
-
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(&self, axes)?;
-        let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
-        let strides = axes.into_iter().map(|x| self.strides[x]).collect();
-        ArrayView::new(self, shape, strides)
-    }
+    /// Construct a new array cast operation.
+    fn cast(self) -> Result<Array<OT, Self::Output, Self::Platform>, Error>;
 }
 
-macro_rules! impl_slice_dual_op {
-    ($op:ident, $name:ident, $o:ty) => {
-        impl<T: CDatatype, A: NDArray<DType = T>, O> $op<$o> for ArraySlice<A>
-        where
-            $o: NDArray<DType = T>,
-        {
-            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
-
-            fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs).expect("op");
-                ArrayOp { op, shape }
-            }
-        }
-    };
-}
-
-impl_slice_dual_op!(Add, add, ArrayBase<O>);
-impl_slice_dual_op!(Div, div, ArrayBase<O>);
-impl_slice_dual_op!(Mul, mul, ArrayBase<O>);
-impl_slice_dual_op!(Rem, rem, ArrayBase<O>);
-impl_slice_dual_op!(Sub, sub, ArrayBase<O>);
-
-impl_slice_dual_op!(Add, add, ArrayOp<O>);
-impl_slice_dual_op!(Div, div, ArrayOp<O>);
-impl_slice_dual_op!(Mul, mul, ArrayOp<O>);
-impl_slice_dual_op!(Rem, rem, ArrayOp<O>);
-impl_slice_dual_op!(Sub, sub, ArrayOp<O>);
-
-impl_slice_dual_op!(Add, add, ArraySlice<O>);
-impl_slice_dual_op!(Div, div, ArraySlice<O>);
-impl_slice_dual_op!(Mul, mul, ArraySlice<O>);
-impl_slice_dual_op!(Rem, rem, ArraySlice<O>);
-impl_slice_dual_op!(Sub, sub, ArraySlice<O>);
-
-impl_slice_dual_op!(Add, add, ArrayView<O>);
-impl_slice_dual_op!(Div, div, ArrayView<O>);
-impl_slice_dual_op!(Mul, mul, ArrayView<O>);
-impl_slice_dual_op!(Rem, rem, ArrayView<O>);
-impl_slice_dual_op!(Sub, sub, ArrayView<O>);
-
-macro_rules! impl_slice_scalar_op {
-    ($op:ident, $name:ident) => {
-        impl<T: CDatatype, A: NDArray<DType = T>> $op<T> for ArraySlice<A> {
-            type Output = ArrayOp<ArrayScalar<T, Self>>;
-
-            fn $name(self, rhs: T) -> Self::Output {
-                let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs).expect("op");
-                ArrayOp::new(shape, op)
-            }
-        }
-    };
-}
-
-impl_slice_scalar_op!(Add, add);
-impl_slice_scalar_op!(Div, div);
-impl_slice_scalar_op!(Mul, mul);
-impl_slice_scalar_op!(Rem, rem);
-impl_slice_scalar_op!(Sub, sub);
-
-impl<T: CDatatype, A: NDArrayRead<DType = T>> Neg for ArraySlice<A> {
-    type Output = ArrayOp<ArrayUnary<T, T::Neg, Self>>;
-
-    fn neg(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self).expect("op");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<A: NDArrayRead> Not for ArraySlice<A>
+impl<IT, OT, A, P> NDArrayCast<OT> for Array<IT, A, P>
 where
-    Self: NDArray,
+    IT: CType,
+    OT: CType,
+    A: Access<IT>,
+    P: ElementwiseCast<A, IT, OT>,
 {
-    type Output = ArrayOp<ArrayUnary<<Self as NDArray>::DType, u8, Self>>;
+    type Output = AccessOp<P::Op, P>;
 
-    fn not(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self).expect("op");
-        ArrayOp::new(shape, op)
+    fn cast(self) -> Result<Array<OT, AccessOp<P::Op, P>, P>, Error> {
+        Ok(Array {
+            shape: self.shape,
+            access: self.platform.cast(self.access)?,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
     }
 }
 
-impl<T: CDatatype, A: Into<Array<T>>> From<ArraySlice<A>> for Array<T> {
-    fn from(slice: ArraySlice<A>) -> Self {
-        Self::Slice(Box::new(ArraySlice {
-            source: slice.source.into(),
-            bounds: slice.bounds,
-            shape: slice.shape,
-            strides: slice.strides,
-            source_strides: slice.source_strides,
-            #[cfg(feature = "opencl")]
-            kernel_read_op: slice.kernel_read_op,
-            #[cfg(feature = "opencl")]
-            kernel_write_op: slice.kernel_write_op,
-            #[cfg(feature = "opencl")]
-            kernel_write_value_op: slice.kernel_write_value_op,
-        }))
-    }
+/// Axis-wise array reduce operations
+pub trait NDArrayReduce: NDArray + fmt::Debug {
+    type Output: Access<Self::DType>;
+
+    /// Construct a max-reduce operation over the given `axes`.
+    fn max(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a min-reduce operation over the given `axes`.
+    fn min(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a product-reduce operation over the given `axes`.
+    fn product(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a sum-reduce operation over the given `axes`.
+    fn sum(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
-impl<A: fmt::Debug> fmt::Debug for ArraySlice<A> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "slice of {:?} with shape {:?}", self.source, self.shape)
-    }
-}
+impl<T, A, P> NDArrayReduce for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
+    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+{
+    type Output = AccessOp<P::Op, P>;
 
-#[derive(Clone)]
-/// A read-only view of a source array
-pub struct ArrayView<A> {
-    source: A,
-    shape: Shape,
-    strides: Vec<usize>,
-    #[cfg(feature = "opencl")]
-    kernel_op: ocl::Program,
-}
-
-impl<A: NDArray> ArrayView<A> {
-    fn new(source: A, shape: Shape, strides: Vec<usize>) -> Result<Self, Error> {
-        #[cfg(feature = "opencl")]
-        let kernel_op = crate::cl_programs::reorder::<A::DType>(
-            source.context(),
-            &shape,
-            &strides_for(&shape, shape.len()),
-            &strides,
-        )?;
-
-        Ok(Self {
-            source,
-            shape,
-            strides,
-            #[cfg(feature = "opencl")]
-            kernel_op,
+    fn max(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxes::max(platform, access, stride)
         })
     }
 
-    fn broadcast(source: A, shape: Shape) -> Result<Self, Error> {
-        if shape.len() < source.ndim() {
+    fn min(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxes::min(platform, access, stride)
+        })
+    }
+
+    fn product(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxes::product(platform, access, stride)
+        })
+    }
+
+    fn sum(
+        self,
+        axes: Axes,
+        keepdims: bool,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.reduce_axes(axes, keepdims, |platform, access, stride| {
+            ReduceAxes::sum(platform, access, stride)
+        })
+    }
+}
+
+/// Array transform operations
+pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
+    /// The type returned by `broadcast`
+    type Broadcast: Access<Self::DType>;
+
+    /// The type returned by `slice`
+    type Slice: Access<Self::DType>;
+
+    /// The type returned by `transpose`
+    type Transpose: Access<Self::DType>;
+
+    /// Broadcast this array into the given `shape`.
+    fn broadcast(
+        self,
+        shape: Shape,
+    ) -> Result<Array<Self::DType, Self::Broadcast, Self::Platform>, Error>;
+
+    /// Reshape this `array`.
+    fn reshape(self, shape: Shape) -> Result<Self, Error>;
+
+    /// Construct a slice of this array.
+    fn slice(self, range: Range) -> Result<Array<Self::DType, Self::Slice, Self::Platform>, Error>;
+
+    /// Contract the given `axes` of this array.
+    /// This will return an error if any of the `axes` have dimension > 1.
+    fn squeeze(self, axes: Axes) -> Result<Self, Error>;
+
+    /// Expand the given `axes` of this array.
+    fn unsqueeze(self, axes: Axes) -> Result<Self, Error>;
+
+    /// Transpose this array according to the given `permutation`.
+    /// If no permutation is given, the array axes will be reversed.
+    fn transpose(
+        self,
+        permutation: Option<Axes>,
+    ) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayTransform for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: Transform<A, T>,
+{
+    type Broadcast = AccessOp<P::Broadcast, P>;
+    type Slice = AccessOp<P::Slice, P>;
+    type Transpose = AccessOp<P::Transpose, P>;
+
+    fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error> {
+        if !can_broadcast(self.shape(), &shape) {
             return Err(Error::Bounds(format!(
-                "cannot broadcast {:?} into {:?}",
-                source.shape(),
-                shape
+                "cannot broadcast {self:?} into {shape:?}"
             )));
         }
 
-        for (dim, bdim) in source
-            .shape()
-            .iter()
-            .zip(&shape[shape.len() - source.ndim()..])
-        {
-            if dim == bdim || *dim == 1 {
-                // ok
-            } else {
-                return Err(Error::Bounds(format!(
-                    "cannot broadcast dimension {} into {}",
-                    dim, bdim
-                )));
-            }
-        }
+        let platform = P::select(shape.iter().product());
+        let broadcast = Shape::from_slice(&shape);
+        let access = platform.broadcast(self.access, self.shape, broadcast)?;
 
-        let strides = strides_for(source.shape(), shape.len());
-
-        Self::new(source, shape, strides)
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: self.dtype,
+        })
     }
 
-    fn read_vec(&self, source: &[A::DType]) -> Result<Vec<A::DType>, Error> {
-        let source_strides = &self.strides;
-        let strides = strides_for(self.shape(), self.ndim());
-        let dims = self.shape();
-        debug_assert_eq!(strides.len(), dims.len());
-
-        let buffer = (0..self.size())
-            .into_par_iter()
-            .map(|offset| {
-                strides
-                    .iter()
-                    .copied()
-                    .zip(dims.iter().copied())
-                    .map(|(stride, dim)| {
-                        if stride == 0 {
-                            0
-                        } else {
-                            (offset / stride) % dim
-                        }
-                    }) // coord
-                    .zip(source_strides.iter().copied())
-                    .map(|(i, source_stride)| i * source_stride) // source offset
-                    .sum::<usize>()
-            })
-            .map(|source_offset| source[source_offset])
-            .collect();
-
-        Ok(buffer)
-    }
-
-    #[cfg(feature = "opencl")]
-    fn read_cl(&self, source: &ocl::Buffer<A::DType>) -> Result<ocl::Buffer<A::DType>, Error> {
-        let cl_queue = source.default_queue().expect("queue").clone();
-
-        let output = ocl::Buffer::builder()
-            .queue(cl_queue.clone())
-            .len(self.size())
-            .build()?;
-
-        let kernel = ocl::Kernel::builder()
-            .name("reorder")
-            .program(&self.kernel_op)
-            .queue(cl_queue)
-            .global_work_size(output.len())
-            .arg(source)
-            .arg(&output)
-            .build()?;
-
-        unsafe { kernel.enq()? }
-
-        Ok(output)
-    }
-}
-
-impl<A: NDArray> NDArray for ArrayView<A> {
-    type DType = A::DType;
-
-    fn context(&self) -> &Context {
-        self.source.context()
-    }
-
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-}
-
-impl<A: NDArrayRead> NDArrayRead for ArrayView<A> {
-    fn read(&self, queue: &Queue) -> Result<BufferConverter<Self::DType>, Error> {
-        match self.source.read(queue)? {
-            BufferConverter::Host(source) => {
-                self.read_vec(source.as_ref()).map(BufferConverter::from)
-            }
-            #[cfg(feature = "opencl")]
-            BufferConverter::CL(source) => self.read_cl(source.as_ref()).map(BufferConverter::from),
-        }
-    }
-
-    fn read_value(&self, coord: &[usize]) -> Result<Self::DType, Error> {
-        validate_coord(self, coord)?;
-
-        let offset = offset_of(coord, self.shape());
-
-        let source_coord = self
-            .strides
-            .iter()
-            .copied()
-            .zip(self.source.shape())
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            })
-            .collect::<Vec<usize>>();
-
-        self.source.read_value(&source_coord)
-    }
-}
-
-macro_rules! impl_view_dual_op {
-    ($op:ident, $name:ident, $o:ty) => {
-        impl<T: CDatatype, A: NDArray<DType = T>, O> $op<$o> for ArrayView<A>
-        where
-            $o: NDArray<DType = T>,
-        {
-            type Output = ArrayOp<ArrayDual<T, Self, $o>>;
-
-            fn $name(self, rhs: $o) -> Self::Output {
-                let shape = self.shape().to_vec();
-                assert_eq!(shape, rhs.shape());
-
-                let op = ArrayDual::$name(self, rhs).expect("op");
-                ArrayOp { op, shape }
-            }
-        }
-    };
-}
-
-impl_view_dual_op!(Add, add, ArrayBase<O>);
-impl_view_dual_op!(Div, div, ArrayBase<O>);
-impl_view_dual_op!(Mul, mul, ArrayBase<O>);
-impl_view_dual_op!(Rem, rem, ArrayBase<O>);
-impl_view_dual_op!(Sub, sub, ArrayBase<O>);
-
-impl_view_dual_op!(Add, add, ArrayOp<O>);
-impl_view_dual_op!(Div, div, ArrayOp<O>);
-impl_view_dual_op!(Mul, mul, ArrayOp<O>);
-impl_view_dual_op!(Rem, rem, ArrayOp<O>);
-impl_view_dual_op!(Sub, sub, ArrayOp<O>);
-
-impl_view_dual_op!(Add, add, ArraySlice<O>);
-impl_view_dual_op!(Div, div, ArraySlice<O>);
-impl_view_dual_op!(Mul, mul, ArraySlice<O>);
-impl_view_dual_op!(Rem, rem, ArraySlice<O>);
-impl_view_dual_op!(Sub, sub, ArraySlice<O>);
-
-impl_view_dual_op!(Add, add, ArrayView<O>);
-impl_view_dual_op!(Div, div, ArrayView<O>);
-impl_view_dual_op!(Mul, mul, ArrayView<O>);
-impl_view_dual_op!(Rem, rem, ArrayView<O>);
-impl_view_dual_op!(Sub, sub, ArrayView<O>);
-
-macro_rules! impl_view_scalar_op {
-    ($op:ident, $name:ident) => {
-        impl<T: CDatatype, A: NDArray<DType = T>> $op<T> for ArrayView<A> {
-            type Output = ArrayOp<ArrayScalar<T, Self>>;
-
-            fn $name(self, rhs: T) -> Self::Output {
-                let shape = self.shape.to_vec();
-                let op = ArrayScalar::$name(self, rhs).expect("op");
-                ArrayOp::new(shape, op)
-            }
-        }
-    };
-}
-
-impl_view_scalar_op!(Add, add);
-impl_view_scalar_op!(Div, div);
-impl_view_scalar_op!(Mul, mul);
-impl_view_scalar_op!(Rem, rem);
-impl_view_scalar_op!(Sub, sub);
-
-impl<A: NDArrayRead> Neg for ArrayView<A> {
-    type Output = ArrayOp<ArrayUnary<A::DType, <A::DType as CDatatype>::Neg, Self>>;
-
-    fn neg(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::neg(self).expect("program");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<A: NDArrayRead> Not for ArrayView<A> {
-    type Output = ArrayOp<ArrayUnary<A::DType, u8, Self>>;
-
-    fn not(self) -> Self::Output {
-        let shape = self.shape.to_vec();
-        let op = ArrayUnary::not(self).expect("program");
-        ArrayOp::new(shape, op)
-    }
-}
-
-impl<A: NDArrayRead + fmt::Debug> NDArrayTransform for ArrayView<A> {
-    type Broadcast = Self;
-    type Expand = Self;
-    type Reshape = ArrayView<Self>;
-    type Slice = ArraySlice<Self>;
-    type Transpose = Self;
-
-    fn broadcast(self, shape: Shape) -> Result<Self::Broadcast, Error> {
-        if shape.len() < self.ndim() {
-            return Err(Error::Bounds(format!(
-                "cannot broadcast {:?} into {:?}",
-                self, shape
-            )));
-        }
-
-        let offset = shape.len() - self.ndim();
-        let mut strides = Vec::with_capacity(shape.len());
-        strides.extend(iter::repeat(0).take(offset));
-
-        for (x, (dim, stride)) in self.shape().iter().copied().zip(&self.strides).enumerate() {
-            if dim == 1 || dim == shape[offset + x] {
-                strides.push(*stride);
-            } else {
-                return Err(Error::Bounds(format!(
-                    "cannot broadcast {} into {}",
-                    dim,
-                    shape[offset + x]
-                )));
-            }
-        }
-
-        debug_assert_eq!(strides.len(), shape.len());
-
-        ArrayView::new(self.source, shape, strides)
-    }
-
-    fn expand_dims(self, mut axes: Vec<usize>) -> Result<Self::Expand, Error> {
-        axes.sort();
-
-        if axes.last().copied() > Some(self.ndim()) {
-            return Err(Error::Bounds(format!(
-                "cannot expand axes {:?} of {:?}",
-                axes, self
-            )));
-        }
-
-        let mut shape = Vec::with_capacity(self.ndim() + axes.len());
-        shape.extend_from_slice(self.shape());
-
-        let mut strides = Vec::with_capacity(self.ndim() + axes.len());
-        strides.extend_from_slice(&self.strides);
-
-        for x in axes.into_iter().rev() {
-            shape.insert(x, 1);
-            strides.insert(x, 0);
-        }
-
-        debug_assert_eq!(shape.len(), strides.len());
-
-        ArrayView::new(self.source, shape, strides)
-    }
-
-    fn reshape(self, shape: Shape) -> Result<Self::Reshape, Error> {
-        let strides = strides_for(&shape, shape.len());
-        ArrayView::new(self, shape, strides)
-    }
-
-    fn slice(self, bounds: Vec<AxisBound>) -> Result<Self::Slice, Error> {
-        ArraySlice::new(self, bounds)
-    }
-
-    fn transpose(self, axes: Option<Vec<usize>>) -> Result<Self::Transpose, Error> {
-        let axes = permutation(&self, axes)?;
-        let shape = axes.iter().copied().map(|x| self.shape[x]).collect();
-        let strides = axes.into_iter().map(|x| self.strides[x]).collect();
-        ArrayView::new(self.source, shape, strides)
-    }
-}
-
-impl<T: CDatatype, A: Into<Array<T>>> From<ArrayView<A>> for Array<T> {
-    fn from(view: ArrayView<A>) -> Self {
-        Self::View(Box::new(ArrayView {
-            source: view.source.into(),
-            shape: view.shape,
-            strides: view.strides,
-            #[cfg(feature = "opencl")]
-            kernel_op: view.kernel_op,
-        }))
-    }
-}
-
-impl<A: fmt::Debug> fmt::Debug for ArrayView<A> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "view of {:?} with shape {:?}", self.source, self.shape)
-    }
-}
-
-#[inline]
-fn check_bound(i: &usize, dim: &usize, is_index: bool) -> Result<(), Error> {
-    match i.cmp(dim) {
-        Ordering::Less => Ok(()),
-        Ordering::Equal if !is_index => Ok(()),
-        Ordering::Greater | Ordering::Equal => Err(Error::Bounds(format!(
-            "index {i} is out of bounds for dimension {dim}"
-        ))),
-    }
-}
-
-#[inline]
-fn expand_dims<A: NDArray + fmt::Debug>(source: &A, mut axes: Vec<usize>) -> Result<Shape, Error> {
-    axes.sort();
-
-    if axes.is_empty() {
-        Ok(source.shape().to_vec())
-    } else if *axes.last().expect("x") <= source.ndim() {
-        let mut shape = Vec::with_capacity(source.ndim() + axes.len());
-        shape.extend_from_slice(source.shape());
-
-        for x in axes.into_iter().rev() {
-            shape.insert(x, 1);
-        }
-
-        Ok(shape)
-    } else {
-        Err(Error::Bounds(format!(
-            "cannot expand axes {:?} of {:?}",
-            axes, source
-        )))
-    }
-}
-
-#[inline]
-fn permutation<A: NDArray + fmt::Debug>(
-    source: &A,
-    axes: Option<Vec<usize>>,
-) -> Result<Vec<usize>, Error> {
-    let ndim = source.ndim();
-
-    if let Some(axes) = axes {
-        if axes.len() == ndim
-            && axes.iter().copied().all(|x| x < ndim)
-            && (0..ndim).into_iter().all(|x| axes.contains(&x))
-        {
-            Ok(axes)
+    fn reshape(mut self, shape: Shape) -> Result<Self, Error> {
+        if shape.iter().product::<usize>() == self.size() {
+            self.shape = shape;
+            Ok(self)
         } else {
             Err(Error::Bounds(format!(
-                "invalid permutation for {:?}: {:?}",
-                source, axes
+                "cannot reshape an array with shape {:?} into {shape:?}",
+                self.shape
             )))
         }
-    } else {
-        Ok((0..ndim).into_iter().rev().collect())
+    }
+
+    fn slice(self, mut range: Range) -> Result<Array<T, AccessOp<P::Slice, P>, P>, Error> {
+        for (dim, range) in self.shape.iter().zip(&range) {
+            match range {
+                AxisRange::At(i) if i < dim => Ok(()),
+                AxisRange::In(start, stop, _step) if start < dim && stop <= dim => Ok(()),
+                AxisRange::Of(indices) if indices.iter().all(|i| i < dim) => Ok(()),
+                range => Err(Error::Bounds(format!(
+                    "invalid range {range:?} for dimension {dim}"
+                ))),
+            }?;
+        }
+
+        for dim in self.shape.iter().skip(range.len()).copied() {
+            range.push(AxisRange::In(0, dim, 1));
+        }
+
+        let shape = range_shape(self.shape(), &range);
+        let access = self.platform.slice(self.access, &self.shape, range)?;
+        let platform = P::select(shape.iter().product());
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: self.dtype,
+        })
+    }
+
+    fn squeeze(mut self, mut axes: Axes) -> Result<Self, Error> {
+        if axes.iter().copied().any(|x| x >= self.ndim()) {
+            return Err(Error::Bounds(format!("invalid contraction axes: {axes:?}")));
+        }
+
+        axes.sort();
+
+        for x in axes.into_iter().rev() {
+            self.shape.remove(x);
+        }
+
+        Ok(self)
+    }
+
+    fn unsqueeze(mut self, mut axes: Axes) -> Result<Self, Error> {
+        if axes.iter().copied().any(|x| x > self.ndim()) {
+            return Err(Error::Bounds(format!("invalid expansion axes: {axes:?}")));
+        }
+
+        axes.sort();
+
+        for x in axes.into_iter().rev() {
+            self.shape.insert(x, 1);
+        }
+
+        Ok(self)
+    }
+
+    fn transpose(
+        self,
+        permutation: Option<Axes>,
+    ) -> Result<Array<T, AccessOp<P::Transpose, P>, P>, Error> {
+        let permutation = if let Some(axes) = permutation {
+            if axes.len() == self.ndim()
+                && axes.iter().copied().all(|x| x < self.ndim())
+                && !(1..axes.len())
+                    .into_iter()
+                    .any(|i| axes[i..].contains(&axes[i - 1]))
+            {
+                Ok(axes)
+            } else {
+                Err(Error::Bounds(format!(
+                    "invalid permutation for shape {:?}: {:?}",
+                    self.shape, axes
+                )))
+            }
+        } else {
+            Ok((0..self.ndim()).into_iter().rev().collect())
+        }?;
+
+        let shape = permutation.iter().copied().map(|x| self.shape[x]).collect();
+        let platform = self.platform;
+        let access = platform.transpose(self.access, self.shape, permutation)?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: self.dtype,
+        })
+    }
+}
+
+/// Unary array operations
+pub trait NDArrayUnary: NDArray + Sized {
+    /// The return type of a unary operation.
+    type Output: Access<Self::DType>;
+
+    /// Construct an absolute value operation.
+    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an exponentiation operation.
+    fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a natural logarithm operation.
+    fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an integer rounding operation.
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayUnary for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseUnary<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.abs(access))
+    }
+
+    fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.exp(access))
+    }
+
+    fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        P: ElementwiseUnary<A, T>,
+    {
+        self.apply(|platform, access| platform.ln(access))
+    }
+
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.round(access))
+    }
+}
+
+/// Unary boolean array operations
+pub trait NDArrayUnaryBoolean: NDArray + Sized {
+    /// The return type of a unary operation.
+    type Output: Access<u8>;
+
+    /// Construct a boolean not operation.
+    fn not(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayUnaryBoolean for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseUnaryBoolean<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn not(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.not(access))
+    }
+}
+
+/// Boolean array operations
+pub trait NDArrayBoolean<O>: NDArray + Sized
+where
+    O: NDArray<DType = Self::DType>,
+{
+    type Output: Access<u8>;
+
+    /// Construct a boolean and comparison with the `other` array.
+    fn and(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a boolean or comparison with the `other` array.
+    fn or(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a boolean xor comparison with the `other` array.
+    fn xor(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, L, R, P> NDArrayBoolean<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: ElementwiseBoolean<L, R, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn and(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("and", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.and(left, right))
+    }
+
+    fn or(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("or", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.or(left, right))
+    }
+
+    fn xor(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("xor", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.xor(left, right))
+    }
+}
+
+/// Boolean array operations with a scalar argument
+pub trait NDArrayBooleanScalar: NDArray + Sized {
+    type Output: Access<u8>;
+
+    /// Construct a boolean and operation with the `other` value.
+    fn and_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a boolean or operation with the `other` value.
+    fn or_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a boolean xor operation with the `other` value.
+    fn xor_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayBooleanScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseBooleanScalar<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn and_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.and_scalar(access, other))
+    }
+
+    fn or_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.or_scalar(access, other))
+    }
+
+    fn xor_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.xor_scalar(access, other))
+    }
+}
+
+/// Array comparison operations
+pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
+    type Output: Access<u8>;
+
+    /// Elementwise equality comparison
+    fn eq(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Elementwise greater-than-or-equal comparison
+    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Elementwise greater-than comparison
+    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Elementwise less-than-or-equal comparison
+    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Elementwise less-than comparison
+    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Elementwise not-equal comparison
+    fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: ElementwiseCompare<L, R, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn eq(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.eq(left, right))
+    }
+
+    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.ge(left, right))
+    }
+
+    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.gt(left, right))
+    }
+
+    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.le(left, right))
+    }
+
+    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.lt(left, right))
+    }
+
+    fn ne(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        same_shape("compare", self.shape(), other.shape())?;
+        self.apply_dual(other, |platform, left, right| platform.ne(left, right))
+    }
+}
+
+/// Array-scalar comparison operations
+pub trait NDArrayCompareScalar: NDArray + Sized {
+    type Output: Access<u8>;
+
+    /// Construct an equality comparison with the `other` value.
+    fn eq_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a greater-than comparison with the `other` value.
+    fn gt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an equal-or-greater-than comparison with the `other` value.
+    fn ge_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a less-than comparison with the `other` value.
+    fn lt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an equal-or-less-than comparison with the `other` value.
+    fn le_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an not-equal comparison with the `other` value.
+    fn ne_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseScalarCompare<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn eq_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.eq_scalar(access, other))
+    }
+
+    fn gt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.gt_scalar(access, other))
+    }
+
+    fn ge_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.ge_scalar(access, other))
+    }
+
+    fn lt_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.lt_scalar(access, other))
+    }
+
+    fn le_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.le_scalar(access, other))
+    }
+
+    fn ne_scalar(
+        self,
+        other: Self::DType,
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.ne_scalar(access, other))
+    }
+}
+
+/// Array arithmetic operations
+pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
+    type Output: Access<Self::DType>;
+
+    /// Construct an addition operation with the given `rhs`.
+    fn add(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a division operation with the given `rhs`.
+    fn div(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a logarithm operation with the given `base`.
+    fn log(self, base: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a multiplication operation with the given `rhs`.
+    fn mul(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an operation to raise these data to the power of the given `exp`onent.
+    fn pow(self, exp: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct an array subtraction operation with the given `rhs`.
+    fn sub(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a modulo operation with the given `rhs`.
+    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: ElementwiseDual<L, R, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn add(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("add", self.shape(), rhs.shape())?;
+        self.apply_dual(rhs, |platform, left, right| platform.add(left, right))
+    }
+
+    fn div(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("div", self.shape(), rhs.shape())?;
+        self.apply_dual(rhs, |platform, left, right| platform.div(left, right))
+    }
+
+    fn log(
+        self,
+        base: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("log", self.shape(), base.shape())?;
+        self.apply_dual(base, |platform, left, right| platform.log(left, right))
+    }
+
+    fn mul(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("mul", self.shape(), rhs.shape())?;
+        self.apply_dual(rhs, |platform, left, right| platform.mul(left, right))
+    }
+
+    fn pow(
+        self,
+        exp: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("pow", self.shape(), exp.shape())?;
+        self.apply_dual(exp, |platform, left, right| platform.pow(left, right))
+    }
+
+    fn sub(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("sub", self.shape(), rhs.shape())?;
+        self.apply_dual(rhs, |platform, left, right| platform.sub(left, right))
+    }
+
+    fn rem(
+        self,
+        rhs: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        same_shape("rem", self.shape(), rhs.shape())?;
+        self.apply_dual(rhs, |platform, left, right| platform.rem(left, right))
+    }
+}
+
+/// Array arithmetic operations with a scalar argument
+pub trait NDArrayMathScalar: NDArray + Sized {
+    type Output: Access<Self::DType>;
+
+    /// Construct a scalar addition operation.
+    fn add_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar division operation.
+    fn div_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar logarithm operation.
+    fn log_scalar(
+        self,
+        base: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar multiplication operation.
+    fn mul_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar exponentiation operation.
+    fn pow_scalar(
+        self,
+        exp: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar modulo operation.
+    fn rem_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a scalar subtraction operation.
+    fn sub_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayMathScalar for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseScalar<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn add_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, left| platform.add_scalar(left, rhs))
+    }
+
+    fn div_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        if rhs != T::ZERO {
+            self.apply(|platform, left| platform.div_scalar(left, rhs))
+        } else {
+            Err(Error::Unsupported(format!(
+                "cannot divide {self:?} by {rhs}"
+            )))
+        }
+    }
+
+    fn log_scalar(
+        self,
+        base: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, arg| platform.log_scalar(arg, base))
+    }
+
+    fn mul_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, left| platform.mul_scalar(left, rhs))
+    }
+
+    fn pow_scalar(
+        self,
+        exp: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, arg| platform.pow_scalar(arg, exp))
+    }
+
+    fn rem_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, left| platform.rem_scalar(left, rhs))
+    }
+
+    fn sub_scalar(
+        self,
+        rhs: Self::DType,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, left| platform.sub_scalar(left, rhs))
+    }
+}
+
+/// Float-specific array methods
+pub trait NDArrayNumeric: NDArray + Sized
+where
+    Self::DType: Float,
+{
+    type Output: Access<u8>;
+
+    /// Test which elements of this array are infinite.
+    fn is_inf(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+
+    /// Test which elements of this array are not-a-number.
+    fn is_nan(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayNumeric for Array<T, A, P>
+where
+    T: Float,
+    A: Access<T>,
+    P: ElementwiseNumeric<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn is_inf(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.is_inf(access))
+    }
+
+    fn is_nan(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.is_nan(access))
+    }
+}
+
+/// Boolean array reduce operations
+pub trait NDArrayReduceBoolean: NDArrayRead {
+    /// Return `true` if this array contains only non-zero elements.
+    fn all(self) -> Result<bool, Error>;
+
+    /// Return `true` if this array contains any non-zero elements.
+    fn any(self) -> Result<bool, Error>;
+}
+
+impl<T, A, P> NDArrayReduceBoolean for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ReduceAll<A, T>,
+{
+    fn all(self) -> Result<bool, Error> {
+        self.platform.all(self.access)
+    }
+
+    fn any(self) -> Result<bool, Error> {
+        self.platform.any(self.access)
+    }
+}
+
+/// Array reduce operations
+pub trait NDArrayReduceAll: NDArrayRead {
+    /// Return the maximum of all elements in this array.
+    fn max_all(self) -> Result<Self::DType, Error>;
+
+    /// Return the minimum of all elements in this array.
+    fn min_all(self) -> Result<Self::DType, Error>;
+
+    /// Return the product of all elements in this array.
+    fn product_all(self) -> Result<Self::DType, Error>;
+
+    /// Return the sum of all elements in this array.
+    fn sum_all(self) -> Result<Self::DType, Error>;
+}
+
+impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ReduceAll<A, T>,
+{
+    fn max_all(self) -> Result<Self::DType, Error> {
+        self.platform.max(self.access)
+    }
+
+    fn min_all(self) -> Result<Self::DType, Error> {
+        self.platform.min(self.access)
+    }
+
+    fn product_all(self) -> Result<Self::DType, Error> {
+        self.platform.product(self.access)
+    }
+
+    fn sum_all(self) -> Result<T, Error> {
+        self.platform.sum(self.access)
+    }
+}
+
+impl<T, A, P> fmt::Debug for Array<T, A, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "a {} array of shape {:?}",
+            std::any::type_name::<T>(),
+            self.shape
+        )
+    }
+}
+
+/// Array trigonometry methods
+pub trait NDArrayTrig: NDArray + Sized {
+    type Output: Access<<Self::DType as CType>::Float>;
+
+    /// Construct a new sine operation.
+    fn sin(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new arcsine operation.
+    fn asin(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new hyperbolic sine operation.
+    fn sinh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new cos operation.
+    fn cos(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new arccosine operation.
+    fn acos(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new hyperbolic cosine operation.
+    fn cosh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new tangent operation.
+    fn tan(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new arctangent operation.
+    fn atan(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+
+    /// Construct a new hyperbolic tangent operation.
+    fn tanh(
+        self,
+    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayTrig for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ElementwiseTrig<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn sin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.sin(access))
+    }
+
+    fn asin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.asin(access))
+    }
+
+    fn sinh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.sinh(access))
+    }
+
+    fn cos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.cos(access))
+    }
+
+    fn acos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.acos(access))
+    }
+
+    fn cosh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.cosh(access))
+    }
+
+    fn tan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.tan(access))
+    }
+
+    fn atan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.atan(access))
+    }
+
+    fn tanh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.tanh(access))
+    }
+}
+
+/// Conditional selection (boolean logic) methods
+pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug
+where
+    T: CType,
+{
+    type Output: Access<T>;
+
+    /// Construct a boolean selection operation.
+    /// The resulting array will return values from `then` where `self` is `true`
+    /// and from `or_else` where `self` is `false`.
+    fn cond(self, then: L, or_else: R) -> Result<Array<T, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
+where
+    T: CType,
+    A: Access<u8>,
+    L: Access<T>,
+    R: Access<T>,
+    P: GatherCond<A, L, R, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn cond(
+        self,
+        then: Array<T, L, P>,
+        or_else: Array<T, R, P>,
+    ) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
+        same_shape("cond", self.shape(), then.shape())?;
+        same_shape("cond", self.shape(), or_else.shape())?;
+
+        let access = self
+            .platform
+            .cond(self.access, then.access, or_else.access)?;
+
+        Ok(Array {
+            shape: self.shape,
+            access,
+            platform: self.platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
+/// Matrix dual operations
+pub trait MatrixDual<O>: NDArray + fmt::Debug
+where
+    O: NDArray<DType = Self::DType> + fmt::Debug,
+{
+    type Output: Access<Self::DType>;
+
+    /// Construct an operation to multiply this matrix or batch of matrices with the `other`.
+    fn matmul(self, other: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, L, R, P> MatrixDual<Array<T, R, P>> for Array<T, L, P>
+where
+    T: CType,
+    L: Access<T>,
+    R: Access<T>,
+    P: LinAlgDual<L, R, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn matmul(
+        self,
+        other: Array<T, R, P>,
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        let dims = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
+            Error::Bounds(format!(
+                "invalid dimensions for matrix multiply: {:?} and {:?}",
+                self.shape, other.shape
+            ))
+        })?;
+
+        let mut shape = Shape::with_capacity(self.ndim());
+        shape.extend(self.shape.iter().rev().skip(2).rev().copied());
+        shape.push(dims[1]);
+        shape.push(dims[3]);
+
+        let platform = P::select(dims.iter().product());
+
+        let access = platform.matmul(self.access, other.access, dims)?;
+
+        Ok(Array {
+            shape,
+            access,
+            platform,
+            dtype: self.dtype,
+        })
+    }
+}
+
+/// Matrix unary operations
+pub trait MatrixUnary: NDArray + fmt::Debug {
+    type Diag: Access<Self::DType>;
+
+    /// Construct an operation to read the diagonal(s) of this matrix or batch of matrices.
+    /// This will return an error if the last two dimensions of the batch are unequal.
+    fn diag(self) -> Result<Array<Self::DType, Self::Diag, Self::Platform>, Error>;
+}
+
+impl<T, A, P> MatrixUnary for Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: LinAlgUnary<A, T>,
+{
+    type Diag = AccessOp<P::Op, P>;
+
+    fn diag(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
+        if self.ndim() >= 2 && self.shape.last() == self.shape.iter().nth_back(1) {
+            let batch_size = self.shape.iter().rev().skip(2).product();
+            let dim = self.shape.last().copied().expect("dim");
+
+            let shape = self.shape.iter().rev().skip(1).rev().copied().collect();
+            let platform = P::select(batch_size * dim * dim);
+            let access = platform.diag(self.access, batch_size, dim)?;
+
+            Ok(Array {
+                shape,
+                access,
+                platform,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "invalid shape for diagonal: {:?}",
+                self.shape
+            )))
+        }
     }
 }
 
 #[inline]
-fn validate_coord<A: NDArray + fmt::Debug>(array: &A, coord: &[usize]) -> Result<(), Error> {
-    if coord.len() == array.ndim() || coord.iter().zip(array.shape()).all(|(i, dim)| i < dim) {
+fn can_broadcast(left: &[usize], right: &[usize]) -> bool {
+    if left.len() < right.len() {
+        return can_broadcast(right, left);
+    }
+
+    for (l, r) in left.iter().copied().rev().zip(right.iter().copied().rev()) {
+        if l == r || l == 1 || r == 1 {
+            // pass
+        } else {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[inline]
+fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
+    let mut left = left.into_iter().copied().rev();
+    let mut right = right.into_iter().copied().rev();
+
+    let b = left.next()?;
+    let a = left.next()?;
+
+    let c = right.next()?;
+    if right.next()? != b {
+        return None;
+    }
+
+    let mut batch_size = 1;
+    loop {
+        match (left.next(), right.next()) {
+            (Some(l), Some(r)) if l == r => {
+                batch_size *= l;
+            }
+            (None, None) => break,
+            _ => return None,
+        }
+    }
+
+    Some([batch_size, a, b, c])
+}
+
+#[inline]
+fn permute_for_reduce<T, A, P>(
+    platform: P,
+    access: A,
+    shape: Shape,
+    axes: Axes,
+) -> Result<Accessor<T>, Error>
+where
+    T: CType,
+    A: Access<T>,
+    P: Transform<A, T>,
+    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+{
+    let mut permutation = Axes::with_capacity(shape.len());
+    permutation.extend((0..shape.len()).into_iter().filter(|x| !axes.contains(x)));
+    permutation.extend(axes);
+
+    if permutation.iter().copied().enumerate().all(|(i, x)| i == x) {
+        Ok(Accessor::from(access))
+    } else {
+        platform
+            .transpose(access, shape, permutation)
+            .map(Accessor::from)
+    }
+}
+
+#[inline]
+fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape, Error> {
+    let mut shape = Shape::from_slice(shape);
+
+    for x in axes.iter().copied().rev() {
+        if x >= shape.len() {
+            return Err(Error::Bounds(format!(
+                "axis {x} is out of bounds for {shape:?}"
+            )));
+        } else if keepdims {
+            shape[x] = 1;
+        } else {
+            shape.remove(x);
+        }
+    }
+
+    if shape.is_empty() {
+        Ok(shape![1])
+    } else {
+        Ok(shape)
+    }
+}
+
+#[inline]
+fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<(), Error> {
+    if left == right {
         Ok(())
+    } else if can_broadcast(left, right) {
+        Err(Error::Bounds(format!(
+            "cannot {op_name} arrays with shapes {left:?} and {right:?} (consider broadcasting)"
+        )))
     } else {
         Err(Error::Bounds(format!(
-            "invalid coordinate for {:?}: {:?}",
-            array, coord
+            "cannot {op_name} arrays with shapes {left:?} and {right:?}"
         )))
     }
+}
+
+#[inline]
+fn valid_coord(coord: &[usize], shape: &[usize]) -> Result<(), Error> {
+    if coord.len() == shape.len() {
+        if coord.iter().zip(shape).all(|(i, dim)| i < dim) {
+            return Ok(());
+        }
+    }
+
+    Err(Error::Bounds(format!(
+        "invalid coordinate {coord:?} for shape {shape:?}"
+    )))
 }
