@@ -465,6 +465,107 @@ where
     }
 }
 
+pub struct Flip<A, T> {
+    source: A,
+    shape: Shape,
+    strides: Strides,
+    axis: usize,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T> Flip<A, T> {
+    pub fn new(source: A, shape: Shape, axis: usize) -> Result<Self, Error> {
+        if axis < shape.len() {
+            let strides = strides_for(&shape, shape.len()).collect();
+
+            Ok(Self {
+                source,
+                shape,
+                strides,
+                axis,
+                dtype: PhantomData,
+            })
+        } else {
+            Err(Error::Bounds(format!(
+                "shape {:?} has no axis {}",
+                shape, axis
+            )))
+        }
+    }
+}
+
+impl<A, T> Op for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        self.source.size()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Flip<A, T> {
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        (0..self.size())
+            .into_par_iter()
+            .map(|offset| self.read_value(offset))
+            .collect()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Flip<A, T> {
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        (0..self.size())
+            .into_iter()
+            .map(|offset| self.read_value(offset))
+            .collect()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Host, T> for Flip<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
+    }
+}
+
+impl<A, T> ReadValue<Host, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        debug_assert!(offset < self.size());
+
+        let offset = self
+            .strides
+            .iter()
+            .copied()
+            .zip(self.shape.iter().copied())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            }) // coord
+            .zip(self.strides.iter().copied())
+            .enumerate()
+            .map(|(x, (i, source_stride))| {
+                let i = if x == self.axis { self.shape[x] - i - 1 } else { i };
+                i * source_stride
+            })
+            .sum::<usize>();
+
+        self.source.read_value(offset)
+    }
+}
+
 pub struct Linear<T> {
     start: T,
     step: f64,

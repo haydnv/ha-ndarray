@@ -609,6 +609,7 @@ where
     T: CType,
 {
     type Broadcast = View<A, T>;
+    type Flip = Flip<A, T>;
     type Slice = Slice<A, T>;
     type Transpose = View<A, T>;
 
@@ -619,6 +620,15 @@ where
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         Ok(View::broadcast(access, shape, broadcast).into())
+    }
+
+    fn flip(
+        self,
+        access: A,
+        shape: Shape,
+        axis: usize,
+    ) -> Result<AccessOp<Self::Flip, Self>, Error> {
+        Flip::new(access, shape, axis).map(AccessOp::from)
     }
 
     fn slice(

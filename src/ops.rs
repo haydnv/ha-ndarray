@@ -321,6 +321,7 @@ pub trait ReduceAxes<A: Access<T>, T: CType>: PlatformInstance {
 
 pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
     type Broadcast: ReadOp<Self, T>;
+    type Flip: ReadOp<Self, T>;
     type Slice: ReadOp<Self, T>;
     type Transpose: ReadOp<Self, T>;
 
@@ -330,6 +331,13 @@ pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
         shape: Shape,
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error>;
+
+    fn flip(
+        self,
+        access: A,
+        shape: Shape,
+        axis: usize,
+    ) -> Result<AccessOp<Self::Flip, Self>, Error>;
 
     fn slice(
         self,
@@ -496,6 +504,42 @@ impl<L, R, IT, OT> From<opencl::ops::Dual<L, R, IT, OT>> for Dual<L, R, IT, OT> 
 impl<L, R, IT, OT> From<host::ops::Dual<L, R, IT, OT>> for Dual<L, R, IT, OT> {
     fn from(op: host::ops::Dual<L, R, IT, OT>) -> Self {
         Self::Host(op)
+    }
+}
+
+pub enum Flip<A, T> {
+    Host(host::ops::Flip<A, T>),
+}
+
+impl<A, T> From<host::ops::Flip<A, T>> for Flip<A, T> {
+    fn from(op: host::ops::Flip<A, T>) -> Self {
+        Self::Host(op)
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for Flip<A, T> {
+    fn size(&self) -> usize {
+        match self {
+            Self::Host(op) => op.size(),
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<Platform, T> for Flip<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match self {
+            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
+        }
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<Platform, T> for Flip<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        match self {
+            Self::Host(op) => op.read_value(offset),
+        }
     }
 }
 
