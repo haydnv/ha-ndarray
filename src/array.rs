@@ -615,9 +615,9 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
 
     /// Transpose this array according to the given `permutation`.
     /// If no permutation is given, the array axes will be reversed.
-    fn transpose(
+    fn transpose<P: Into<Option<Axes>>>(
         self,
-        permutation: Option<Axes>,
+        permutation: P,
     ) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error>;
 }
 
@@ -731,11 +731,11 @@ where
         Ok(self)
     }
 
-    fn transpose(
+    fn transpose<PA: Into<Option<Axes>>>(
         self,
-        permutation: Option<Axes>,
+        permutation: PA,
     ) -> Result<Array<T, AccessOp<P::Transpose, P>, P>, Error> {
-        let permutation = if let Some(axes) = permutation {
+        let permutation = if let Some(axes) = permutation.into() {
             if axes.len() == self.ndim()
                 && axes.iter().copied().all(|x| x < self.ndim())
                 && !(1..axes.len())
