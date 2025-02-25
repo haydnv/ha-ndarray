@@ -128,6 +128,29 @@ impl<T: Number + PartialOrd> Construct<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for Platform {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for Platform {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.abs(access).map(AccessOp::wrap),
+            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
 where
     L: Access<T>,
@@ -587,7 +610,10 @@ where
         }
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => cl.rem(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.rem(left, right).map(AccessOp::wrap),
@@ -691,7 +717,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Platform {
         }
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => cl.rem_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.rem_scalar(left, right).map(AccessOp::wrap),
@@ -873,12 +902,6 @@ impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Platform {
 impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        match self {
-            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
-        }
-    }
-
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::Host(host) => host.exp(access).map(AccessOp::wrap),
@@ -905,13 +928,6 @@ impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
 impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        match self {
-            Self::CL(cl) => cl.abs(access).map(AccessOp::wrap),
-            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
-        }
-    }
-
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
             Self::CL(cl) => cl.exp(access).map(AccessOp::wrap),
@@ -926,7 +942,10 @@ impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
         }
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => cl.round(access).map(AccessOp::wrap),
             Self::Host(host) => host.round(access).map(AccessOp::wrap),
@@ -1171,14 +1190,20 @@ where
         }
     }
 
-    fn max(self, access: A) -> Result<T, Error> where T: Real {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => ReduceAll::max(cl, access),
             Self::Host(host) => ReduceAll::max(host, access),
         }
     }
 
-    fn min(self, access: A) -> Result<T, Error> where T: Real {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => ReduceAll::min(cl, access),
             Self::Host(host) => ReduceAll::min(host, access),
@@ -1239,14 +1264,20 @@ impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Platform {
 impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Platform {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => ReduceAxes::max(cl, access, stride).map(AccessOp::wrap),
             Self::Host(host) => ReduceAxes::max(host, access, stride).map(AccessOp::wrap),
         }
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::CL(cl) => ReduceAxes::min(cl, access, stride).map(AccessOp::wrap),
             Self::Host(host) => ReduceAxes::min(host, access, stride).map(AccessOp::wrap),

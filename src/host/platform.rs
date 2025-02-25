@@ -6,10 +6,10 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
-    Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
-    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual,
-    LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+    Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast,
+    ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
+    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
+    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Real, Shape};
@@ -260,6 +260,14 @@ where
 
     fn cond(self, cond: A, then: L, or_else: R) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Cond::new(cond, then, or_else).into())
+    }
+}
+
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for Host {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::abs(access).into())
     }
 }
 
@@ -530,10 +538,6 @@ impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Host {
 
 impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Host {
     type Op = Unary<A, T, T>;
-
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(Unary::abs(access).into())
-    }
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::exp(access).into())

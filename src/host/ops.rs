@@ -1544,13 +1544,6 @@ pub struct Unary<A, IT, OT> {
 }
 
 impl<A: Access<T>, T: Number> Unary<A, T, T> {
-    pub fn abs(access: A) -> Self {
-        Self {
-            access,
-            op: Number::abs,
-        }
-    }
-
     pub fn exp(access: A) -> Self {
         Self {
             access,
@@ -1562,6 +1555,15 @@ impl<A: Access<T>, T: Number> Unary<A, T, T> {
         Self {
             access,
             op: |n| T::from_float(n.to_float().ln()),
+        }
+    }
+}
+
+impl<A: Access<T>, T: Number> Unary<A, T, T::Abs> {
+    pub fn abs(access: A) -> Self {
+        Self {
+            access,
+            op: Number::abs,
         }
     }
 }

@@ -359,6 +359,30 @@ where
     }
 }
 
+/// Array absolute value
+pub trait NDArrayAbs: NDArray + Sized {
+    /// The return type of the absolute value operation
+    type Output: Access<<Self::DType as Number>::Abs>;
+
+    /// Construct an absolute value operation.
+    fn abs(
+        self,
+    ) -> Result<Array<<Self::DType as Number>::Abs, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayAbs for Array<T, A, P>
+where
+    T: Number,
+    A: Access<T>,
+    P: ElementwiseAbs<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn abs(self) -> Result<Array<T::Abs, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.abs(access))
+    }
+}
+
 /// Access methods for an [`NDArray`]
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     /// Read the value of this [`NDArray`] into a [`BufferConverter`].
@@ -781,9 +805,6 @@ pub trait NDArrayUnary: NDArray + Sized {
     /// The return type of a unary operation.
     type Output: Access<Self::DType>;
 
-    /// Construct an absolute value operation.
-    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
-
     /// Construct an exponentiation operation.
     fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
@@ -803,10 +824,6 @@ where
     P: ElementwiseUnary<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
-
-    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        self.apply(|platform, access| platform.abs(access))
-    }
 
     fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.exp(access))

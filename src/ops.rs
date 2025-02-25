@@ -73,6 +73,16 @@ pub trait Construct<T: Number>: PlatformInstance {
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;
 }
 
+pub trait ElementwiseAbs<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Op: ReadOp<Self, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
 pub trait ElementwiseBoolean<L, R, T>: PlatformInstance {
     type Op: ReadOp<Self, u8>;
 
@@ -245,8 +255,6 @@ where
     T: Number,
 {
     type Op: ReadOp<Self, T>;
-
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 

@@ -8,12 +8,7 @@ use smallvec::SmallVec;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{
-    Construct, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare,
-    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare,
-    ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual,
-    LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
-};
+use crate::ops::{Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform};
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
@@ -295,6 +290,14 @@ where
     }
 }
 
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for OpenCL {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::abs(access).map(AccessOp::from)
+    }
+}
+
 impl<T, L, R> ElementwiseBoolean<L, R, T> for OpenCL
 where
     T: Number,
@@ -453,7 +456,10 @@ where
         Dual::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::rem(left, right).map(AccessOp::from)
     }
 
@@ -485,7 +491,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for OpenCL {
         Scalar::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::rem(left, right).map(AccessOp::from)
     }
 
@@ -549,10 +558,6 @@ impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for OpenCL {
 impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for OpenCL {
     type Op = Unary<A, T, T>;
 
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Unary::abs(access).map(AccessOp::from)
-    }
-
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::exp(access).map(AccessOp::from)
     }
@@ -561,7 +566,10 @@ impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for OpenCL {
         Unary::ln(access).map(AccessOp::from)
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Unary::round(access).map(AccessOp::from)
     }
 }
@@ -631,7 +639,10 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         Ok(result.into_par_iter().map(T::from_cl).any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> where T: Real {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         let input = access.read()?.to_cl()?;
         let result = reduce_all::<T>(&*input, "max", T::MIN.to_cl())?;
         Ok(result
@@ -640,7 +651,10 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
             .reduce(|| T::MIN, T::max))
     }
 
-    fn min(self, access: A) -> Result<T, Error> where T: Real {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         let input = access.read()?.to_cl()?;
         let result = reduce_all::<T>(&*input, "min", T::MAX.to_cl())?;
         Ok(result
@@ -671,11 +685,17 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
 impl<A: Access<T>, T: Number> ReduceAxes<A, T> for OpenCL {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Reduce::max(access, stride).map(AccessOp::from)
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Reduce::min(access, stride).map(AccessOp::from)
     }
 

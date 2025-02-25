@@ -8,7 +8,9 @@ use ocl::{Buffer, Kernel, Program, Queue};
 
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Real, Shape, Strides};
+use crate::{
+    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Real, Shape, Strides,
+};
 
 use super::platform::OpenCL;
 use super::{programs, TILE_SIZE, WG_SIZE};
@@ -992,7 +994,6 @@ impl<A, T: Number> Reduce<A, T> {
     }
 }
 
-
 impl<A, T: Real> Reduce<A, T> {
     pub fn max(access: A, stride: usize) -> Result<Self, Error> {
         Self::new(
@@ -1118,7 +1119,6 @@ impl<A, T: Number> Scalar<A, T, T> {
         Self::new(access, scalar, "sub", T::sub)
     }
 }
-
 
 impl<A, T: Real> Scalar<A, T, T> {
     pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
@@ -1423,10 +1423,6 @@ impl<A, IT: Number, OT: Number> Unary<A, IT, OT> {
 }
 
 impl<A, T: Number> Unary<A, T, T> {
-    pub fn abs(access: A) -> Result<Self, Error> {
-        Self::new(access, "abs", |n| T::from_float(n.to_float().ln()))
-    }
-
     pub fn exp(access: A) -> Result<Self, Error> {
         Self::new(access, "exp", |n| T::from_float(n.to_float().ln()))
     }
@@ -1437,6 +1433,12 @@ impl<A, T: Number> Unary<A, T, T> {
 
     pub fn round(access: A) -> Result<Self, Error> {
         Self::new(access, "round", |n| T::from_float(n.to_float().ln()))
+    }
+}
+
+impl<A, T: Number> Unary<A, T, T::Abs> {
+    pub fn abs(access: A) -> Result<Self, Error> {
+        Self::new(access, "abs", Number::abs)
     }
 }
 

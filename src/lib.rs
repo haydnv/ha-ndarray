@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
+#[cfg(feature = "complex")]
+use num_complex::Complex;
 use number_general as ng;
 use safecast::CastFrom;
 
@@ -15,10 +17,10 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixDual, MatrixUnary, NDArray, NDArrayBoolean, NDArrayBooleanScalar, NDArrayCast,
-    NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar, NDArrayNumeric,
-    NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform,
-    NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
+    MatrixDual, MatrixUnary, NDArray, NDArrayAbs, NDArrayBoolean, NDArrayBooleanScalar,
+    NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar,
+    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean,
+    NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
 };
 pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
 pub use host::StackVec;
@@ -32,6 +34,10 @@ pub mod host;
 pub mod opencl;
 pub mod ops;
 mod platform;
+
+fn id<T>(this: T) -> T {
+    this
+}
 
 pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {
     #[cfg(feature = "opencl")]
@@ -48,6 +54,14 @@ macro_rules! cl_type {
             const TYPE: &'static str = $str;
         }
     };
+}
+
+#[cfg(feature = "complex")]
+impl CLType for Complex<f32> {
+    #[cfg(feature = "opencl")]
+    type CType = Self;
+
+    const TYPE: &'static str = "float2";
 }
 
 cl_type!(f32, Self, "float");
@@ -72,6 +86,9 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
     /// Whether this is a floating-point data type.
     const IS_FLOAT: bool;
 
+    /// The absolute value type of this [`Number`].
+    type Abs: Number;
+
     /// The floating-point type used to represent this type in floating-point-only operations.
     type Float: Float;
 
@@ -87,7 +104,7 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
     // arithmetic
 
     /// Construct an instance of this type from a [`f64`].
-    fn abs(self) -> Self;
+    fn abs(self) -> Self::Abs;
 
     /// Add two instances of this type.
     fn add(self, other: Self) -> Self;
@@ -115,13 +132,15 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 }
 
 macro_rules! number {
-    ($t:ty, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
+    ($t:ty, $is_float:expr, $abs_t:ty, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
         impl Number for $t {
             const ONE: Self = $one;
 
             const ZERO: Self = $zero;
 
             const IS_FLOAT: bool = $is_float;
+
+            type Abs = $abs_t;
 
             type Float = $float;
 
@@ -134,7 +153,7 @@ macro_rules! number {
                 float as $t
             }
 
-            fn abs(self) -> Self {
+            fn abs(self) -> Self::Abs {
                 $abs(self)
             }
 
@@ -170,9 +189,26 @@ macro_rules! number {
     };
 }
 
+#[cfg(feature = "complex")]
+number!(
+    Complex<f32>,
+    true,
+    f32,
+    Complex::new(1., 0.),
+    Complex::new(0., 0.),
+    Self,
+    Complex::<f32>::norm,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Complex::powc
+);
+
 number!(
     f32,
     true,
+    Self,
     1.,
     0.,
     Self,
@@ -187,6 +223,7 @@ number!(
 number!(
     f64,
     true,
+    Self,
     1.,
     0.,
     Self,
@@ -201,6 +238,7 @@ number!(
 number!(
     i8,
     false,
+    Self,
     1,
     0,
     f32,
@@ -215,6 +253,7 @@ number!(
 number!(
     i16,
     false,
+    Self,
     1,
     0,
     f32,
@@ -229,6 +268,7 @@ number!(
 number!(
     i32,
     false,
+    Self,
     1,
     0,
     f32,
@@ -243,6 +283,7 @@ number!(
 number!(
     i64,
     false,
+    Self,
     1,
     0,
     f64,
@@ -260,6 +301,7 @@ number!(
 number!(
     u8,
     false,
+    Self,
     1,
     0,
     f32,
@@ -274,6 +316,7 @@ number!(
 number!(
     u16,
     false,
+    Self,
     1,
     0,
     f32,
@@ -288,6 +331,7 @@ number!(
 number!(
     u32,
     false,
+    Self,
     1,
     0,
     f32,
@@ -302,6 +346,7 @@ number!(
 number!(
     u64,
     false,
+    Self,
     1,
     0,
     f64,
@@ -377,10 +422,6 @@ real!(u16, Self::wrapping_rem, Ord::cmp, id);
 real!(u32, Self::wrapping_rem, Ord::cmp, id);
 real!(u64, Self::wrapping_rem, Ord::cmp, id);
 
-fn id<T>(this: T) -> T {
-    this
-}
-
 /// A floating-point [`Number`]
 pub trait Float: Number<Float = Self> {
     // numeric methods
@@ -430,14 +471,14 @@ pub trait Float: Number<Float = Self> {
 }
 
 macro_rules! float_type {
-    ($t:ty) => {
+    ($t:ty, $inf:expr, $nan:expr) => {
         impl Float for $t {
             fn is_inf(self) -> bool {
-                <$t>::is_infinite(self)
+                $inf(self)
             }
 
             fn is_nan(self) -> bool {
-                <$t>::is_nan(self)
+                $nan(self)
             }
 
             fn exp(self) -> Self {
@@ -449,7 +490,7 @@ macro_rules! float_type {
             }
 
             fn log(self, base: Self) -> Self {
-                <$t>::log(self, base)
+                self.ln() / base.ln()
             }
 
             fn sin(self) -> Self {
@@ -491,8 +532,12 @@ macro_rules! float_type {
     };
 }
 
-float_type!(f32);
-float_type!(f64);
+#[cfg(feature = "complex")]
+float_type!(Complex::<f32>, |_| false, |_| false);
+#[cfg(feature = "complex")]
+float_type!(Complex::<f64>, |_| false, |_| false);
+float_type!(f32, f32::is_infinite, f32::is_nan);
+float_type!(f64, f64::is_infinite, f64::is_nan);
 
 /// An array math error
 pub enum Error {
