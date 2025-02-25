@@ -30,173 +30,118 @@ pub mod opencl;
 pub mod ops;
 mod platform;
 
-/// A numeric type supported by ha-ndarray
-#[cfg(feature = "opencl")]
-pub trait CType:
-    ocl::OclPrm + PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
-{
-    // type information
+pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {
+    #[cfg(feature = "opencl")]
+    type CType: ocl::OclPrm;
 
-    /// The C-language type name of this data type.
     const TYPE: &'static str;
-
-    /// The maximum value of this data type.
-    const MAX: Self;
-
-    /// The minimum value of this data type.
-    const MIN: Self;
-
-    /// The zero value of this data type.
-    const ZERO: Self;
-
-    /// The one value of this data type.
-    const ONE: Self;
-
-    /// Whether this is a floating-point data type.
-    const IS_FLOAT: bool;
-
-    /// The floating-point type used to represent this type in floating-point-only operations.
-    type Float: Float;
-
-    // constructors
-
-    /// Construct an instance of this type from a [`f64`].
-    fn from_f64(float: f64) -> Self;
-
-    /// Construct an instance of this type from an instance of its floating-point type.
-    fn from_float(float: Self::Float) -> Self;
-
-    // arithmetic
-
-    /// Construct an instance of this type from a [`f64`].
-    fn abs(self) -> Self;
-
-    /// Add two instances of this type.
-    fn add(self, other: Self) -> Self;
-
-    /// Divide two instances of this type.
-    fn div(self, other: Self) -> Self;
-
-    /// Multiply two instances of this type.
-    fn mul(self, other: Self) -> Self;
-
-    /// Subtract two instances of this type.
-    fn sub(self, other: Self) -> Self;
-
-    /// Compute the remainder of `self.div(other)`.
-    fn rem(self, other: Self) -> Self;
-
-    // comparisons
-
-    /// Return the minimum of two values of this type.
-    fn min(l: Self, r: Self) -> Self;
-
-    /// Return the maximum of two values of this type.
-    fn max(l: Self, r: Self) -> Self;
-
-    // logarithms
-
-    /// Raise this value to the power of the given `exp`onent.
-    fn pow(self, exp: Self) -> Self;
-
-    // conversions
-
-    /// Round this value to the nearest integer.
-    fn round(self) -> Self;
-
-    /// Return the minimum of two values of this type.
-    fn to_f64(self) -> f64;
-
-    /// Convert this value to a floating-point value.
-    fn to_float(self) -> Self::Float;
 }
 
-/// A numeric type supported by ha-ndarray
-#[cfg(not(feature = "opencl"))]
-pub trait CType:
-    PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
-{
-    // type information
-
-    /// The C-language type name of this data type.
-    const TYPE: &'static str;
-
-    /// The maximum value of this data type.
-    const MAX: Self;
-
-    /// The minimum value of this data type.
-    const MIN: Self;
-
-    /// The zero value of this data type.
-    const ZERO: Self;
-
-    /// The one value of this data type.
-    const ONE: Self;
-
-    /// Whether this is a floating-point data type.
-    const IS_FLOAT: bool;
-
-    /// The floating-point type used to represent this type in floating-point-only operations.
-    type Float: Float;
-
-    // constructors
-
-    /// Construct an instance of this type from a [`f64`].
-    fn from_f64(float: f64) -> Self;
-
-    /// Construct an instance of this type from an instance of its floating-point type.
-    fn from_float(float: Self::Float) -> Self;
-
-    // arithmetic
-
-    /// Construct an instance of this type from a [`f64`].
-    fn abs(self) -> Self;
-
-    /// Add two instances of this type.
-    fn add(self, other: Self) -> Self;
-
-    /// Divide two instances of this type.
-    fn div(self, other: Self) -> Self;
-
-    /// Multiply two instances of this type.
-    fn mul(self, other: Self) -> Self;
-
-    /// Subtract two instances of this type.
-    fn sub(self, other: Self) -> Self;
-
-    /// Compute the remainder of `self.div(other)`.
-    fn rem(self, other: Self) -> Self;
-
-    // comparisons
-
-    /// Return the minimum of two values of this type.
-    fn min(l: Self, r: Self) -> Self;
-
-    /// Return the maximum of two values of this type.
-    fn max(l: Self, r: Self) -> Self;
-
-    // logarithms
-
-    /// Raise this value to the power of the given `exp`onent.
-    fn pow(self, exp: Self) -> Self;
-
-    // conversions
-
-    /// Round this value to the nearest integer.
-    fn round(self) -> Self;
-
-    /// Return the minimum of two values of this type.
-    fn to_f64(self) -> f64;
-
-    /// Convert this value to a floating-point value.
-    fn to_float(self) -> Self::Float;
-}
-
-macro_rules! c_type {
-    ($t:ty, $str:expr, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $rem:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
-        impl CType for $t {
+macro_rules! cl_type {
+    ($t:ty, $ct:ty, $str:expr) => {
+        impl CLType for $t {
+            #[cfg(feature = "opencl")]
+            type CType = $ct;
             const TYPE: &'static str = $str;
+        }
+    };
+}
 
+cl_type!(f32, Self, "float");
+cl_type!(f64, Self, "double");
+cl_type!(i8, Self, "char");
+cl_type!(i16, Self, "short");
+cl_type!(i32, Self, "int");
+cl_type!(i64, Self, "long");
+cl_type!(u8, Self, "uchar");
+cl_type!(u16, Self, "ushort");
+cl_type!(u32, Self, "uint");
+cl_type!(u64, Self, "ulong");
+
+/// A numeric type supported by ha-ndarray
+pub trait Number: CLType + Default {
+    /// The maximum value of this data type.
+    const MAX: Self;
+
+    /// The minimum value of this data type.
+    const MIN: Self;
+
+    /// The zero value of this data type.
+    const ZERO: Self;
+
+    /// The one value of this data type.
+    const ONE: Self;
+
+    /// Whether this is a floating-point data type.
+    const IS_FLOAT: bool;
+
+    /// The floating-point type used to represent this type in floating-point-only operations.
+    type Float: Float;
+
+    // constructors
+
+    /// Construct an instance of this type from its OpenCL type
+    #[cfg(feature = "opencl")]
+    fn from_cl(value: Self::CType) -> Self;
+
+    /// Construct an instance of this type from a [`f64`].
+    fn from_f64(float: f64) -> Self;
+
+    /// Construct an instance of this type from an instance of its floating-point type.
+    fn from_float(float: Self::Float) -> Self;
+
+    // arithmetic
+
+    /// Construct an instance of this type from a [`f64`].
+    fn abs(self) -> Self;
+
+    /// Add two instances of this type.
+    fn add(self, other: Self) -> Self;
+
+    /// Divide two instances of this type.
+    fn div(self, other: Self) -> Self;
+
+    /// Multiply two instances of this type.
+    fn mul(self, other: Self) -> Self;
+
+    /// Subtract two instances of this type.
+    fn sub(self, other: Self) -> Self;
+
+    /// Compute the remainder of `self.div(other)`.
+    fn rem(self, other: Self) -> Self;
+
+    // comparisons
+
+    /// Return the minimum of two values of this type.
+    fn min(l: Self, r: Self) -> Self;
+
+    /// Return the maximum of two values of this type.
+    fn max(l: Self, r: Self) -> Self;
+
+    // logarithms
+
+    /// Raise this value to the power of the given `exp`onent.
+    fn pow(self, exp: Self) -> Self;
+
+    // conversions
+
+    /// Round this value to the nearest integer.
+    fn round(self) -> Self;
+
+    /// Return this value as an instance of its OpenCL type.
+    #[cfg(feature = "opencl")]
+    fn to_cl(&self) -> Self::CType;
+
+    /// Return the minimum of two values of this type.
+    fn to_f64(self) -> f64;
+
+    /// Convert this value to a floating-point value.
+    fn to_float(self) -> Self::Float;
+}
+
+macro_rules! number {
+    ($t:ty, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $rem:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
+        impl Number for $t {
             const MAX: Self = <$t>::MAX;
 
             const MIN: Self = <$t>::MIN;
@@ -208,6 +153,11 @@ macro_rules! c_type {
             const IS_FLOAT: bool = $is_float;
 
             type Float = $float;
+
+            #[cfg(feature = "opencl")]
+            fn from_cl(value: Self) -> Self {
+                value
+            }
 
             fn from_f64(float: f64) -> Self {
                 float as $t
@@ -257,6 +207,11 @@ macro_rules! c_type {
                 $round(self)
             }
 
+            #[cfg(feature = "opencl")]
+            fn to_cl(&self) -> Self::CType {
+                *self
+            }
+
             fn to_f64(self) -> f64 {
                 self as f64
             }
@@ -268,9 +223,8 @@ macro_rules! c_type {
     };
 }
 
-c_type!(
+number!(
     f32,
-    "float",
     true,
     1.,
     0.,
@@ -287,9 +241,8 @@ c_type!(
     min_f32
 );
 
-c_type!(
+number!(
     f64,
-    "double",
     true,
     1.,
     0.,
@@ -306,9 +259,8 @@ c_type!(
     min_f64
 );
 
-c_type!(
+number!(
     i8,
-    "char",
     false,
     1,
     0,
@@ -325,9 +277,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     i16,
-    "short",
     false,
     1,
     0,
@@ -344,9 +295,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     i32,
-    "int",
     false,
     1,
     0,
@@ -363,9 +313,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     i64,
-    "long",
     false,
     1,
     0,
@@ -385,9 +334,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     u8,
-    "uchar",
     false,
     1,
     0,
@@ -404,9 +352,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     u16,
-    "ushort",
     false,
     1,
     0,
@@ -423,9 +370,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     u32,
-    "uint",
     false,
     1,
     0,
@@ -442,9 +388,8 @@ c_type!(
     Ord::min
 );
 
-c_type!(
+number!(
     u64,
-    "ulong",
     false,
     1,
     0,
@@ -497,8 +442,8 @@ fn min_f64(l: f64, r: f64) -> f64 {
     }
 }
 
-/// A floating-point [`CType`]
-pub trait Float: CType<Float = Self> {
+/// A floating-point [`Number`]
+pub trait Float: Number<Float = Self> {
     // numeric methods
     /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
     fn is_inf(self) -> bool;

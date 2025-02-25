@@ -7,8 +7,8 @@ use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
-    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert,
-    Error, Float, Platform, Range, Shape,
+    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, Constant, Convert, Error,
+    Float, Number, Platform, Range, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -52,7 +52,7 @@ impl<T, A, P> Array<T, A, P> {
         op: Op,
     ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
-        T: CType,
+        T: Number,
         A: Access<T>,
         P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
         Op: Fn(P, Accessor<T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
@@ -108,7 +108,7 @@ impl<T, L, P> Array<T, L, P> {
 }
 
 // constructors
-impl<T: CType> Array<T, Accessor<T>, Platform> {
+impl<T: Number> Array<T, Accessor<T>, Platform> {
     pub fn from<A, P>(array: Array<T, A, P>) -> Self
     where
         Accessor<T>: From<A>,
@@ -125,7 +125,7 @@ impl<T: CType> Array<T, Accessor<T>, Platform> {
 
 impl<T, B, P> Array<T, AccessBuf<B>, P>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
@@ -166,7 +166,7 @@ where
 
 impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
-    T: CType,
+    T: Number,
     P: Constant<T>,
 {
     pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
@@ -192,7 +192,7 @@ where
 
 impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
-    T: CType,
+    T: Number,
     P: Convert<T>,
 {
     pub fn copy<A: Access<T>>(source: &Array<T, A, P>) -> Result<Self, Error> {
@@ -210,7 +210,7 @@ where
 }
 
 // op constructors
-impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
+impl<T: Number, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
     P: Construct<T>,
 {
@@ -264,7 +264,7 @@ where
 // references
 impl<T, B, P> Array<T, AccessBuf<B>, P>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
@@ -295,7 +295,7 @@ where
 
 impl<T, O, P> Array<T, AccessOp<O, P>, P>
 where
-    T: CType,
+    T: Number,
     O: Enqueue<P, T>,
     P: PlatformInstance,
 {
@@ -326,7 +326,7 @@ where
 /// An n-dimensional array
 pub trait NDArray: Send + Sync {
     /// The data type of the elements in this array
-    type DType: CType;
+    type DType: Number;
 
     /// The platform used to construct operations on this array.
     type Platform: PlatformInstance;
@@ -347,7 +347,7 @@ pub trait NDArray: Send + Sync {
 
 impl<T, A, P> NDArray for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: PlatformInstance,
 {
@@ -384,7 +384,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
 
 impl<T, A, P> NDArrayRead for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: PlatformInstance,
 {
@@ -437,7 +437,7 @@ pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
 // write ops
 impl<T, A, P> NDArrayWrite for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
     P: PlatformInstance,
 {
@@ -469,7 +469,7 @@ where
 // op traits
 
 /// Array cast operations
-pub trait NDArrayCast<OT: CType>: NDArray + Sized {
+pub trait NDArrayCast<OT: Number>: NDArray + Sized {
     type Output: Access<OT>;
 
     /// Construct a new array cast operation.
@@ -478,8 +478,8 @@ pub trait NDArrayCast<OT: CType>: NDArray + Sized {
 
 impl<IT, OT, A, P> NDArrayCast<OT> for Array<IT, A, P>
 where
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
     A: Access<IT>,
     P: ElementwiseCast<A, IT, OT>,
 {
@@ -530,7 +530,7 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
 
 impl<T, A, P> NDArrayReduce for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
     Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
@@ -623,7 +623,7 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
 
 impl<T, A, P> NDArrayTransform for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T>,
 {
@@ -786,7 +786,7 @@ pub trait NDArrayUnary: NDArray + Sized {
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseUnary<A, T>,
 {
@@ -823,7 +823,7 @@ pub trait NDArrayUnaryBoolean: NDArray + Sized {
 
 impl<T, A, P> NDArrayUnaryBoolean for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseUnaryBoolean<A, T>,
 {
@@ -853,7 +853,7 @@ where
 
 impl<T, L, R, P> NDArrayBoolean<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseBoolean<L, R, T>,
@@ -901,7 +901,7 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayBooleanScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseBooleanScalar<A, T>,
 {
@@ -937,16 +937,24 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn eq(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Elementwise greater-than-or-equal comparison
-    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd<O::DType>;
 
     /// Elementwise greater-than comparison
-    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd<O::DType>;
 
     /// Elementwise less-than-or-equal comparison
-    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd<O::DType>;
 
     /// Elementwise less-than comparison
-    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd<O::DType>;
 
     /// Elementwise not-equal comparison
     fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
@@ -954,7 +962,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
 
 impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseCompare<L, R, T>,
@@ -966,22 +974,34 @@ where
         self.apply_dual(other, |platform, left, right| platform.eq(left, right))
     }
 
-    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.ge(left, right))
     }
 
-    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.gt(left, right))
     }
 
-    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.le(left, right))
     }
 
-    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.lt(left, right))
     }
@@ -1006,25 +1026,33 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     fn gt_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd;
 
     /// Construct an equal-or-greater-than comparison with the `other` value.
     fn ge_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd;
 
     /// Construct a less-than comparison with the `other` value.
     fn lt_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd;
 
     /// Construct an equal-or-less-than comparison with the `other` value.
     fn le_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: PartialOrd;
 
     /// Construct an not-equal comparison with the `other` value.
     fn ne_scalar(
@@ -1035,7 +1063,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseScalarCompare<A, T>,
 {
@@ -1048,31 +1076,31 @@ where
         self.apply(|platform, access| platform.eq_scalar(access, other))
     }
 
-    fn gt_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn gt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         self.apply(|platform, access| platform.gt_scalar(access, other))
     }
 
-    fn ge_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn ge_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         self.apply(|platform, access| platform.ge_scalar(access, other))
     }
 
-    fn lt_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn lt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         self.apply(|platform, access| platform.lt_scalar(access, other))
     }
 
-    fn le_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn le_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: PartialOrd,
+    {
         self.apply(|platform, access| platform.le_scalar(access, other))
     }
 
@@ -1112,7 +1140,7 @@ pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
 
 impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseDual<L, R, T>,
@@ -1225,7 +1253,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayMathScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseScalar<A, T>,
 {
@@ -1329,7 +1357,7 @@ pub trait NDArrayReduceBoolean: NDArrayRead {
 
 impl<T, A, P> NDArrayReduceBoolean for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
@@ -1359,7 +1387,7 @@ pub trait NDArrayReduceAll: NDArrayRead {
 
 impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
@@ -1393,57 +1421,57 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
 
 /// Array trigonometry methods
 pub trait NDArrayTrig: NDArray + Sized {
-    type Output: Access<<Self::DType as CType>::Float>;
+    type Output: Access<<Self::DType as Number>::Float>;
 
     /// Construct a new sine operation.
     fn sin(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arcsine operation.
     fn asin(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic sine operation.
     fn sinh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new cos operation.
     fn cos(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arccosine operation.
     fn acos(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic cosine operation.
     fn cosh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new tangent operation.
     fn tan(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arctangent operation.
     fn atan(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic tangent operation.
     fn tanh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTrig for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseTrig<A, T>,
 {
@@ -1489,7 +1517,7 @@ where
 /// Conditional selection (boolean logic) methods
 pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug
 where
-    T: CType,
+    T: Number,
 {
     type Output: Access<T>;
 
@@ -1501,7 +1529,7 @@ where
 
 impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
@@ -1543,7 +1571,7 @@ where
 
 impl<T, L, R, P> MatrixDual<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: LinAlgDual<L, R, T>,
@@ -1590,7 +1618,7 @@ pub trait MatrixUnary: NDArray + fmt::Debug {
 
 impl<T, A, P> MatrixUnary for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: LinAlgUnary<A, T>,
 {
@@ -1672,7 +1700,7 @@ fn permute_for_reduce<T, A, P>(
     axes: Axes,
 ) -> Result<Accessor<T>, Error>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T>,
     Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,

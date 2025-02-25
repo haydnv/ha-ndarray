@@ -5,14 +5,14 @@ use std::ops::Deref;
 use smallvec::SmallVec;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
-use crate::{CType, Error};
+use crate::{Error, Number};
 
 use super::VEC_MIN_SIZE;
 
 /// A stack-allocated buffer.
 pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
-impl<T: CType> BufferInstance<T> for StackVec<T> {
+impl<T: Number> BufferInstance<T> for StackVec<T> {
     fn read(&self) -> BufferConverter<T> {
         self.as_slice().into()
     }
@@ -26,7 +26,7 @@ impl<T: CType> BufferInstance<T> for StackVec<T> {
     }
 }
 
-impl<T: CType> BufferMut<T> for StackVec<T> {
+impl<T: Number> BufferMut<T> for StackVec<T> {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
@@ -40,7 +40,7 @@ impl<T: CType> BufferMut<T> for StackVec<T> {
     }
 }
 
-impl<T: CType> BufferInstance<T> for Vec<T> {
+impl<T: Number> BufferInstance<T> for Vec<T> {
     fn read(&self) -> BufferConverter<T> {
         self.as_slice().into()
     }
@@ -54,7 +54,7 @@ impl<T: CType> BufferInstance<T> for Vec<T> {
     }
 }
 
-impl<T: CType> BufferMut<T> for Vec<T> {
+impl<T: Number> BufferMut<T> for Vec<T> {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         self.as_mut_slice().write(data)
     }
@@ -68,7 +68,7 @@ impl<T: CType> BufferMut<T> for Vec<T> {
     }
 }
 
-impl<'a, T: CType> BufferInstance<T> for &'a [T] {
+impl<'a, T: Number> BufferInstance<T> for &'a [T] {
     fn read(&self) -> BufferConverter<T> {
         (*self).into()
     }
@@ -87,7 +87,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a [T] {
     }
 }
 
-impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
+impl<'a, T: Number> BufferInstance<T> for &'a mut [T] {
     fn read(&self) -> BufferConverter<T> {
         (&**self).into()
     }
@@ -101,7 +101,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut [T] {
     }
 }
 
-impl<'a, T: CType> BufferMut<T> for &'a mut [T] {
+impl<'a, T: Number> BufferMut<T> for &'a mut [T] {
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         if data.len() == self.len() {
             let data = data.to_slice()?;
@@ -174,7 +174,7 @@ impl<T> AsMut<[T]> for Buffer<T> {
     }
 }
 
-impl<T: CType> BufferInstance<T> for Buffer<T> {
+impl<T: Number> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::Host(self.into())
     }
@@ -194,7 +194,7 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
-impl<T: CType> BufferMut<T> for Buffer<T> {
+impl<T: Number> BufferMut<T> for Buffer<T> {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
             Self::Heap(buf) => buf.write(data),

@@ -70,10 +70,10 @@ mod tests {
 
     #[test]
     fn test_matmul_12x20() -> Result<(), Error> {
-        let buf = OpenCL::copy_into_buffer(&(0..12).into_iter().collect::<Vec<_>>())?;
+        let buf = OpenCL::copy_into_buffer::<i32>(&(0..12).into_iter().collect::<Vec<_>>())?;
         let l = ArrayBuf::new(buf, shape![3, 4])?;
 
-        let buf = OpenCL::copy_into_buffer(&(0..20).into_iter().collect::<Vec<_>>())?;
+        let buf = OpenCL::copy_into_buffer::<i32>(&(0..20).into_iter().collect::<Vec<_>>())?;
         let r = ArrayBuf::new(buf, shape![4, 5])?;
 
         let actual = l.matmul(r)?;
@@ -140,7 +140,7 @@ mod tests {
     fn test_sub() -> Result<(), Error> {
         let shape = shape![1, 2, 3];
 
-        let buffer = OpenCL::copy_into_buffer(&[0, 1, 2, 3, 4, 5])?;
+        let buffer = OpenCL::copy_into_buffer::<i32>(&[0, 1, 2, 3, 4, 5])?;
         let array = ArrayBuf::new(buffer, shape.clone())?;
 
         let actual = array.as_ref().sub(array.as_ref())?;
@@ -152,14 +152,14 @@ mod tests {
 
     #[test]
     fn test_slice() -> Result<(), Error> {
-        let buf = OpenCL::copy_into_buffer(&[0; 6])?;
+        let buf = OpenCL::copy_into_buffer::<u32>(&[0; 6])?;
         let array = ArrayBuf::new(buf, shape![2, 3])?;
         let mut slice = array.slice(slice![AxisRange::In(0, 2, 1), AxisRange::At(1)])?;
 
-        let buf = OpenCL::copy_into_buffer(&[0, 0])?;
+        let buf = OpenCL::copy_into_buffer::<u32>(&[0, 0])?;
         let zeros = ArrayBuf::new(buf, shape![2])?;
 
-        let buf = OpenCL::copy_into_buffer(&[0, 0])?;
+        let buf = OpenCL::copy_into_buffer::<u32>(&[0, 0])?;
         let ones = ArrayBuf::new(buf, shape![2])?;
 
         assert!(slice.as_ref().eq(zeros)?.all()?);

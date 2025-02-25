@@ -7,7 +7,9 @@ use ocl::{Buffer, Kernel, Program, Queue};
 
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
+use crate::{
+    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Shape, Strides,
+};
 
 use super::platform::OpenCL;
 use super::{programs, TILE_SIZE, WG_SIZE};
@@ -18,7 +20,7 @@ pub struct Cast<A, IT, OT> {
     dtype: PhantomData<(IT, OT)>,
 }
 
-impl<A, IT: CType, OT: CType> Cast<A, IT, OT> {
+impl<A, IT: Number, OT: Number> Cast<A, IT, OT> {
     pub fn new(access: A) -> Result<Self, Error> {
         programs::elementwise::cast(IT::TYPE, OT::TYPE).map(|program| Self {
             access,
@@ -28,14 +30,14 @@ impl<A, IT: CType, OT: CType> Cast<A, IT, OT> {
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Op for Cast<A, IT, OT> {
     fn size(&self) -> usize {
         self.access.size()
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<OpenCL, OT> for Cast<A, IT, OT> {
-    type Buffer = Buffer<OT>;
+impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<OpenCL, OT> for Cast<A, IT, OT> {
+    type Buffer = Buffer<OT::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -61,7 +63,7 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<OpenCL, OT> for Cast<A, IT, OT
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<OpenCL, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<OpenCL, OT> for Cast<A, IT, OT> {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
@@ -89,7 +91,7 @@ impl<L, R, IT, OT> Dual<L, R, IT, OT> {
 }
 
 // arithmetic
-impl<L, R, T: CType> Dual<L, R, T, T> {
+impl<L, R, T: Number> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::TYPE, "add")?;
         Self::new(left, right, program, T::add)
@@ -130,7 +132,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
 }
 
 // boolean operations
-impl<L, R, T: CType> Dual<L, R, T, u8> {
+impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn and(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "and")?;
         let op = |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 };
@@ -157,32 +159,44 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
 }
 
 // comparison
-impl<L, R, T: CType> Dual<L, R, T, u8> {
+impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual_boolean(T::TYPE, "eq")?;
         let op = |l, r| if l == r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
-    pub fn ge(left: L, right: R) -> Result<Self, Error> {
+    pub fn ge(left: L, right: R) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         let program = programs::elementwise::dual_boolean(T::TYPE, "ge")?;
         let op = |l, r| if l >= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
-    pub fn gt(left: L, right: R) -> Result<Self, Error> {
+    pub fn gt(left: L, right: R) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         let program = programs::elementwise::dual_boolean(T::TYPE, "gt")?;
         let op = |l, r| if l > r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
-    pub fn le(left: L, right: R) -> Result<Self, Error> {
+    pub fn le(left: L, right: R) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         let program = programs::elementwise::dual_boolean(T::TYPE, "le")?;
         let op = |l, r| if l <= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
-    pub fn lt(left: L, right: R) -> Result<Self, Error> {
+    pub fn lt(left: L, right: R) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         let program = programs::elementwise::dual_boolean(T::TYPE, "lt")?;
         let op = |l, r| if l < r { 1 } else { 0 };
         Self::new(left, right, program, op)
@@ -199,8 +213,8 @@ impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.left.size()
@@ -211,10 +225,10 @@ impl<L, R, IT, OT> Enqueue<OpenCL, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
-    type Buffer = Buffer<OT>;
+    type Buffer = Buffer<OT::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?.to_cl()?;
@@ -248,8 +262,8 @@ impl<L, R, IT, OT> ReadValue<OpenCL, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         let l = self.left.read_value(offset)?;
@@ -268,7 +282,7 @@ pub struct Cond<A, L, R, T> {
 
 impl<A, L, R, T> Cond<A, L, R, T>
 where
-    T: CType,
+    T: Number,
 {
     pub fn new(cond: A, then: L, or_else: R) -> Result<Self, Error> {
         let program = programs::gather::gather_cond(T::TYPE)?;
@@ -288,7 +302,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
         debug_assert_eq!(self.cond.size(), self.then.size());
@@ -302,9 +316,9 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
-    type Buffer = Buffer<T>;
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let cond = self.cond.read()?;
@@ -352,7 +366,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let cond = self.cond.read_value(offset)?;
@@ -374,7 +388,7 @@ pub struct Flip<A, T> {
     dtype: PhantomData<T>,
 }
 
-impl<A, T: CType> Flip<A, T> {
+impl<A, T: Number> Flip<A, T> {
     pub fn new(access: A, shape: Shape, axis: usize) -> Result<Self, Error> {
         let spec = FlipSpec::new(shape, axis)?;
         let program = programs::view::flip(T::TYPE, spec.clone())?;
@@ -388,14 +402,14 @@ impl<A, T: CType> Flip<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Op for Flip<A, T> {
+impl<A: Access<T>, T: Number> Op for Flip<A, T> {
     fn size(&self) -> usize {
         self.access.size()
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Flip<A, T> {
-    type Buffer = Buffer<T>;
+impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Flip<A, T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -422,7 +436,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Flip<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Flip<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for Flip<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         debug_assert!(offset < self.size());
         let offset = self.spec.source_offset(offset);
@@ -438,7 +452,7 @@ pub struct MatDiag<A, T> {
     dtype: PhantomData<T>,
 }
 
-impl<A, T: CType> MatDiag<A, T> {
+impl<A, T: Number> MatDiag<A, T> {
     pub fn new(access: A, batch_size: usize, dim: usize) -> Result<Self, Error> {
         let program = programs::linalg::diagonal(T::TYPE)?;
 
@@ -452,15 +466,15 @@ impl<A, T: CType> MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Op for MatDiag<A, T> {
     fn size(&self) -> usize {
         debug_assert_eq!(self.access.size(), self.batch_size * self.dim * self.dim);
         self.batch_size * self.dim
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for MatDiag<A, T> {
-    type Buffer = Buffer<T>;
+impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for MatDiag<A, T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -489,7 +503,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for MatDiag<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let batch = offset / self.batch_size;
         let i = offset % self.batch_size;
@@ -511,7 +525,7 @@ pub struct MatMul<L, R, T> {
 
 impl<L, R, T> MatMul<L, R, T>
 where
-    T: CType,
+    T: Number,
 {
     pub fn new(left: L, right: R, dims: [usize; 4]) -> Result<Self, Error> {
         let pad_matrices = programs::linalg::pad_matrices(T::TYPE)?;
@@ -542,10 +556,10 @@ where
 
     fn matmul(
         &self,
-        left: &Buffer<T>,
-        right: &Buffer<T>,
+        left: &Buffer<T::CType>,
+        right: &Buffer<T::CType>,
         dims: [usize; 3],
-    ) -> Result<Buffer<T>, Error> {
+    ) -> Result<Buffer<T::CType>, Error> {
         let [a, b, c] = dims;
 
         assert_eq!(self.batch_size * a * b, left.len());
@@ -559,7 +573,7 @@ where
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(self.batch_size * a * c)
-            .fill_val(T::ZERO)
+            .fill_val(T::ZERO.to_cl())
             .build()?;
 
         let dim4 = [a as u64, b as u64, c as u64, self.batch_size as u64];
@@ -587,10 +601,10 @@ where
 
     fn pad_matrices<'a>(
         &self,
-        batch: &Buffer<T>,
+        batch: &Buffer<T::CType>,
         dims_in: [usize; 2],
         dims_out: [usize; 2],
-    ) -> Result<Buffer<T>, Error> {
+    ) -> Result<Buffer<T::CType>, Error> {
         if dims_in == dims_out {
             return Ok(batch.clone());
         }
@@ -602,7 +616,7 @@ where
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(self.batch_size * dims_out[0] * dims_out[1])
-            .fill_val(T::ZERO)
+            .fill_val(T::ZERO.to_cl())
             .build()?;
 
         let gws = if dims_in.iter().product::<usize>() <= dims_out.iter().product::<usize>() {
@@ -647,9 +661,9 @@ impl<L, R, T> Enqueue<OpenCL, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
-    type Buffer = Buffer<T>;
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let [a, b, c] = self.dims;
@@ -674,7 +688,7 @@ impl<L, R, T> ReadValue<OpenCL, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, _offset: usize) -> Result<T, Error> {
         Err(Error::Bounds(
@@ -691,7 +705,7 @@ pub struct Linear<T> {
     program: Program,
 }
 
-impl<T: CType> Linear<T> {
+impl<T: Number> Linear<T> {
     pub fn new(start: T, step: f64, size: usize) -> Result<Self, Error> {
         programs::constructors::range(T::TYPE).map(|program| Self {
             start,
@@ -708,8 +722,8 @@ impl<T: Send + Sync> Op for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
-    type Buffer = Buffer<T>;
+impl<T: Number> Enqueue<OpenCL, T> for Linear<T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let queue = OpenCL::queue(self.size, &[])?;
@@ -724,8 +738,8 @@ impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
             .queue(queue)
             .program(&self.program)
             .global_work_size(self.size)
-            .arg(self.start)
-            .arg(self.step)
+            .arg(self.start.to_cl())
+            .arg(self.step.to_cl())
             .arg(&buffer)
             .build()?;
 
@@ -735,7 +749,7 @@ impl<T: CType> Enqueue<OpenCL, T> for Linear<T> {
     }
 }
 
-impl<T: CType> ReadValue<OpenCL, T> for Linear<T> {
+impl<T: Number> ReadValue<OpenCL, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         Ok(T::add(self.start, T::from_f64((offset as f64) * self.step)))
     }
@@ -853,21 +867,21 @@ impl ReadValue<OpenCL, f32> for RandomUniform {
     }
 }
 
-pub struct Reduce<A, T: CType> {
+pub struct Reduce<A, T: Number> {
     access: A,
     stride: usize,
     fold: Program,
     reduce: Program,
-    reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
+    reduce_all: fn(OpenCL, AccessBuf<Buffer<T::CType>>) -> Result<T, Error>,
     id: T,
 }
 
-impl<A, T: CType> Reduce<A, T> {
+impl<A, T: Number> Reduce<A, T> {
     fn new(
         access: A,
         stride: usize,
         reduce: &'static str,
-        reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
+        reduce_all: fn(OpenCL, AccessBuf<Buffer<T::CType>>) -> Result<T, Error>,
         id: T,
     ) -> Result<Self, Error> {
         let fold = programs::reduce::fold_axis(T::TYPE, reduce)?;
@@ -888,7 +902,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "max",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::max,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::max,
             T::MIN,
         )
     }
@@ -898,7 +912,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "min",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::min,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::min,
             T::MAX,
         )
     }
@@ -908,7 +922,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "mul",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::product,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::product,
             T::ONE,
         )
     }
@@ -918,7 +932,7 @@ impl<A, T: CType> Reduce<A, T> {
             access,
             stride,
             "add",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::sum,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::sum,
             T::ZERO,
         )
     }
@@ -926,16 +940,16 @@ impl<A, T: CType> Reduce<A, T> {
     fn fold(
         &self,
         queue: Queue,
-        input: &Buffer<T>,
+        input: &Buffer<T::CType>,
         reduce_dim: usize,
         target_dim: usize,
-    ) -> Result<Buffer<T>, Error> {
+    ) -> Result<Buffer<T::CType>, Error> {
         let output_size = (input.len() / reduce_dim) * target_dim;
 
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(output_size)
-            .fill_val(T::ZERO)
+            .fill_val(T::ZERO.to_cl())
             .build()?;
 
         let kernel = Kernel::builder()
@@ -945,7 +959,7 @@ impl<A, T: CType> Reduce<A, T> {
             .global_work_size(output_size)
             .arg(reduce_dim as u64)
             .arg(target_dim as u64)
-            .arg(self.id)
+            .arg(self.id.to_cl())
             .arg(input)
             .arg(&output)
             .build()?;
@@ -958,16 +972,16 @@ impl<A, T: CType> Reduce<A, T> {
     fn reduce(
         &self,
         queue: Queue,
-        input: &Buffer<T>,
+        input: &Buffer<T::CType>,
         stride: usize,
         wg_size: usize,
-    ) -> Result<Buffer<T>, Error> {
+    ) -> Result<Buffer<T::CType>, Error> {
         debug_assert_eq!(input.len() % stride, 0);
 
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(input.len() / stride)
-            .fill_val(T::ZERO)
+            .fill_val(T::ZERO.to_cl())
             .build()?;
 
         let kernel = Kernel::builder()
@@ -976,10 +990,10 @@ impl<A, T: CType> Reduce<A, T> {
             .queue(queue.clone())
             .local_work_size(wg_size)
             .global_work_size(input.len())
-            .arg(self.id)
+            .arg(self.id.to_cl())
             .arg(input)
             .arg(&output)
-            .arg_local::<T>(wg_size)
+            .arg_local::<T::CType>(wg_size)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -988,15 +1002,15 @@ impl<A, T: CType> Reduce<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Op for Reduce<A, T> {
+impl<A: Access<T>, T: Number> Op for Reduce<A, T> {
     fn size(&self) -> usize {
         debug_assert_eq!(self.access.size() % self.stride, 0);
         self.access.size() / self.stride
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
-    type Buffer = Buffer<T>;
+impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Reduce<A, T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1033,7 +1047,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Reduce<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Reduce<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for Reduce<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let input = self.access.read()?.to_cl()?;
         let slice = input.create_sub_buffer(None, offset, offset + self.stride)?;
@@ -1048,7 +1062,7 @@ pub struct Scalar<A, IT, OT> {
     op: fn(IT, IT) -> OT,
 }
 
-impl<A, T: CType> Scalar<A, T, T> {
+impl<A, T: Number> Scalar<A, T, T> {
     pub fn new(
         access: A,
         scalar: T,
@@ -1099,7 +1113,7 @@ impl<A, T: CType> Scalar<A, T, T> {
 
 impl<A, T> Scalar<A, T, u8>
 where
-    T: CType,
+    T: Number,
 {
     fn compare(
         access: A,
@@ -1151,19 +1165,31 @@ where
         Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
     }
 
-    pub fn ge(access: A, scalar: T) -> Result<Self, Error> {
+    pub fn ge(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         Self::compare(access, scalar, "ge", |l, r| if l >= r { 1 } else { 0 })
     }
 
-    pub fn gt(access: A, scalar: T) -> Result<Self, Error> {
+    pub fn gt(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         Self::compare(access, scalar, "gt", |l, r| if l > r { 1 } else { 0 })
     }
 
-    pub fn le(access: A, scalar: T) -> Result<Self, Error> {
+    pub fn le(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         Self::compare(access, scalar, "le", |l, r| if l <= r { 1 } else { 0 })
     }
 
-    pub fn lt(access: A, scalar: T) -> Result<Self, Error> {
+    pub fn lt(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
         Self::compare(access, scalar, "lt", |l, r| if l < r { 1 } else { 0 })
     }
 
@@ -1175,8 +1201,8 @@ where
 impl<A, IT, OT> Op for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.access.size()
@@ -1186,10 +1212,10 @@ where
 impl<A, IT, OT> Enqueue<OpenCL, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
-    type Buffer = Buffer<OT>;
+    type Buffer = Buffer<OT::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1209,7 +1235,7 @@ where
             .queue(queue)
             .global_work_size(input.len())
             .arg(&*input)
-            .arg(self.scalar)
+            .arg(self.scalar.to_cl())
             .arg(&output)
             .build()?;
 
@@ -1222,8 +1248,8 @@ where
 impl<A, IT, OT> ReadValue<OpenCL, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
@@ -1241,7 +1267,7 @@ pub struct Slice<A, T> {
     dtype: PhantomData<T>,
 }
 
-impl<A, T: CType> Slice<A, T> {
+impl<A, T: Number> Slice<A, T> {
     pub fn new(access: A, shape: &[usize], range: Range) -> Result<Self, Error> {
         let spec = SliceSpec::new(shape, range);
 
@@ -1264,8 +1290,8 @@ impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Slice<A, T> {
-    type Buffer = Buffer<T>;
+impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Slice<A, T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -1291,7 +1317,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for Slice<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         self.access.read_value(self.spec.source_offset(offset))
     }
@@ -1299,7 +1325,7 @@ impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Slice<A, T> {
 
 impl<A, T> Write<OpenCL, T> for Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T> + fmt::Debug,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -1345,7 +1371,7 @@ where
             .queue(queue)
             .global_work_size(source.len())
             .arg(source)
-            .arg(value)
+            .arg(value.to_cl())
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -1367,7 +1393,7 @@ pub struct Unary<A, IT, OT> {
     dtype: PhantomData<(IT, OT)>,
 }
 
-impl<A, IT: CType, OT: CType> Unary<A, IT, OT> {
+impl<A, IT: Number, OT: Number> Unary<A, IT, OT> {
     fn new(access: A, program: &'static str, op: fn(IT) -> OT) -> Result<Self, Error> {
         let program = programs::elementwise::unary(IT::Float::TYPE, IT::TYPE, OT::TYPE, program)?;
 
@@ -1380,7 +1406,7 @@ impl<A, IT: CType, OT: CType> Unary<A, IT, OT> {
     }
 }
 
-impl<A, T: CType> Unary<A, T, T> {
+impl<A, T: Number> Unary<A, T, T> {
     pub fn abs(access: A) -> Result<Self, Error> {
         Self::new(access, "abs", |n| T::from_float(n.to_float().ln()))
     }
@@ -1398,7 +1424,7 @@ impl<A, T: CType> Unary<A, T, T> {
     }
 }
 
-impl<A, T: CType> Unary<A, T, T::Float> {
+impl<A, T: Number> Unary<A, T, T::Float> {
     pub fn sin(access: A) -> Result<Self, Error> {
         Self::new(access, "sin", |n| n.to_float().sin())
     }
@@ -1435,7 +1461,7 @@ impl<A, T: CType> Unary<A, T, T::Float> {
     }
 }
 
-impl<A, T: CType> Unary<A, T, u8> {
+impl<A, T: Number> Unary<A, T, u8> {
     pub fn not(access: A) -> Result<Self, Error> {
         Self::new(access, "not", |n| if n == T::ZERO { 1 } else { 0 })
     }
@@ -1454,8 +1480,8 @@ impl<A, T: Float> Unary<A, T, u8> {
 impl<A, IT, OT> Op for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.access.size()
@@ -1465,10 +1491,10 @@ where
 impl<A, IT, OT> Enqueue<OpenCL, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
-    type Buffer = Buffer<OT>;
+    type Buffer = Buffer<OT::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1494,7 +1520,7 @@ where
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<OpenCL, OT> for Unary<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<OpenCL, OT> for Unary<A, IT, OT> {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access.read_value(offset).map(|n| (self.op)(n))
     }
@@ -1510,7 +1536,7 @@ pub struct View<A, T> {
 
 impl<A, T> View<A, T>
 where
-    T: CType,
+    T: Number,
 {
     fn new(access: A, spec: ViewSpec) -> Result<Self, Error> {
         let size = spec.shape.iter().product();
@@ -1543,15 +1569,15 @@ where
 impl<A, T> Op for View<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
         self.size
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for View<A, T> {
-    type Buffer = Buffer<T>;
+impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for View<A, T> {
+    type Buffer = Buffer<T::CType>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -1578,7 +1604,7 @@ impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for View<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for View<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for View<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         self.access.read_value(self.spec.source_offset(offset))
     }
@@ -1590,8 +1616,8 @@ fn pad_dim(dim: usize, size: usize) -> usize {
 }
 
 #[allow(unused)]
-fn inspect<T: CType>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
-    let mut inspect = vec![T::ZERO; buffer.len()];
+fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T::CType>) -> Result<(), Error> {
+    let mut inspect = vec![T::ZERO.to_cl(); buffer.len()];
     buffer.read(inspect.as_mut_slice()).enq()?;
     Ok(())
 }

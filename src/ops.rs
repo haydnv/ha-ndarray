@@ -6,7 +6,7 @@ use crate::buffer::Buffer;
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{
-    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, CType, Error, Range, Shape,
+    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number, Range, Shape,
     Strides,
 };
 
@@ -34,20 +34,20 @@ pub trait Op: Send + Sync {
     fn size(&self) -> usize;
 }
 
-pub trait Enqueue<P: PlatformInstance, T: CType>: Op {
+pub trait Enqueue<P: PlatformInstance, T: Number>: Op {
     type Buffer: Into<BufferConverter<'static, T>>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error>;
 }
 
-pub trait ReadValue<P: PlatformInstance, T: CType>: Op {
+pub trait ReadValue<P: PlatformInstance, T: Number>: Op {
     fn read_value(&self, offset: usize) -> Result<T, Error>;
 }
 
 pub trait ReadOp<P, T>: Enqueue<P, T> + ReadValue<P, T>
 where
     P: PlatformInstance,
-    T: CType,
+    T: Number,
 {
 }
 
@@ -55,11 +55,11 @@ impl<O, P, T> ReadOp<P, T> for O
 where
     O: Enqueue<P, T> + ReadValue<P, T>,
     P: PlatformInstance,
-    T: CType,
+    T: Number,
 {
 }
 
-pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
+pub trait Write<P: PlatformInstance, T: Number>: Enqueue<P, T> {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error>;
 
     fn write_value(&mut self, value: T) -> Result<(), Error>;
@@ -67,7 +67,7 @@ pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
-pub trait Construct<T: CType>: PlatformInstance {
+pub trait Construct<T: Number>: PlatformInstance {
     type Range: Enqueue<Self, T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;
@@ -96,8 +96,8 @@ pub trait ElementwiseBooleanScalar<A, T>: PlatformInstance {
 pub trait ElementwiseCast<A, IT, OT>: PlatformInstance
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Op: ReadOp<Self, OT>;
 
@@ -109,13 +109,21 @@ pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
 
     fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
     fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -125,13 +133,21 @@ pub trait ElementwiseScalarCompare<A, T>: PlatformInstance {
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
-    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd;
 
     fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -140,7 +156,7 @@ pub trait ElementwiseDual<L, R, T>: PlatformInstance
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -162,7 +178,7 @@ where
 pub trait ElementwiseScalar<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -184,7 +200,7 @@ where
 pub trait ElementwiseNumeric<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, u8>;
 
@@ -196,7 +212,7 @@ where
 pub trait ElementwiseTrig<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T::Float>;
 
@@ -222,7 +238,7 @@ where
 pub trait ElementwiseUnary<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -238,7 +254,7 @@ where
 pub trait ElementwiseUnaryBoolean<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, u8>;
 
@@ -250,7 +266,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -261,7 +277,7 @@ pub trait LinAlgDual<L, R, T>: PlatformInstance
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -272,7 +288,7 @@ where
 pub trait LinAlgUnary<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op: ReadOp<Self, T>;
 
@@ -307,7 +323,7 @@ pub trait ReduceAll<A, T>: PlatformInstance {
     fn sum(self, access: A) -> Result<T, Error>;
 }
 
-pub trait ReduceAxes<A: Access<T>, T: CType>: PlatformInstance {
+pub trait ReduceAxes<A: Access<T>, T: Number>: PlatformInstance {
     type Op: ReadOp<Self, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
@@ -319,7 +335,7 @@ pub trait ReduceAxes<A: Access<T>, T: CType>: PlatformInstance {
     fn sum(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-pub trait Transform<A: Access<T>, T: CType>: PlatformInstance {
+pub trait Transform<A: Access<T>, T: Number>: PlatformInstance {
     type Broadcast: ReadOp<Self, T>;
     type Flip: ReadOp<Self, T>;
     type Slice: ReadOp<Self, T>;
@@ -360,13 +376,13 @@ pub enum Cast<A, IT, OT> {
     Host(host::ops::Cast<A, IT, OT>),
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Op for Cast<A, IT, OT> {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Platform, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Platform, OT> for Cast<A, IT, OT> {
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -374,7 +390,7 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Platform, OT> for Cast<A, IT, 
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<Platform, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<Platform, OT> for Cast<A, IT, OT> {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         op_dispatch!(self, op, op.read_value(offset))
     }
@@ -404,7 +420,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
@@ -416,7 +432,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -430,7 +446,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
@@ -460,8 +476,8 @@ impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
@@ -472,8 +488,8 @@ impl<L, R, IT, OT> Enqueue<Platform, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -486,8 +502,8 @@ impl<L, R, IT, OT> ReadValue<Platform, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         op_dispatch!(self, op, op.read_value(offset))
@@ -513,13 +529,13 @@ pub enum Flip<A, T> {
     Host(host::ops::Flip<A, T>),
 }
 
-impl<A: Access<T>, T: CType> Op for Flip<A, T> {
+impl<A: Access<T>, T: Number> Op for Flip<A, T> {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Platform, T> for Flip<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Platform, T> for Flip<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -527,7 +543,7 @@ impl<A: Access<T>, T: CType> Enqueue<Platform, T> for Flip<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Platform, T> for Flip<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Platform, T> for Flip<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
     }
@@ -571,7 +587,7 @@ impl<T: Send + Sync> Op for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<Platform, T> for Linear<T> {
+impl<T: Number> Enqueue<Platform, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -579,7 +595,7 @@ impl<T: CType> Enqueue<Platform, T> for Linear<T> {
     }
 }
 
-impl<T: CType> ReadValue<Platform, T> for Linear<T> {
+impl<T: Number> ReadValue<Platform, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
     }
@@ -591,13 +607,13 @@ pub enum MatDiag<A, T> {
     Host(host::ops::MatDiag<A, T>),
 }
 
-impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Op for MatDiag<A, T> {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Platform, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Platform, T> for MatDiag<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -605,7 +621,7 @@ impl<A: Access<T>, T: CType> Enqueue<Platform, T> for MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Platform, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Platform, T> for MatDiag<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
     }
@@ -634,7 +650,7 @@ impl<L, R, T> Op for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
@@ -645,7 +661,7 @@ impl<L, R, T> Enqueue<Platform, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -658,7 +674,7 @@ impl<L, R, T> ReadValue<Platform, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         op_dispatch!(self, op, op.read_value(offset))
@@ -745,13 +761,13 @@ impl_random!(RandomUniform);
 
 macro_rules! impl_unary {
     ($op:ty, $t:ty) => {
-        impl<A: Access<T>, T: CType> Op for $op {
+        impl<A: Access<T>, T: Number> Op for $op {
             fn size(&self) -> usize {
                 op_dispatch!(self, op, op.size())
             }
         }
 
-        impl<A: Access<T>, T: CType> Enqueue<Platform, $t> for $op {
+        impl<A: Access<T>, T: Number> Enqueue<Platform, $t> for $op {
             type Buffer = Buffer<$t>;
 
             fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -759,7 +775,7 @@ macro_rules! impl_unary {
             }
         }
 
-        impl<A: Access<T>, T: CType> ReadValue<Platform, $t> for $op {
+        impl<A: Access<T>, T: Number> ReadValue<Platform, $t> for $op {
             fn read_value(&self, offset: usize) -> Result<$t, Error> {
                 op_dispatch!(self, op, op.read_value(offset))
             }
@@ -767,7 +783,7 @@ macro_rules! impl_unary {
     };
 }
 
-pub enum Reduce<A, T: CType> {
+pub enum Reduce<A, T: Number> {
     #[cfg(feature = "opencl")]
     CL(opencl::ops::Reduce<A, T>),
     Host(host::ops::Reduce<A, T>),
@@ -775,14 +791,14 @@ pub enum Reduce<A, T: CType> {
 
 impl_unary!(Reduce<A, T>, T);
 
-impl<A, T: CType> From<host::ops::Reduce<A, T>> for Reduce<A, T> {
+impl<A, T: Number> From<host::ops::Reduce<A, T>> for Reduce<A, T> {
     fn from(op: host::ops::Reduce<A, T>) -> Self {
         Self::Host(op)
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<A, T: CType> From<opencl::ops::Reduce<A, T>> for Reduce<A, T> {
+impl<A, T: Number> From<opencl::ops::Reduce<A, T>> for Reduce<A, T> {
     fn from(op: opencl::ops::Reduce<A, T>) -> Self {
         Self::CL(op)
     }
@@ -861,8 +877,8 @@ pub enum Scalar<A, IT, OT> {
 impl<A, IT, OT> Op for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
@@ -872,8 +888,8 @@ where
 impl<A, IT, OT> Enqueue<Platform, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -885,8 +901,8 @@ where
 impl<A, IT, OT> ReadValue<Platform, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         op_dispatch!(self, op, op.read_value(offset))
@@ -918,7 +934,7 @@ impl_unary!(Slice<A, T>, T);
 impl<A, T> Write<Platform, T> for Slice<A, T>
 where
     A: AccessMut<T> + std::fmt::Debug,
-    T: CType,
+    T: Number,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
         match self {
@@ -945,7 +961,7 @@ where
 #[cfg(not(feature = "opencl"))]
 impl<A, T> Write<Platform, T> for Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -989,8 +1005,8 @@ pub enum Unary<A, IT, OT> {
 impl<A, IT, OT> Op for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         op_dispatch!(self, op, op.size())
@@ -1000,8 +1016,8 @@ where
 impl<A, IT, OT> Enqueue<Platform, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -1013,8 +1029,8 @@ where
 impl<A, IT, OT> ReadValue<Platform, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         op_dispatch!(self, op, op.read_value(offset))

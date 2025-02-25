@@ -5,7 +5,7 @@ use crate::buffer::{Buffer, BufferConverter, BufferInstance};
 #[cfg(feature = "opencl")]
 use crate::opencl;
 use crate::ops::*;
-use crate::{host, Axes, CType, Error, Float, Range, Shape};
+use crate::{host, Axes, Error, Float, Number, Range, Shape};
 
 /// A ha-ndarray platform
 pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync + fmt::Debug {
@@ -14,7 +14,7 @@ pub trait PlatformInstance: PartialEq + Eq + Clone + Copy + Send + Sync + fmt::D
 }
 
 /// Constructor for a new buffer filled with a single value
-pub trait Constant<T: CType>: PlatformInstance {
+pub trait Constant<T: Number>: PlatformInstance {
     /// The type of buffer use by this platform
     type Buffer: BufferInstance<T>;
 
@@ -23,7 +23,7 @@ pub trait Constant<T: CType>: PlatformInstance {
 }
 
 /// Converter to construct an owned, platform-specific buffer
-pub trait Convert<T: CType>: PlatformInstance {
+pub trait Convert<T: Number>: PlatformInstance {
     /// The type of buffer use by this platform
     type Buffer: BufferInstance<T>;
 
@@ -69,7 +69,7 @@ impl From<host::Host> for Platform {
     }
 }
 
-impl<T: CType> Convert<T> for Platform {
+impl<T: Number> Convert<T> for Platform {
     type Buffer = Buffer<T>;
 
     fn convert<'a>(&self, buffer: BufferConverter<'a, T>) -> Result<Self::Buffer, Error> {
@@ -82,7 +82,7 @@ impl<T: CType> Convert<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<T: CType> Constant<T> for Platform {
+impl<T: Number> Constant<T> for Platform {
     type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -93,7 +93,7 @@ impl<T: CType> Constant<T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: CType> Constant<T> for Platform {
+impl<T: Number + PartialOrd> Constant<T> for Platform {
     type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -105,7 +105,7 @@ impl<T: CType> Constant<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<T: CType> Construct<T> for Platform {
+impl<T: Number + PartialOrd> Construct<T> for Platform {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
@@ -116,7 +116,7 @@ impl<T: CType> Construct<T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: CType> Construct<T> for Platform {
+impl<T: Number + PartialOrd> Construct<T> for Platform {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
@@ -132,7 +132,7 @@ impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
@@ -158,7 +158,7 @@ impl<L, R, T> ElementwiseBoolean<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
@@ -185,7 +185,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseBooleanScalar<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -206,7 +206,7 @@ impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseBooleanScalar<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -232,7 +232,7 @@ impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platform {
+impl<A: Access<IT>, IT: Number, OT: Number> ElementwiseCast<A, IT, OT> for Platform {
     type Op = Cast<A, IT, OT>;
 
     fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -243,7 +243,7 @@ impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platfor
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Platform {
+impl<A: Access<IT>, IT: Number, OT: Number> ElementwiseCast<A, IT, OT> for Platform {
     type Op = Cast<A, IT, OT>;
 
     fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -259,7 +259,7 @@ impl<L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
@@ -269,25 +269,37 @@ where
         }
     }
 
-    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.ge(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.gt(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.le(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.lt(left, right).map(AccessOp::wrap),
         }
@@ -305,7 +317,7 @@ impl<L, R, T> ElementwiseCompare<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
@@ -316,28 +328,40 @@ where
         }
     }
 
-    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.ge(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.ge(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.gt(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.gt(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.le(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.le(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.lt(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.lt(left, right).map(AccessOp::wrap),
@@ -353,7 +377,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -362,25 +386,37 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
         }
     }
 
-    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.ge_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.gt_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.le_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::Host(host) => host.lt_scalar(left, right).map(AccessOp::wrap),
         }
@@ -394,7 +430,7 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -404,28 +440,40 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Platform {
         }
     }
 
-    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.ge_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.ge_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.gt_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.gt_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.le_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.le_scalar(left, right).map(AccessOp::wrap),
         }
     }
 
-    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         match self {
             Self::CL(cl) => cl.lt_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.lt_scalar(left, right).map(AccessOp::wrap),
@@ -445,7 +493,7 @@ impl<L, R, T> ElementwiseDual<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, T>;
 
@@ -497,7 +545,7 @@ impl<L, R, T> ElementwiseDual<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, T>;
 
@@ -552,7 +600,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Platform {
     type Op = Scalar<A, T, T>;
 
     fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -599,7 +647,7 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Platform {
     type Op = Scalar<A, T, T>;
 
     fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -689,7 +737,7 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Platform {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -748,7 +796,7 @@ impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Platform {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -816,7 +864,7 @@ impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
     fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -845,7 +893,7 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
     fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -878,7 +926,7 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Platform {
     type Op = Unary<A, T, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -889,7 +937,7 @@ impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Platform {
     type Op = Unary<A, T, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -906,7 +954,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Cond<A, L, R, T>;
 
@@ -923,7 +971,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Cond<A, L, R, T>;
 
@@ -940,7 +988,7 @@ impl<L, R, T> LinAlgDual<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = MatMul<L, R, T>;
 
@@ -961,7 +1009,7 @@ impl<L, R, T> LinAlgDual<L, R, T> for Platform
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = MatMul<L, R, T>;
 
@@ -979,7 +1027,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Platform {
+impl<A: Access<T>, T: Number> LinAlgUnary<A, T> for Platform {
     type Op = MatDiag<A, T>;
 
     fn diag(
@@ -995,7 +1043,7 @@ impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Platform {
+impl<A: Access<T>, T: Number> LinAlgUnary<A, T> for Platform {
     type Op = MatDiag<A, T>;
 
     fn diag(
@@ -1050,7 +1098,7 @@ impl Random for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ReduceAll<A, T> for Platform {
+impl<A: Access<T>, T: Number> ReduceAll<A, T> for Platform {
     fn all(self, access: A) -> Result<bool, Error> {
         match self {
             Self::Host(host) => host.all(access),
@@ -1092,7 +1140,7 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for Platform {
 impl<A, T> ReduceAll<A, T> for Platform
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn all(self, access: A) -> Result<bool, Error> {
         match self {
@@ -1138,7 +1186,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
+impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Platform {
     type Op = Reduce<A, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -1167,7 +1215,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
+impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Platform {
     type Op = Reduce<A, T>;
 
     fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -1199,7 +1247,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
     }
 }
 
-impl<A: Access<T>, T: CType> Transform<A, T> for Platform {
+impl<A: Access<T>, T: Number> Transform<A, T> for Platform {
     type Broadcast = View<A, T>;
     type Flip = Flip<A, T>;
     type Slice = Slice<A, T>;
