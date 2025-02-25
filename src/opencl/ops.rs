@@ -6,7 +6,7 @@ use frand::Rand;
 use ocl::{Buffer, Kernel, Program, Queue};
 
 use crate::access::{Access, AccessBuf, AccessMut};
-use crate::ops::{Enqueue, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
+use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
 
 use super::platform::OpenCL;
@@ -364,6 +364,69 @@ where
         } else {
             Ok(or_else)
         }
+    }
+}
+
+pub struct Flip<A, T> {
+    access: A,
+    spec: FlipSpec,
+    program: Program,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T: CType> Flip<A, T> {
+    pub fn new(access: A, shape: Shape, axis: usize) -> Result<Self, Error> {
+        let spec = FlipSpec::new(shape, axis)?;
+        let program = programs::view::flip(T::TYPE, spec.clone())?;
+
+        Ok(Self {
+            access,
+            spec,
+            program,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A: Access<T>, T: CType> Op for Flip<A, T> {
+    fn size(&self) -> usize {
+        self.access.size()
+    }
+}
+
+impl<A: Access<T>, T: CType> Enqueue<OpenCL, T> for Flip<A, T> {
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let source = self.access.read()?.to_cl()?;
+
+        let queue = OpenCL::queue(self.size(), &[source.default_queue()])?;
+
+        let output = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.access.size())
+            .build()?;
+
+        let kernel = Kernel::builder()
+            .name("flip")
+            .program(&self.program)
+            .queue(queue)
+            .global_work_size(self.size())
+            .arg(&*source)
+            .arg(&output)
+            .build()?;
+
+        unsafe { kernel.enq()? }
+
+        Ok(output)
+    }
+}
+
+impl<A: Access<T>, T: CType> ReadValue<OpenCL, T> for Flip<A, T> {
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        debug_assert!(offset < self.size());
+        let offset = self.spec.source_offset(offset);
+        self.access.read_value(offset)
     }
 }
 

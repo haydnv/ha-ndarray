@@ -583,6 +583,9 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
     /// The type returned by `broadcast`
     type Broadcast: Access<Self::DType>;
 
+    /// The type returned by `flip`
+    type Flip: Access<Self::DType>;
+
     /// The type returned by `slice`
     type Slice: Access<Self::DType>;
 
@@ -594,6 +597,8 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
         self,
         shape: Shape,
     ) -> Result<Array<Self::DType, Self::Broadcast, Self::Platform>, Error>;
+
+    fn flip(self, axis: usize) -> Result<Array<Self::DType, Self::Flip, Self::Platform>, Error>;
 
     /// Reshape this `array`.
     fn reshape(self, shape: Shape) -> Result<Self, Error>;
@@ -610,9 +615,9 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
 
     /// Transpose this array according to the given `permutation`.
     /// If no permutation is given, the array axes will be reversed.
-    fn transpose(
+    fn transpose<P: Into<Option<Axes>>>(
         self,
-        permutation: Option<Axes>,
+        permutation: P,
     ) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error>;
 }
 
@@ -623,6 +628,7 @@ where
     P: Transform<A, T>,
 {
     type Broadcast = AccessOp<P::Broadcast, P>;
+    type Flip = AccessOp<P::Flip, P>;
     type Slice = AccessOp<P::Slice, P>;
     type Transpose = AccessOp<P::Transpose, P>;
 
@@ -639,6 +645,18 @@ where
 
         Ok(Array {
             shape,
+            access,
+            platform,
+            dtype: self.dtype,
+        })
+    }
+
+    fn flip(self, axis: usize) -> Result<Array<T, AccessOp<P::Flip, P>, P>, Error> {
+        let platform = self.platform;
+        let access = platform.flip(self.access, self.shape.clone(), axis)?;
+
+        Ok(Array {
+            shape: self.shape,
             access,
             platform,
             dtype: self.dtype,
@@ -713,11 +731,11 @@ where
         Ok(self)
     }
 
-    fn transpose(
+    fn transpose<PA: Into<Option<Axes>>>(
         self,
-        permutation: Option<Axes>,
+        permutation: PA,
     ) -> Result<Array<T, AccessOp<P::Transpose, P>, P>, Error> {
-        let permutation = if let Some(axes) = permutation {
+        let permutation = if let Some(axes) = permutation.into() {
             if axes.len() == self.ndim()
                 && axes.iter().copied().all(|x| x < self.ndim())
                 && !(1..axes.len())

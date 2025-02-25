@@ -3,6 +3,7 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
 pub use smallvec::smallvec as axes;
+pub use smallvec::smallvec as coord;
 pub use smallvec::smallvec as range;
 pub use smallvec::smallvec as slice;
 pub use smallvec::smallvec as shape;

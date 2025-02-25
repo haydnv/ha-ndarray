@@ -7,7 +7,7 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
-use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
+use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
     strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
 };
@@ -462,6 +462,86 @@ where
         } else {
             Ok(or_else)
         }
+    }
+}
+
+pub struct Flip<A, T> {
+    source: A,
+    spec: FlipSpec,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T> Flip<A, T> {
+    pub fn new(source: A, shape: Shape, axis: usize) -> Result<Self, Error> {
+        FlipSpec::new(shape, axis).map(|spec| Self {
+            source,
+            spec,
+            dtype: PhantomData,
+        })
+    }
+}
+
+impl<A, T> Op for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        self.source.size()
+    }
+}
+
+impl<A, T> Enqueue<Heap, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Buffer = Vec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        (0..self.size())
+            .into_par_iter()
+            .map(|offset| self.read_value(offset))
+            .collect()
+    }
+}
+
+impl<A, T> Enqueue<Stack, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Buffer = StackVec<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        (0..self.size())
+            .into_iter()
+            .map(|offset| self.read_value(offset))
+            .collect()
+    }
+}
+
+impl<A, T> Enqueue<Host, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, T)
+    }
+}
+
+impl<A, T> ReadValue<Host, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        debug_assert!(offset < self.size());
+        let offset = self.spec.source_offset(offset);
+        self.source.read_value(offset)
     }
 }
 

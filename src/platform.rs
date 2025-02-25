@@ -1201,6 +1201,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Platform {
 
 impl<A: Access<T>, T: CType> Transform<A, T> for Platform {
     type Broadcast = View<A, T>;
+    type Flip = Flip<A, T>;
     type Slice = Slice<A, T>;
     type Transpose = View<A, T>;
 
@@ -1214,6 +1215,19 @@ impl<A: Access<T>, T: CType> Transform<A, T> for Platform {
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.broadcast(access, shape, broadcast).map(AccessOp::wrap),
             Self::Host(host) => host.broadcast(access, shape, broadcast).map(AccessOp::wrap),
+        }
+    }
+
+    fn flip(
+        self,
+        access: A,
+        shape: Shape,
+        axis: usize,
+    ) -> Result<AccessOp<Self::Flip, Self>, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.flip(access, shape, axis).map(AccessOp::wrap),
+            Self::Host(host) => host.flip(access, shape, axis).map(AccessOp::wrap),
         }
     }
 
