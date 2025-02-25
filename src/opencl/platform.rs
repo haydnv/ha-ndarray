@@ -652,6 +652,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for OpenCL {
 
 impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
     type Broadcast = View<A, T>;
+    type Flip = Flip<A, T>;
     type Slice = Slice<A, T>;
     type Transpose = View<A, T>;
 
@@ -662,6 +663,15 @@ impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
         broadcast: Shape,
     ) -> Result<AccessOp<Self::Broadcast, Self>, Error> {
         View::broadcast(access, shape, broadcast).map(AccessOp::from)
+    }
+
+    fn flip(
+        self,
+        access: A,
+        shape: Shape,
+        axis: usize,
+    ) -> Result<AccessOp<Self::Flip, Self>, Error> {
+        Flip::new(access, shape, axis).map(AccessOp::from)
     }
 
     fn slice(

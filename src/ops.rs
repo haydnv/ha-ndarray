@@ -508,20 +508,14 @@ impl<L, R, IT, OT> From<host::ops::Dual<L, R, IT, OT>> for Dual<L, R, IT, OT> {
 }
 
 pub enum Flip<A, T> {
+    #[cfg(feature = "opencl")]
+    CL(opencl::ops::Flip<A, T>),
     Host(host::ops::Flip<A, T>),
-}
-
-impl<A, T> From<host::ops::Flip<A, T>> for Flip<A, T> {
-    fn from(op: host::ops::Flip<A, T>) -> Self {
-        Self::Host(op)
-    }
 }
 
 impl<A: Access<T>, T: CType> Op for Flip<A, T> {
     fn size(&self) -> usize {
-        match self {
-            Self::Host(op) => op.size(),
-        }
+        op_dispatch!(self, op, op.size())
     }
 }
 
@@ -529,17 +523,26 @@ impl<A: Access<T>, T: CType> Enqueue<Platform, T> for Flip<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        match self {
-            Self::Host(op) => Enqueue::<host::Host, T>::enqueue(op).map(Buffer::Host),
-        }
+        op_enqueue!(self, T)
     }
 }
 
 impl<A: Access<T>, T: CType> ReadValue<Platform, T> for Flip<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        match self {
-            Self::Host(op) => op.read_value(offset),
-        }
+        op_dispatch!(self, op, op.read_value(offset))
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T> From<opencl::ops::Flip<A, T>> for Flip<A, T> {
+    fn from(op: opencl::ops::Flip<A, T>) -> Self {
+        Self::CL(op)
+    }
+}
+
+impl<A, T> From<host::ops::Flip<A, T>> for Flip<A, T> {
+    fn from(op: host::ops::Flip<A, T>) -> Self {
+        Self::Host(op)
     }
 }
 
@@ -1028,6 +1031,55 @@ impl<A, IT, OT> From<host::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
 impl<A, IT, OT> From<opencl::ops::Unary<A, IT, OT>> for Unary<A, IT, OT> {
     fn from(op: opencl::ops::Unary<A, IT, OT>) -> Self {
         Self::CL(op)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct FlipSpec {
+    pub shape: Shape,
+    pub strides: Strides,
+    pub axis: usize,
+}
+
+impl FlipSpec {
+    pub fn new(shape: Shape, axis: usize) -> Result<Self, Error> {
+        if axis < shape.len() {
+            let strides = strides_for(&shape, shape.len()).collect();
+
+            Ok(Self {
+                shape,
+                strides,
+                axis,
+            })
+        } else {
+            Err(Error::Bounds(format!("shape {shape:?} has no axis {axis}")))
+        }
+    }
+
+    pub fn source_offset(&self, offset: usize) -> usize {
+        self.strides
+            .iter()
+            .copied()
+            .zip(self.shape.iter().copied())
+            .map(|(stride, dim)| {
+                if stride == 0 {
+                    0
+                } else {
+                    (offset / stride) % dim
+                }
+            }) // coord
+            .zip(self.strides.iter().copied())
+            .enumerate()
+            .map(|(x, (i, source_stride))| {
+                let i = if x == self.axis {
+                    self.shape[x] - i - 1
+                } else {
+                    i
+                };
+
+                i * source_stride
+            })
+            .sum::<usize>()
     }
 }
 

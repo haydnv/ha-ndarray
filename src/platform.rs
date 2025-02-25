@@ -1226,7 +1226,7 @@ impl<A: Access<T>, T: CType> Transform<A, T> for Platform {
     ) -> Result<AccessOp<Self::Flip, Self>, Error> {
         match self {
             #[cfg(feature = "opencl")]
-            Self::CL(cl) => todo!(),
+            Self::CL(cl) => cl.flip(access, shape, axis).map(AccessOp::wrap),
             Self::Host(host) => host.flip(access, shape, axis).map(AccessOp::wrap),
         }
     }

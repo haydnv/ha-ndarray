@@ -7,7 +7,7 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
-use crate::ops::{Enqueue, Op, ReadValue, SliceSpec, ViewSpec};
+use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
     strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
 };
@@ -467,30 +467,17 @@ where
 
 pub struct Flip<A, T> {
     source: A,
-    shape: Shape,
-    strides: Strides,
-    axis: usize,
+    spec: FlipSpec,
     dtype: PhantomData<T>,
 }
 
 impl<A, T> Flip<A, T> {
     pub fn new(source: A, shape: Shape, axis: usize) -> Result<Self, Error> {
-        if axis < shape.len() {
-            let strides = strides_for(&shape, shape.len()).collect();
-
-            Ok(Self {
-                source,
-                shape,
-                strides,
-                axis,
-                dtype: PhantomData,
-            })
-        } else {
-            Err(Error::Bounds(format!(
-                "shape {:?} has no axis {}",
-                shape, axis
-            )))
-        }
+        FlipSpec::new(shape, axis).map(|spec| Self {
+            source,
+            spec,
+            dtype: PhantomData,
+        })
     }
 }
 
@@ -504,7 +491,11 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Flip<A, T> {
+impl<A, T> Enqueue<Heap, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -515,7 +506,11 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Flip<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Flip<A, T> {
+impl<A, T> Enqueue<Stack, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -526,7 +521,11 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Flip<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, T> for Flip<A, T> {
+impl<A, T> Enqueue<Host, T> for Flip<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -541,27 +540,7 @@ where
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         debug_assert!(offset < self.size());
-
-        let offset = self
-            .strides
-            .iter()
-            .copied()
-            .zip(self.shape.iter().copied())
-            .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
-            }) // coord
-            .zip(self.strides.iter().copied())
-            .enumerate()
-            .map(|(x, (i, source_stride))| {
-                let i = if x == self.axis { self.shape[x] - i - 1 } else { i };
-                i * source_stride
-            })
-            .sum::<usize>();
-
+        let offset = self.spec.source_offset(offset);
         self.source.read_value(offset)
     }
 }
