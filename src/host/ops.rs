@@ -3,13 +3,15 @@ use std::iter;
 use std::marker::PhantomData;
 
 use frand::Rand;
+use number_general as ng;
 use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
 use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
-    strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Range, Shape, Strides,
+    strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Range, Real, Shape,
+    Strides,
 };
 
 use super::buffer::Buffer;
@@ -56,8 +58,9 @@ impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Heap, OT> for Cast<A, IT, OT
             .map(|slice| {
                 slice
                     .into_par_iter()
-                    .map(|n| n.to_f64())
-                    .map(OT::from_f64)
+                    .copied()
+                    .map(|n| n.into())
+                    .map(OT::cast_from)
                     .collect()
             })
     }
@@ -73,8 +76,9 @@ impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Stack, OT> for Cast<A, IT, O
             .map(|slice| {
                 slice
                     .into_iter()
-                    .map(|n| n.to_f64())
-                    .map(OT::from_f64)
+                    .copied()
+                    .map(|n| n.into())
+                    .map(OT::cast_from)
                     .collect()
             })
     }
@@ -92,8 +96,8 @@ impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<Host, OT> for Cast<A, IT, 
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| n.to_f64())
-            .map(OT::from_f64)
+            .map(|n| n.into())
+            .map(OT::cast_from)
     }
 }
 
@@ -157,19 +161,21 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
         }
     }
 
-    pub fn rem(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::rem,
-        }
-    }
-
     pub fn sub(left: L, right: R) -> Self {
         Self {
             left,
             right,
             zip: T::sub,
+        }
+    }
+}
+
+impl<L, R, T: Real> Dual<L, R, T, T> {
+    pub fn rem(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::rem,
         }
     }
 }
@@ -565,12 +571,12 @@ where
 
 pub struct Linear<T> {
     start: T,
-    step: f64,
+    step: T,
     size: usize,
 }
 
 impl<T> Linear<T> {
-    pub fn new(start: T, step: f64, size: usize) -> Self {
+    pub fn new(start: T, step: T, size: usize) -> Self {
         Self { start, step, size }
     }
 
@@ -579,7 +585,8 @@ impl<T> Linear<T> {
     where
         T: Number,
     {
-        T::add(self.start, T::from_f64((offset as f64) * self.step))
+        let offset = T::cast_from(ng::Number::from(offset as u64));
+        T::add(self.start, T::mul(offset, self.step))
     }
 }
 
@@ -593,14 +600,9 @@ impl<T: Number> Enqueue<Stack, T> for Linear<T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let start = self.start.to_f64();
-
         let buffer = (0..self.size)
             .into_iter()
-            .map(|i| i as f64)
-            .map(|i| i * self.step)
-            .map(|o| start + o)
-            .map(T::from_f64)
+            .map(|offset| self.value_at(offset))
             .collect();
 
         Ok(buffer)
@@ -921,7 +923,10 @@ impl<A, T: Number> Scalar<A, T, T> {
         Self::new(access, scalar, T::pow)
     }
 
-    pub fn rem(access: A, scalar: T) -> Self {
+    pub fn rem(access: A, scalar: T) -> Self
+    where
+        T: Real,
+    {
         Self::new(access, scalar, T::rem)
     }
 
@@ -1238,24 +1243,6 @@ impl<A, T> Reduce<A, T>
 where
     T: Number,
 {
-    pub fn max(access: A, stride: usize) -> Self {
-        Self {
-            access,
-            stride,
-            reduce: Number::max,
-            id: T::MIN,
-        }
-    }
-
-    pub fn min(access: A, stride: usize) -> Self {
-        Self {
-            access,
-            stride,
-            reduce: Number::min,
-            id: T::MAX,
-        }
-    }
-
     pub fn product(access: A, stride: usize) -> Self {
         Self {
             access,
@@ -1271,6 +1258,29 @@ where
             stride,
             reduce: T::add,
             id: T::ZERO,
+        }
+    }
+}
+
+impl<A, T> Reduce<A, T>
+where
+    T: Real,
+{
+    pub fn max(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Real::max,
+            id: T::MIN,
+        }
+    }
+
+    pub fn min(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Real::min,
+            id: T::MAX,
         }
     }
 }
@@ -1554,11 +1564,13 @@ impl<A: Access<T>, T: Number> Unary<A, T, T> {
             op: |n| T::from_float(n.to_float().ln()),
         }
     }
+}
 
+impl<A: Access<T>, T: Real> Unary<A, T, T> {
     pub fn round(access: A) -> Self {
         Self {
             access,
-            op: Number::round,
+            op: Real::round,
         }
     }
 }

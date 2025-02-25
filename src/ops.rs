@@ -6,8 +6,8 @@ use crate::buffer::Buffer;
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{
-    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number, Range, Shape,
-    Strides,
+    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number, Range, Real,
+    Shape, Strides,
 };
 
 macro_rules! op_dispatch {
@@ -170,7 +170,9 @@ where
 
     fn pow(self, arg: L, exp: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real;
 
     fn sub(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -192,7 +194,9 @@ where
 
     fn pow_scalar(self, arg: A, exp: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real;
 
     fn sub_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -248,7 +252,9 @@ where
 
     fn ln(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real;
 }
 
 pub trait ElementwiseUnaryBoolean<A, T>: PlatformInstance
@@ -314,9 +320,13 @@ pub trait ReduceAll<A, T>: PlatformInstance {
 
     fn any(self, access: A) -> Result<bool, Error>;
 
-    fn max(self, access: A) -> Result<T, Error>;
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real;
 
-    fn min(self, access: A) -> Result<T, Error>;
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real;
 
     fn product(self, access: A) -> Result<T, Error>;
 
@@ -326,9 +336,13 @@ pub trait ReduceAll<A, T>: PlatformInstance {
 pub trait ReduceAxes<A: Access<T>, T: Number>: PlatformInstance {
     type Op: ReadOp<Self, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real;
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real;
 
     fn product(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>;
 

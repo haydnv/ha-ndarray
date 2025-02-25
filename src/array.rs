@@ -8,7 +8,7 @@ use crate::ops::*;
 use crate::platform::PlatformInstance;
 use crate::{
     range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, Constant, Convert, Error,
-    Float, Number, Platform, Range, Shape,
+    Float, Number, Platform, Range, Real, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -504,14 +504,18 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a min-reduce operation over the given `axes`.
     fn min(
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a product-reduce operation over the given `axes`.
     fn product(
@@ -541,7 +545,10 @@ where
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxes::max(platform, access, stride)
         })
@@ -551,7 +558,10 @@ where
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxes::min(platform, access, stride)
         })
@@ -781,7 +791,9 @@ pub trait NDArrayUnary: NDArray + Sized {
     fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an integer rounding operation.
-    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 }
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
@@ -807,7 +819,10 @@ where
         self.apply(|platform, access| platform.ln(access))
     }
 
-    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.round(access))
     }
 }
@@ -1135,7 +1150,9 @@ pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn sub(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a modulo operation with the given `rhs`.
-    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 }
 
 impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
@@ -1198,7 +1215,10 @@ where
     fn rem(
         self,
         rhs: Array<T, R, P>,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("rem", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.rem(left, right))
     }
@@ -1242,7 +1262,9 @@ pub trait NDArrayMathScalar: NDArray + Sized {
     fn rem_scalar(
         self,
         rhs: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a scalar subtraction operation.
     fn sub_scalar(
@@ -1303,7 +1325,10 @@ where
     fn rem_scalar(
         self,
         rhs: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real,
+    {
         self.apply(|platform, left| platform.rem_scalar(left, rhs))
     }
 
@@ -1373,10 +1398,14 @@ where
 /// Array reduce operations
 pub trait NDArrayReduceAll: NDArrayRead {
     /// Return the maximum of all elements in this array.
-    fn max_all(self) -> Result<Self::DType, Error>;
+    fn max_all(self) -> Result<Self::DType, Error>
+    where
+        Self::DType: Real;
 
     /// Return the minimum of all elements in this array.
-    fn min_all(self) -> Result<Self::DType, Error>;
+    fn min_all(self) -> Result<Self::DType, Error>
+    where
+        Self::DType: Real;
 
     /// Return the product of all elements in this array.
     fn product_all(self) -> Result<Self::DType, Error>;
@@ -1391,11 +1420,17 @@ where
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
-    fn max_all(self) -> Result<Self::DType, Error> {
+    fn max_all(self) -> Result<Self::DType, Error>
+    where
+        T: Real,
+    {
         self.platform.max(self.access)
     }
 
-    fn min_all(self) -> Result<Self::DType, Error> {
+    fn min_all(self) -> Result<Self::DType, Error>
+    where
+        T: Real,
+    {
         self.platform.min(self.access)
     }
 

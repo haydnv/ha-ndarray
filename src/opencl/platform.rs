@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use number_general as ng;
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
@@ -14,7 +15,7 @@ use crate::ops::{
     LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{Axes, Constant, Error, Float, Number, Range, Shape};
+use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
 use super::ops::*;
 use super::programs;
@@ -271,7 +272,8 @@ impl<T: Number + PartialOrd> Construct<T> for OpenCL {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = T::sub(stop, start).to_f64() / size as f64;
+            let size_t = T::cast_from(ng::Number::from(size as u64));
+            let step = T::div(T::sub(stop, start), size_t);
             Linear::new(start, step, size).map(AccessOp::from)
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
@@ -451,7 +453,7 @@ where
         Dual::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
         Dual::rem(left, right).map(AccessOp::from)
     }
 
@@ -483,7 +485,7 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for OpenCL {
         Scalar::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
         Scalar::rem(left, right).map(AccessOp::from)
     }
 
@@ -559,7 +561,7 @@ impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for OpenCL {
         Unary::ln(access).map(AccessOp::from)
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
         Unary::round(access).map(AccessOp::from)
     }
 }
@@ -629,7 +631,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         Ok(result.into_par_iter().map(T::from_cl).any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error> where T: Real {
         let input = access.read()?.to_cl()?;
         let result = reduce_all::<T>(&*input, "max", T::MIN.to_cl())?;
         Ok(result
@@ -638,7 +640,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
             .reduce(|| T::MIN, T::max))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error> where T: Real {
         let input = access.read()?.to_cl()?;
         let result = reduce_all::<T>(&*input, "min", T::MAX.to_cl())?;
         Ok(result
@@ -669,11 +671,11 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
 impl<A: Access<T>, T: Number> ReduceAxes<A, T> for OpenCL {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
         Reduce::max(access, stride).map(AccessOp::from)
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> where T: Real {
         Reduce::min(access, stride).map(AccessOp::from)
     }
 

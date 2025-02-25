@@ -3,13 +3,12 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use frand::Rand;
+use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{
-    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Shape, Strides,
-};
+use crate::{strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Real, Shape, Strides};
 
 use super::platform::OpenCL;
 use super::{programs, TILE_SIZE, WG_SIZE};
@@ -67,8 +66,8 @@ impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<OpenCL, OT> for Cast<A, IT
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| n.to_f64())
-            .map(OT::from_f64)
+            .map(|n| n.into())
+            .map(OT::cast_from)
     }
 }
 
@@ -119,15 +118,17 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
         Self::new(left, right, program, T::pow)
     }
 
+    pub fn sub(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::TYPE, "sub")?;
+        Self::new(left, right, program, T::sub)
+    }
+}
+
+impl<L, R, T: Real> Dual<L, R, T, T> {
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
         let program = if T::IS_FLOAT { "fmod" } else { "mod" };
         let program = programs::elementwise::dual(T::TYPE, program)?;
         Self::new(left, right, program, T::rem)
-    }
-
-    pub fn sub(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "sub")?;
-        Self::new(left, right, program, T::sub)
     }
 }
 
@@ -700,19 +701,28 @@ where
 
 pub struct Linear<T> {
     start: T,
-    step: f64,
+    step: T,
     size: usize,
     program: Program,
 }
 
 impl<T: Number> Linear<T> {
-    pub fn new(start: T, step: f64, size: usize) -> Result<Self, Error> {
+    pub fn new(start: T, step: T, size: usize) -> Result<Self, Error> {
         programs::constructors::range(T::TYPE).map(|program| Self {
             start,
             step,
             size,
             program,
         })
+    }
+
+    #[inline]
+    fn value_at(&self, offset: usize) -> T
+    where
+        T: Number,
+    {
+        let offset = T::cast_from(ng::Number::from(offset as u64));
+        T::add(self.start, T::mul(offset, self.step))
     }
 }
 
@@ -751,7 +761,7 @@ impl<T: Number> Enqueue<OpenCL, T> for Linear<T> {
 
 impl<T: Number> ReadValue<OpenCL, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
-        Ok(T::add(self.start, T::from_f64((offset as f64) * self.step)))
+        Ok(self.value_at(offset))
     }
 }
 
@@ -897,26 +907,6 @@ impl<A, T: Number> Reduce<A, T> {
         })
     }
 
-    pub fn max(access: A, stride: usize) -> Result<Self, Error> {
-        Self::new(
-            access,
-            stride,
-            "max",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::max,
-            T::MIN,
-        )
-    }
-
-    pub fn min(access: A, stride: usize) -> Result<Self, Error> {
-        Self::new(
-            access,
-            stride,
-            "min",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::min,
-            T::MAX,
-        )
-    }
-
     pub fn product(access: A, stride: usize) -> Result<Self, Error> {
         Self::new(
             access,
@@ -999,6 +989,29 @@ impl<A, T: Number> Reduce<A, T> {
         unsafe { kernel.enq()? }
 
         Ok(output)
+    }
+}
+
+
+impl<A, T: Real> Reduce<A, T> {
+    pub fn max(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "max",
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::max,
+            T::MIN,
+        )
+    }
+
+    pub fn min(access: A, stride: usize) -> Result<Self, Error> {
+        Self::new(
+            access,
+            stride,
+            "min",
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::min,
+            T::MAX,
+        )
     }
 }
 
@@ -1101,13 +1114,16 @@ impl<A, T: Number> Scalar<A, T, T> {
         Self::new(access, scalar, "pow", T::pow)
     }
 
+    pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, "sub", T::sub)
+    }
+}
+
+
+impl<A, T: Real> Scalar<A, T, T> {
     pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
         let program = if T::IS_FLOAT { "fmod" } else { "mod" };
         Self::new(access, scalar, program, T::rem)
-    }
-
-    pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "sub", T::sub)
     }
 }
 

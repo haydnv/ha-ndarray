@@ -1,4 +1,6 @@
+use number_general as ng;
 use rayon::prelude::*;
+use safecast::CastInto;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
@@ -10,7 +12,7 @@ use crate::ops::{
     LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Shape};
+use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
 use super::buffer::Buffer;
 use super::ops::*;
@@ -61,14 +63,20 @@ where
             .map(|slice| slice.iter().copied().any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.iter().copied().reduce(T::max).expect("max"))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
@@ -134,14 +142,20 @@ where
             .map(|slice| slice.into_par_iter().copied().any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.into_par_iter().copied().reduce(|| T::MIN, T::max))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
@@ -218,7 +232,8 @@ impl<T: Number + PartialOrd> Construct<T> for Host {
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = T::sub(stop, start).to_f64() / size as f64;
+            let size_t = ng::Number::from(size as u64).cast_into();
+            let step = T::div(T::sub(stop, start), size_t);
             Ok(Linear::new(start, step, size).into())
         } else {
             Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
@@ -414,7 +429,10 @@ where
         Ok(Dual::pow(arg, exp).into())
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Dual::rem(left, right).into())
     }
 
@@ -446,7 +464,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Host {
         Ok(Scalar::pow(arg, exp).into())
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::rem(left, right).into())
     }
 
@@ -522,7 +543,10 @@ impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Host {
         Ok(Unary::ln(access).into())
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Unary::round(access).into())
     }
 }
@@ -594,14 +618,20 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for Host {
         }
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::Heap(heap) => heap.max(access),
             Self::Stack(stack) => stack.max(access),
         }
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::Heap(heap) => heap.min(access),
             Self::Stack(stack) => stack.min(access),
@@ -626,11 +656,17 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for Host {
 impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Host {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Reduce::max(access, stride).into())
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Reduce::min(access, stride).into())
     }
 

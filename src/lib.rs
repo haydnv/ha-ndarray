@@ -2,6 +2,9 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
+use number_general as ng;
+use safecast::CastFrom;
+
 pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as coord;
 pub use smallvec::smallvec as range;
@@ -59,13 +62,7 @@ cl_type!(u32, Self, "uint");
 cl_type!(u64, Self, "ulong");
 
 /// A numeric type supported by ha-ndarray
-pub trait Number: CLType + Default {
-    /// The maximum value of this data type.
-    const MAX: Self;
-
-    /// The minimum value of this data type.
-    const MIN: Self;
-
+pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
     /// The zero value of this data type.
     const ZERO: Self;
 
@@ -83,9 +80,6 @@ pub trait Number: CLType + Default {
     /// Construct an instance of this type from its OpenCL type
     #[cfg(feature = "opencl")]
     fn from_cl(value: Self::CType) -> Self;
-
-    /// Construct an instance of this type from a [`f64`].
-    fn from_f64(float: f64) -> Self;
 
     /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
@@ -107,48 +101,25 @@ pub trait Number: CLType + Default {
     /// Subtract two instances of this type.
     fn sub(self, other: Self) -> Self;
 
-    /// Compute the remainder of `self.div(other)`.
-    fn rem(self, other: Self) -> Self;
-
-    // comparisons
-
-    /// Return the minimum of two values of this type.
-    fn min(l: Self, r: Self) -> Self;
-
-    /// Return the maximum of two values of this type.
-    fn max(l: Self, r: Self) -> Self;
-
-    // logarithms
-
     /// Raise this value to the power of the given `exp`onent.
     fn pow(self, exp: Self) -> Self;
 
     // conversions
 
-    /// Round this value to the nearest integer.
-    fn round(self) -> Self;
-
     /// Return this value as an instance of its OpenCL type.
     #[cfg(feature = "opencl")]
     fn to_cl(&self) -> Self::CType;
-
-    /// Return the minimum of two values of this type.
-    fn to_f64(self) -> f64;
 
     /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
 }
 
 macro_rules! number {
-    ($t:ty, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $rem:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
+    ($t:ty, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
         impl Number for $t {
-            const MAX: Self = <$t>::MAX;
-
-            const MIN: Self = <$t>::MIN;
+            const ONE: Self = $one;
 
             const ZERO: Self = $zero;
-
-            const ONE: Self = $one;
 
             const IS_FLOAT: bool = $is_float;
 
@@ -157,10 +128,6 @@ macro_rules! number {
             #[cfg(feature = "opencl")]
             fn from_cl(value: Self) -> Self {
                 value
-            }
-
-            fn from_f64(float: f64) -> Self {
-                float as $t
             }
 
             fn from_float(float: $float) -> Self {
@@ -187,33 +154,13 @@ macro_rules! number {
                 $sub(self, other)
             }
 
-            fn rem(self, other: Self) -> Self {
-                $rem(self, other)
-            }
-
-            fn min(l: Self, r: Self) -> Self {
-                $cmp_min(l, r)
-            }
-
-            fn max(l: Self, r: Self) -> Self {
-                $cmp_max(l, r)
-            }
-
             fn pow(self, exp: Self) -> Self {
                 ($pow)(self, exp)
-            }
-
-            fn round(self) -> Self {
-                $round(self)
             }
 
             #[cfg(feature = "opencl")]
             fn to_cl(&self) -> Self::CType {
                 *self
-            }
-
-            fn to_f64(self) -> f64 {
-                self as f64
             }
 
             fn to_float(self) -> $float {
@@ -234,11 +181,7 @@ number!(
     Div::div,
     Mul::mul,
     Sub::sub,
-    Rem::rem,
-    f32::round,
-    f32::powf,
-    max_f32,
-    min_f32
+    f32::powf
 );
 
 number!(
@@ -252,11 +195,7 @@ number!(
     Div::div,
     Mul::mul,
     Sub::sub,
-    Rem::rem,
-    f64::round,
-    f64::powf,
-    max_f64,
-    min_f64
+    f64::powf
 );
 
 number!(
@@ -270,11 +209,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e as i32) as i8,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e as i32) as i8
 );
 
 number!(
@@ -288,11 +223,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e as i32) as i16,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e as i32) as i16
 );
 
 number!(
@@ -306,11 +237,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e) as i32,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e) as i32
 );
 
 number!(
@@ -324,14 +251,10 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
     |a, e| f64::powi(
         a as f64,
         i32::try_from(e).unwrap_or_else(|_| if e >= 0 { i32::MAX } else { i32::MIN })
-    ) as i64,
-    Ord::max,
-    Ord::min
+    ) as i64
 );
 
 number!(
@@ -345,11 +268,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u8::pow(a, e as u32),
-    Ord::max,
-    Ord::min
+    |a, e| u8::pow(a, e as u32)
 );
 
 number!(
@@ -363,11 +282,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u16::pow(a, e as u32),
-    Ord::max,
-    Ord::min
+    |a, e| u16::pow(a, e as u32)
 );
 
 number!(
@@ -381,11 +296,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u32::pow(a, e),
-    Ord::max,
-    Ord::min
+    |a, e| u32::pow(a, e)
 );
 
 number!(
@@ -399,47 +310,75 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX)),
-    Ord::max,
-    Ord::min
+    |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX))
 );
+
+/// A real-valued [`Number`]
+pub trait Real: Number {
+    /// The maximum value of this data type.
+    const MAX: Self;
+
+    /// The minimum value of this data type.
+    const MIN: Self;
+
+    /// Return the maximum of the given values.
+    fn max(l: Self, r: Self) -> Self;
+
+    /// Return the maximum of the given values.
+    fn min(l: Self, r: Self) -> Self;
+
+    /// Compute the remainder of `self.div(other)`.
+    fn rem(self, other: Self) -> Self;
+
+    /// Round this value to the nearest integer.
+    fn round(self) -> Self;
+}
+
+macro_rules! real {
+    ($t:ty, $rem:expr, $ord:expr, $round:expr) => {
+        impl Real for $t {
+            const MAX: Self = <$t>::MAX;
+
+            const MIN: Self = <$t>::MIN;
+
+            fn max(l: Self, r: Self) -> $t {
+                match $ord(&l, &r) {
+                    Ordering::Greater | Ordering::Equal => l,
+                    Ordering::Less => r,
+                }
+            }
+
+            fn min(l: Self, r: Self) -> $t {
+                match $ord(&l, &r) {
+                    Ordering::Less | Ordering::Equal => l,
+                    Ordering::Greater => r,
+                }
+            }
+
+            fn rem(self, other: Self) -> Self {
+                $rem(self, other)
+            }
+
+            fn round(self) -> Self {
+                $round(self)
+            }
+        }
+    };
+}
+
+real!(f32, Rem::rem, f32::total_cmp, f32::round);
+real!(f64, Rem::rem, f64::total_cmp, f64::round);
+real!(i8, Self::wrapping_rem, Ord::cmp, id);
+real!(i16, Self::wrapping_rem, Ord::cmp, id);
+real!(i32, Self::wrapping_rem, Ord::cmp, id);
+real!(i64, Self::wrapping_rem, Ord::cmp, id);
+real!(u8, Self::wrapping_rem, Ord::cmp, id);
+real!(u16, Self::wrapping_rem, Ord::cmp, id);
+real!(u32, Self::wrapping_rem, Ord::cmp, id);
+real!(u64, Self::wrapping_rem, Ord::cmp, id);
 
 fn id<T>(this: T) -> T {
     this
-}
-
-fn max_f32(l: f32, r: f32) -> f32 {
-    match l.total_cmp(&r) {
-        Ordering::Less => r,
-        Ordering::Equal => l,
-        Ordering::Greater => l,
-    }
-}
-
-fn min_f32(l: f32, r: f32) -> f32 {
-    match l.total_cmp(&r) {
-        Ordering::Less => l,
-        Ordering::Equal => l,
-        Ordering::Greater => r,
-    }
-}
-
-fn max_f64(l: f64, r: f64) -> f64 {
-    match l.total_cmp(&r) {
-        Ordering::Less => r,
-        Ordering::Equal => l,
-        Ordering::Greater => l,
-    }
-}
-
-fn min_f64(l: f64, r: f64) -> f64 {
-    match l.total_cmp(&r) {
-        Ordering::Less => l,
-        Ordering::Equal => l,
-        Ordering::Greater => r,
-    }
 }
 
 /// A floating-point [`Number`]
@@ -488,10 +427,6 @@ pub trait Float: Number<Float = Self> {
 
     /// Return the hyperbolic tangent of this [`Float`] (in radians).
     fn tanh(self) -> Self;
-
-    // utility
-    /// Cast this [`Float`] to an [`f64`].
-    fn to_f64(self) -> f64;
 }
 
 macro_rules! float_type {
@@ -551,10 +486,6 @@ macro_rules! float_type {
 
             fn tanh(self) -> Self {
                 <$t>::tanh(self)
-            }
-
-            fn to_f64(self) -> f64 {
-                self as f64
             }
         }
     };
