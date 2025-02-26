@@ -1,6 +1,11 @@
+use std::iter;
+
 use num_complex::Complex;
 
-use crate::{Access, Array, Axes, Error, NDArray, NDArrayFourier, NDArrayTransform};
+use crate::{
+    Access, AccessBorrow, Array, Axes, AxisRange, Error, NDArray, NDArrayFourier, NDArrayTransform,
+    Number, Range,
+};
 
 /// Fast Fourier Transform, an alias of [`NDArrayFourier::fft`]
 pub fn fft<T, A>(
@@ -76,4 +81,46 @@ where
             data.shape()
         )))
     }
+}
+
+/// Shift the primary frequency component to the center of the given axis.
+pub fn shift<'a, T, A, B, X>(
+    data: &'a Array<T, A>,
+    axis: X,
+) -> Result<Array<T, impl Access<T>>, Error>
+where
+    T: Number,
+    A: AccessBorrow<'a, T, B>,
+    B: Access<T> + 'a,
+    X: Into<Option<usize>>,
+{
+    let axis = axis.into().unwrap_or_else(|| data.ndim() - 1);
+
+    if axis < data.ndim() {
+        let dim = data.shape()[axis];
+        let pivot = dim / 2 + 1;
+
+        let range = slice_range(data.shape(), axis, 0..pivot);
+        let _left = data.as_ref().slice(range)?;
+
+        let range = slice_range(data.shape(), axis, pivot..dim);
+        let _right = data.as_ref().slice(range)?;
+
+        // TODO: let data = Array::concat([left, right], axis);
+
+        Ok(data.as_ref())
+    } else {
+        Err(Error::Bounds(format!("{data:?} has no axis {axis}")))
+    }
+}
+
+#[inline]
+fn slice_range(shape: &[usize], axis: usize, range: std::ops::Range<usize>) -> Range {
+    shape[..axis]
+        .into_iter()
+        .copied()
+        .map(|dim| 0..dim)
+        .map(AxisRange::from)
+        .chain(iter::once(range.into()))
+        .collect()
 }
