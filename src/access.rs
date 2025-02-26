@@ -40,6 +40,24 @@ pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
+/// Borrow an accessor immutably
+pub trait AccessBorrow<'a, T, B>: Access<T>
+where
+    T: CType,
+    B: Access<T> + 'a,
+{
+    fn borrow(&'a self) -> B;
+}
+
+/// Borrow an accessor mutably
+pub trait AccessBorrowMut<'a, T, B>: Access<T>
+where
+    T: CType,
+    B: AccessMut<T> + 'a,
+{
+    fn borrow_mut(&'a mut self) -> B;
+}
+
 /// A struct which provides n-dimensional access to an underlying [`BufferInstance`]
 pub struct AccessBuf<B> {
     buffer: B,
@@ -54,26 +72,6 @@ impl<B: Clone> Clone for AccessBuf<B> {
 }
 
 impl<B> AccessBuf<B> {
-    /// Construct an [`AccessBuf`] from a mutable reference to this buffer.
-    pub fn as_mut<RB: ?Sized>(&mut self) -> AccessBuf<&mut RB>
-    where
-        B: BorrowMut<RB>,
-    {
-        AccessBuf {
-            buffer: self.buffer.borrow_mut(),
-        }
-    }
-
-    /// Construct an [`AccessBuf`] from a reference to this buffer.
-    pub fn as_ref<RB: ?Sized>(&self) -> AccessBuf<&RB>
-    where
-        B: Borrow<RB>,
-    {
-        AccessBuf {
-            buffer: self.buffer.borrow(),
-        }
-    }
-
     /// Borrow the underlying [`BufferInstance`] of this [`AccessBuf`].
     pub fn inner(&self) -> &B {
         &self.buffer
@@ -87,6 +85,32 @@ impl<B> AccessBuf<B> {
     /// Destructure this [`AccessBuf`] into its underlying [`BufferInstance`].
     pub fn into_inner(self) -> B {
         self.buffer
+    }
+}
+
+impl<'a, T, B, RB> AccessBorrow<'a, T, AccessBuf<&'a RB>> for AccessBuf<B>
+where
+    T: CType,
+    B: BufferInstance<T> + Borrow<RB>,
+    &'a RB: BufferInstance<T>,
+{
+    fn borrow(&'a self) -> AccessBuf<&'a RB> {
+        AccessBuf {
+            buffer: self.buffer.borrow(),
+        }
+    }
+}
+
+impl<'a, T, B, RB> AccessBorrowMut<'a, T, AccessBuf<&'a mut RB>> for AccessBuf<B>
+where
+    T: CType,
+    B: BufferInstance<T> + BorrowMut<RB>,
+    &'a mut RB: BufferMut<T>,
+{
+    fn borrow_mut(&'a mut self) -> AccessBuf<&'a mut RB> {
+        AccessBuf {
+            buffer: self.buffer.borrow_mut(),
+        }
     }
 }
 
@@ -147,6 +171,32 @@ impl<B: fmt::Debug> fmt::Debug for AccessBuf<B> {
 pub struct AccessOp<O, P> {
     op: O,
     platform: PhantomData<P>,
+}
+
+impl<'a, T, O, P> AccessBorrow<'a, T, &'a Self> for AccessOp<O, P>
+where
+    T: CType,
+    O: ReadOp<P, T>,
+    P: PlatformInstance,
+    Self: Access<T>,
+    &'a Self: Access<T>,
+{
+    fn borrow(&'a self) -> &'a Self {
+        self
+    }
+}
+
+impl<'a, T, O, P> AccessBorrowMut<'a, T, &'a mut Self> for AccessOp<O, P>
+where
+    T: CType,
+    O: ReadOp<P, T> + Write<P, T>,
+    P: PlatformInstance,
+    Self: AccessMut<T>,
+    &'a mut Self: AccessMut<T>,
+{
+    fn borrow_mut(&'a mut self) -> &'a mut Self {
+        self
+    }
 }
 
 impl<O, P> AccessOp<O, P> {
