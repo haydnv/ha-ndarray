@@ -3,7 +3,7 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
 #[cfg(feature = "complex")]
-use num_complex::Complex;
+use num_complex::{Complex32, Complex64};
 use number_general as ng;
 use safecast::CastFrom;
 
@@ -22,6 +22,8 @@ pub use array::{
     NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean,
     NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
 };
+#[cfg(feature = "complex")]
+pub use array::NDArrayComplex;
 pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
 pub use host::StackVec;
 pub use platform::*;
@@ -57,11 +59,19 @@ macro_rules! cl_type {
 }
 
 #[cfg(feature = "complex")]
-impl CLType for Complex<f32> {
+impl CLType for Complex32 {
     #[cfg(feature = "opencl")]
     type CType = Self;
 
     const TYPE: &'static str = "float2";
+}
+
+#[cfg(feature = "complex")]
+impl CLType for Complex64 {
+    #[cfg(feature = "opencl")]
+    type CType = Self;
+
+    const TYPE: &'static str = "double2";
 }
 
 cl_type!(f32, Self, "float");
@@ -85,6 +95,9 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     /// Whether this is a floating-point data type.
     const IS_FLOAT: bool;
+
+    /// Whether this is a read-valued data type.
+    const IS_REAL: bool;
 
     /// The absolute value type of this [`Number`].
     type Abs: Number;
@@ -132,13 +145,15 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 }
 
 macro_rules! number {
-    ($t:ty, $is_float:expr, $abs_t:ty, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
+    ($t:ty, $is_float:expr, $is_real:expr, $abs_t:ty, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
         impl Number for $t {
             const ONE: Self = $one;
 
             const ZERO: Self = $zero;
 
             const IS_FLOAT: bool = $is_float;
+
+            const IS_REAL: bool = $is_float;
 
             type Abs = $abs_t;
 
@@ -191,22 +206,41 @@ macro_rules! number {
 
 #[cfg(feature = "complex")]
 number!(
-    Complex<f32>,
+    Complex32,
     true,
+    false,
     f32,
-    Complex::new(1., 0.),
-    Complex::new(0., 0.),
+    Complex32::new(1., 0.),
+    Complex32::new(0., 0.),
     Self,
-    Complex::<f32>::norm,
+    Complex32::norm,
     Add::add,
     Div::div,
     Mul::mul,
     Sub::sub,
-    Complex::powc
+    Complex32::powc
+);
+
+#[cfg(feature = "complex")]
+number!(
+    Complex64,
+    true,
+    false,
+    f64,
+    Complex64::new(1., 0.),
+    Complex64::new(0., 0.),
+    Self,
+    Complex64::norm,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Complex64::powc
 );
 
 number!(
     f32,
+    true,
     true,
     Self,
     1.,
@@ -223,6 +257,7 @@ number!(
 number!(
     f64,
     true,
+    true,
     Self,
     1.,
     0.,
@@ -238,6 +273,7 @@ number!(
 number!(
     i8,
     false,
+    true,
     Self,
     1,
     0,
@@ -253,6 +289,7 @@ number!(
 number!(
     i16,
     false,
+    true,
     Self,
     1,
     0,
@@ -268,6 +305,7 @@ number!(
 number!(
     i32,
     false,
+    true,
     Self,
     1,
     0,
@@ -283,6 +321,7 @@ number!(
 number!(
     i64,
     false,
+    true,
     Self,
     1,
     0,
@@ -301,6 +340,7 @@ number!(
 number!(
     u8,
     false,
+    true,
     Self,
     1,
     0,
@@ -316,6 +356,7 @@ number!(
 number!(
     u16,
     false,
+    true,
     Self,
     1,
     0,
@@ -331,6 +372,7 @@ number!(
 number!(
     u32,
     false,
+    true,
     Self,
     1,
     0,
@@ -346,6 +388,7 @@ number!(
 number!(
     u64,
     false,
+    true,
     Self,
     1,
     0,
@@ -533,11 +576,49 @@ macro_rules! float_type {
 }
 
 #[cfg(feature = "complex")]
-float_type!(Complex::<f32>, |_| false, |_| false);
+float_type!(Complex32, |_| false, |_| false);
 #[cfg(feature = "complex")]
-float_type!(Complex::<f64>, |_| false, |_| false);
+float_type!(Complex64, |_| false, |_| false);
 float_type!(f32, f32::is_infinite, f32::is_nan);
 float_type!(f64, f64::is_infinite, f64::is_nan);
+
+#[cfg(feature = "complex")]
+/// A complex [`Number`]
+pub trait Complex: Float<Abs = Self::Real> {
+    type Real: Float + Real;
+
+    fn angle(self) -> Self::Real;
+
+    fn im(self) -> Self::Real;
+
+    fn re(self) -> Self::Real;
+}
+
+#[cfg(feature = "complex")]
+macro_rules! complex_type {
+    ($t:ty, $r:ty) => {
+        impl Complex for $t {
+            type Real = $r;
+
+            fn angle(self) -> $r {
+                Self::arg(self)
+            }
+
+            fn im(self) -> $r {
+                self.im
+            }
+
+            fn re(self) -> $r {
+                self.re
+            }
+        }
+    };
+}
+
+#[cfg(feature = "complex")]
+complex_type!(Complex32, f32);
+#[cfg(feature = "complex")]
+complex_type!(Complex64, f64);
 
 /// An array math error
 pub enum Error {

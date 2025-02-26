@@ -8,7 +8,12 @@ use smallvec::SmallVec;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
-use crate::ops::{Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform};
+use crate::ops::{
+    Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast,
+    ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
+    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
+    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+};
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
 

@@ -6,9 +6,11 @@ use crate::buffer::Buffer;
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{
-    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number, Range, Real,
-    Shape, Strides,
+    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number,
+    Range, Real, Shape, Strides,
 };
+#[cfg(feature = "complex")]
+use crate::Complex;
 
 macro_rules! op_dispatch {
     ($this:expr, $op:ident, $call:expr) => {
@@ -273,6 +275,21 @@ where
     type Op: ReadOp<Self, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+#[cfg(feature = "complex")]
+pub trait ElementwiseUnaryComplex<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: Complex,
+{
+    type Op: ReadOp<Self, T::Real>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
 pub trait GatherCond<A, L, R, T>: PlatformInstance

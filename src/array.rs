@@ -6,6 +6,8 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
+#[cfg(feature = "complex")]
+use crate::Complex;
 use crate::{
     range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, Constant, Convert, Error,
     Float, Number, Platform, Range, Real, Shape,
@@ -1141,6 +1143,46 @@ where
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.ne_scalar(access, other))
+    }
+}
+
+#[cfg(feature = "complex")]
+/// Complex array properties
+pub trait NDArrayComplex: NDArray + Sized
+where
+    Self::DType: Complex,
+{
+    type Output: Access<<Self::DType as Complex>::Real>;
+
+    /// Calculate the angle in the complex plane elementwise.
+    fn angle(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Return the real part of this array elementwise.
+    fn re(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Return the imaginary part of this array elementwise.
+    fn im(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+#[cfg(feature = "complex")]
+impl<T, A, P> NDArrayComplex for Array<T, A, P>
+where
+    T: Complex,
+    A: Access<T>,
+    P: ElementwiseUnaryComplex<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn angle(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.angle(access))
+    }
+
+    fn re(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.re(access))
+    }
+
+    fn im(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.im(access))
     }
 }
 
