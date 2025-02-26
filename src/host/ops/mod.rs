@@ -18,6 +18,9 @@ use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
 use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
 
+#[cfg(feature = "complex")]
+pub mod complex;
+
 macro_rules! host_enqueue {
     ($this:expr, $cond:expr, $t:ty) => {
         if $cond {
@@ -490,15 +493,15 @@ where
 }
 
 pub struct Flip<A, T> {
-    source: A,
+    access: A,
     spec: FlipSpec,
     dtype: PhantomData<T>,
 }
 
 impl<A, T> Flip<A, T> {
-    pub fn new(source: A, shape: Shape, axis: usize) -> Result<Self, Error> {
+    pub fn new(access: A, shape: Shape, axis: usize) -> Result<Self, Error> {
         FlipSpec::new(shape, axis).map(|spec| Self {
-            source,
+            access,
             spec,
             dtype: PhantomData,
         })
@@ -511,7 +514,7 @@ where
     T: Number,
 {
     fn size(&self) -> usize {
-        self.source.size()
+        self.access.size()
     }
 }
 
@@ -565,7 +568,7 @@ where
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         debug_assert!(offset < self.size());
         let offset = self.spec.source_offset(offset);
-        self.source.read_value(offset)
+        self.access.read_value(offset)
     }
 }
 

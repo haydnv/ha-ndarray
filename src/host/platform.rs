@@ -563,6 +563,24 @@ impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Host {
     }
 }
 
+#[cfg(feature = "complex")]
+impl<A, T> crate::ops::complex::Fourier<A, num_complex::Complex<T>> for Host
+where
+    A: Access<num_complex::Complex<T>>,
+    T: rustfft::FftNum,
+    num_complex::Complex<T>: crate::Complex,
+{
+    type Op = complex::FFT<A, num_complex::Complex<T>>;
+
+    fn fft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        complex::FFT::fft(access, dim).map(AccessOp::from)
+    }
+
+    fn ifft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        complex::FFT::ifft(access, dim).map(AccessOp::from)
+    }
+}
+
 impl<L, R, T> LinAlgDual<L, R, T> for Host
 where
     L: Access<T>,

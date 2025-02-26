@@ -1169,7 +1169,7 @@ impl<T, A, P> NDArrayComplex for Array<T, A, P>
 where
     T: Complex,
     A: Access<T>,
-    P: ElementwiseUnaryComplex<A, T>,
+    P: complex::ElementwiseUnaryComplex<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
 
@@ -1183,6 +1183,50 @@ where
 
     fn im(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.im(access))
+    }
+}
+
+#[cfg(feature = "complex")]
+/// Fourier transforms
+pub trait NDArrayFourier: NDArray + Sized
+where
+    Self::DType: Complex,
+{
+    type Output: Access<Self::DType>;
+
+    /// Calculate the Fourier transform of the last dimension of this array.
+    fn fft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Calculate the Fourier transform of the last dimension of this array.
+    fn ifft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+#[cfg(feature = "complex")]
+impl<A, P> NDArrayFourier for Array<num_complex::Complex32, A, P>
+where
+    A: Access<num_complex::Complex32>,
+    P: complex::Fourier<A, num_complex::Complex32>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn fft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        let dim = self
+            .shape
+            .last()
+            .copied()
+            .ok_or_else(|| Error::Bounds("a scalar value has no Fourier transform".into()))?;
+
+        self.apply(|platform, access| platform.fft(access, dim))
+    }
+
+    fn ifft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        let dim = self
+            .shape
+            .last()
+            .copied()
+            .ok_or_else(|| Error::Bounds("a scalar value has no Fourier transform".into()))?;
+
+        self.apply(|platform, access| platform.ifft(access, dim))
     }
 }
 

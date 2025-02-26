@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 all = ["freqfs", "opencl", "stream"]
-complex = ["num-complex"]
+complex = ["num-complex", "rustfft"]
 freqfs = ["freqfs/stream", "stream"]
 opencl = ["memoize", "ocl"]
 stream = ["destream", "futures"]
@@ -35,6 +35,7 @@ number-general = "0.13"
 num_cpus = "1.16"
 ocl = { version = "0.19", optional = true }
 rayon = "1.10"
+rustfft = { version = "6.2", optional = true }
 safecast = "0.2"
 smallvec = "1.13"
 transpose = "0.2"
