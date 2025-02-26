@@ -31,6 +31,8 @@ pub use platform::*;
 mod access;
 mod array;
 mod buffer;
+#[cfg(feature = "complex")]
+pub mod fft;
 pub mod host;
 #[cfg(feature = "opencl")]
 pub mod opencl;

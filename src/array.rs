@@ -1202,10 +1202,11 @@ where
 }
 
 #[cfg(feature = "complex")]
-impl<A, P> NDArrayFourier for Array<num_complex::Complex32, A, P>
+impl<A, T, P> NDArrayFourier for Array<num_complex::Complex<T>, A, P>
 where
-    A: Access<num_complex::Complex32>,
-    P: complex::Fourier<A, num_complex::Complex32>,
+    A: Access<num_complex::Complex<T>>,
+    num_complex::Complex<T>: Complex,
+    P: complex::Fourier<A, num_complex::Complex<T>>,
 {
     type Output = AccessOp<P::Op, P>;
 
