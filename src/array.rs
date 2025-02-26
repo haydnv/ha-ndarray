@@ -1,4 +1,3 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -264,59 +263,33 @@ where
 }
 
 // references
-impl<T, B, P> Array<T, AccessBuf<B>, P>
+impl<T, A, P> Array<T, A, P>
 where
     T: Number,
-    B: BufferInstance<T>,
+    A: Access<T>,
     P: PlatformInstance,
 {
-    pub fn as_mut<RB: ?Sized>(&mut self) -> Array<T, AccessBuf<&mut RB>, P>
+    pub fn as_mut<'a, B>(&'a mut self) -> Array<T, B, P>
     where
-        B: BorrowMut<RB>,
+        A: AccessBorrowMut<'a, T, B>,
+        B: AccessMut<T> + 'a,
     {
         Array {
             shape: Shape::from_slice(&self.shape),
-            access: self.access.as_mut(),
+            access: AccessBorrowMut::borrow_mut(&mut self.access),
             platform: self.platform,
             dtype: PhantomData,
         }
     }
 
-    pub fn as_ref<RB: ?Sized>(&self) -> Array<T, AccessBuf<&RB>, P>
+    pub fn as_ref<'a, B>(&'a self) -> Array<T, B, P>
     where
-        B: Borrow<RB>,
+        A: AccessBorrow<'a, T, B>,
+        B: Access<T> + 'a,
     {
         Array {
             shape: Shape::from_slice(&self.shape),
-            access: self.access.as_ref(),
-            platform: self.platform,
-            dtype: PhantomData,
-        }
-    }
-}
-
-impl<T, O, P> Array<T, AccessOp<O, P>, P>
-where
-    T: Number,
-    O: Enqueue<P, T>,
-    P: PlatformInstance,
-{
-    pub fn as_mut<'a>(&'a mut self) -> Array<T, &'a mut AccessOp<O, P>, P>
-    where
-        O: Write<P, T>,
-    {
-        Array {
-            shape: Shape::from_slice(&self.shape),
-            access: &mut self.access,
-            platform: self.platform,
-            dtype: PhantomData,
-        }
-    }
-
-    pub fn as_ref(&self) -> Array<T, &AccessOp<O, P>, P> {
-        Array {
-            shape: Shape::from_slice(&self.shape),
-            access: &self.access,
+            access: AccessBorrow::borrow(&self.access),
             platform: self.platform,
             dtype: PhantomData,
         }
