@@ -9,7 +9,8 @@ use rayon::prelude::*;
 use crate::access::Access;
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
-    strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
+    strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Platform, Range, Shape,
+    Strides,
 };
 
 use super::buffer::Buffer;
@@ -263,6 +264,16 @@ where
         }
 
         Ok(buffer.into())
+    }
+}
+
+impl<A, T> ReadValue<Host, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        ReadValue::<Platform, T>::read_value(self, offset)
     }
 }
 

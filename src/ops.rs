@@ -68,7 +68,17 @@ pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
-pub trait Construct<T: CType>: PlatformInstance {
+pub trait ConstructConcat<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: ReadOp<Self, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+pub trait ConstructRange<T: CType>: PlatformInstance {
     type Range: Enqueue<Self, T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;

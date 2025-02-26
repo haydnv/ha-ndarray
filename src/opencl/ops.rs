@@ -2,13 +2,17 @@ use std::borrow::BorrowMut;
 use std::fmt;
 use std::marker::PhantomData;
 
-use super::platform::OpenCL;
-use super::{programs, TILE_SIZE, WG_SIZE};
-use crate::access::{Access, AccessBuf, AccessMut};
-use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
 use frand::Rand;
 use ocl::{Buffer, Kernel, Program, Queue};
+
+use crate::access::{Access, AccessBuf, AccessMut};
+use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
+use crate::{
+    strides_for, Axes, BufferConverter, CType, Error, Float, Platform, Range, Shape, Strides,
+};
+
+use super::platform::OpenCL;
+use super::{programs, TILE_SIZE, WG_SIZE};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -92,6 +96,16 @@ where
         }
 
         Ok(buffer)
+    }
+}
+
+impl<A, T> ReadValue<OpenCL, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        ReadValue::<Platform, T>::read_value(self, offset)
     }
 }
 

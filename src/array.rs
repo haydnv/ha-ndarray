@@ -209,9 +209,71 @@ where
 }
 
 // op constructors
+impl<T, A, P> Array<T, AccessOp<Concat<A, T>, P>, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ConstructConcat<A, T, Op = Concat<A, T>>,
+{
+    pub fn concat(arrays: Vec<Array<T, A, P>>, axis: usize) -> Result<Self, Error> {
+        let mut shape = if arrays.is_empty() {
+            Err(Error::Bounds(
+                "tried to concatenate an empty list of arrays".into(),
+            ))
+        } else {
+            Ok(Shape::from_slice(arrays[0].shape()))
+        }?;
+
+        #[inline]
+        fn compatible(l: &[usize], r: &[usize], axis: usize) -> bool {
+            if l.len() != r.len() {
+                return false;
+            }
+
+            for x in 0..axis {
+                if l[x] != r[x] {
+                    return false;
+                }
+            }
+
+            for x in (axis + 1)..r.len() {
+                if l[x] != r[x] {
+                    return false;
+                }
+            }
+
+            true
+        }
+
+        let mut data = Vec::with_capacity(arrays.len());
+
+        for array in arrays {
+            let dim = if compatible(array.shape(), &shape, axis) {
+                Ok(array.shape()[axis])
+            } else {
+                Err(Error::Bounds(format!(
+                    "cannot concatenate {array:?} to {shape:?}"
+                )))
+            }?;
+
+            shape[axis] += dim;
+            data.push(array.into_access());
+        }
+
+        let size = shape.iter().product();
+        let platform = P::select(size);
+        platform.concat(data).map(|access| Self {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
 impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
-    P: Construct<T>,
+    P: ConstructRange<T>,
 {
     pub fn range(start: T, stop: T, shape: Shape) -> Result<Self, Error> {
         let size = shape.iter().product();
