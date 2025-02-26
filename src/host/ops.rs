@@ -7,7 +7,7 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
-use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
+use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
     strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides,
 };
@@ -247,30 +247,6 @@ where
     }
 }
 
-pub struct Concat<A, T> {
-    data: Vec<A>,
-    dtype: PhantomData<T>,
-}
-
-impl<A, T> Concat<A, T> {
-    pub fn new(data: Vec<A>) -> Self {
-        Self {
-            data,
-            dtype: PhantomData,
-        }
-    }
-}
-
-impl<A, T> Op for Concat<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    fn size(&self) -> usize {
-        self.data.iter().map(|access| access.size()).sum()
-    }
-}
-
 impl<A, T> Enqueue<Host, T> for Concat<A, T>
 where
     A: Access<T>,
@@ -281,35 +257,12 @@ where
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let mut buffer = Vec::with_capacity(self.size());
 
-        for access in self.data.iter() {
+        for access in self.data() {
             let data = access.read()?.to_slice()?;
             buffer.par_extend(data.into_par_iter().copied());
         }
 
         Ok(buffer.into())
-    }
-}
-
-impl<A, T> ReadValue<Host, T> for Concat<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    fn read_value(&self, offset: usize) -> Result<T, Error> {
-        let mut start = 0;
-
-        for access in &self.data {
-            let end = start + access.size();
-            if offset < end {
-                return access.read_value(offset - start);
-            }
-            start = end;
-        }
-
-        Err(Error::Bounds(format!(
-            "offset {} is out of bounds for a concatenation of size",
-            self.size()
-        )))
     }
 }
 

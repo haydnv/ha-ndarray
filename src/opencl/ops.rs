@@ -2,13 +2,13 @@ use std::borrow::BorrowMut;
 use std::fmt;
 use std::marker::PhantomData;
 
-use frand::Rand;
-use ocl::{Buffer, Kernel, Program, Queue};
-use crate::access::{Access, AccessBuf, AccessMut};
-use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
-use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
 use super::platform::OpenCL;
 use super::{programs, TILE_SIZE, WG_SIZE};
+use crate::access::{Access, AccessBuf, AccessMut};
+use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
+use crate::{strides_for, Axes, BufferConverter, CType, Error, Float, Range, Shape, Strides};
+use frand::Rand;
+use ocl::{Buffer, Kernel, Program, Queue};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -68,27 +68,6 @@ impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<OpenCL, OT> for Cast<A, IT, 
     }
 }
 
-pub struct Concat<A, T> {
-    data: Vec<A>,
-    dtype: PhantomData<T>,
-}
-
-impl<A, T> Concat<A, T> {
-    pub fn new(access: Vec<A>) -> Self {
-        Self { data: access, dtype: PhantomData }
-    }
-}
-
-impl<A, T> Op for Concat<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    fn size(&self) -> usize {
-        self.data.iter().map(|access| access.size()).sum()
-    }
-}
-
 impl<A, T> Enqueue<OpenCL, T> for Concat<A, T>
 where
     A: Access<T>,
@@ -105,36 +84,14 @@ where
             .build()?;
 
         let mut offset = 0;
-        for access in &self.data {
+        for access in self.data() {
             let data = access.read()?.to_cl()?;
-            data.copy(&mut buffer, Some(offset), Some(data.len())).enq()?;
+            data.copy(&mut buffer, Some(offset), Some(data.len()))
+                .enq()?;
             offset += data.len();
         }
 
         Ok(buffer)
-    }
-}
-
-impl<A, T> ReadValue<OpenCL, T> for Concat<A, T>
-where
-    A: Access<T>,
-    T: CType,
-{
-    fn read_value(&self, offset: usize) -> Result<T, Error> {
-        let mut start = 0;
-
-        for access in &self.data {
-            let end = start + access.size();
-            if offset < end {
-                return access.read_value(offset - start);
-            }
-            start = end;
-        }
-
-        Err(Error::Bounds(format!(
-            "offset {} is out of bounds for a concatenation of size",
-            self.size()
-        )))
     }
 }
 
