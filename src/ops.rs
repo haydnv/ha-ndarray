@@ -9,6 +9,7 @@ use crate::{
     host, range_shape, strides_for, Axes, AxisRange, BufferConverter, CType, Error, Range, Shape,
     Strides,
 };
+use std::marker::PhantomData;
 
 macro_rules! op_dispatch {
     ($this:expr, $op:ident, $call:expr) => {
@@ -67,7 +68,17 @@ pub trait Write<P: PlatformInstance, T: CType>: Enqueue<P, T> {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error>;
 }
 
-pub trait Construct<T: CType>: PlatformInstance {
+pub trait ConstructConcat<A, T>: PlatformInstance
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Op: ReadOp<Self, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error>;
+}
+
+pub trait ConstructRange<T: CType>: PlatformInstance {
     type Range: Enqueue<Self, T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error>;
@@ -390,6 +401,73 @@ impl<A, IT, OT> From<host::ops::Cast<A, IT, OT>> for Cast<A, IT, OT> {
 impl<A, IT, OT> From<opencl::ops::Cast<A, IT, OT>> for Cast<A, IT, OT> {
     fn from(op: opencl::ops::Cast<A, IT, OT>) -> Cast<A, IT, OT> {
         Self::CL(op)
+    }
+}
+
+pub struct Concat<A, T> {
+    data: Vec<A>,
+    dtype: PhantomData<T>,
+}
+
+impl<A, T> Concat<A, T> {
+    pub fn new(data: Vec<A>) -> Self {
+        Self {
+            data,
+            dtype: PhantomData,
+        }
+    }
+
+    pub(crate) fn data(&self) -> &[A] {
+        &self.data
+    }
+}
+
+impl<A, T> Op for Concat<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn size(&self) -> usize {
+        self.data.iter().map(|access| access.size()).sum()
+    }
+}
+
+impl<A, T> Enqueue<Platform, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        match Platform::select(self.size()) {
+            #[cfg(feature = "opencl")]
+            Platform::CL(_) => Enqueue::<opencl::OpenCL, T>::enqueue(self).map(Buffer::from),
+            Platform::Host(_) => Enqueue::<host::Host, T>::enqueue(self).map(Buffer::from),
+        }
+    }
+}
+
+impl<A, T> ReadValue<Platform, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: CType,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        let mut start = 0;
+
+        for access in &self.data {
+            let end = start + access.size();
+            if offset < end {
+                return access.read_value(offset - start);
+            }
+            start = end;
+        }
+
+        Err(Error::Bounds(format!(
+            "offset {} is out of bounds for a concatenation of size",
+            self.size()
+        )))
     }
 }
 

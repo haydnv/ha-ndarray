@@ -105,7 +105,7 @@ impl<T: CType> Constant<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<T: CType> Construct<T> for Platform {
+impl<T: CType> ConstructRange<T> for Platform {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
@@ -116,7 +116,7 @@ impl<T: CType> Construct<T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: CType> Construct<T> for Platform {
+impl<T: CType> ConstructRange<T> for Platform {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
