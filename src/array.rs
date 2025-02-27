@@ -209,60 +209,88 @@ where
 }
 
 // op constructors
-impl<T, A, P> Array<T, AccessOp<Concat<A, T>, P>, P>
+impl<T, A, P> Array<T, A, P>
 where
     T: CType,
     A: Access<T>,
-    P: ConstructConcat<A, T, Op = Concat<A, T>>,
+    P: Transform<A, T>,
+    P: ConstructConcat<AccessOp<<P as Transform<A, T>>::Transpose, P>, T>,
+    P: Transform<
+        AccessOp<<P as ConstructConcat<AccessOp<<P as Transform<A, T>>::Transpose, P>, T>>::Op, P>,
+        T,
+    >,
 {
-    pub fn concat(arrays: Vec<Array<T, A, P>>, axis: usize) -> Result<Self, Error> {
-        let mut shape = if arrays.is_empty() {
-            Err(Error::Bounds(
-                "tried to concatenate an empty list of arrays".into(),
-            ))
+    pub fn transpose_concat(
+        arrays: Vec<Self>,
+        axis: usize,
+    ) -> Result<Array<T, impl Access<T>, P>, Error> {
+        let permutation = if let Some(array) = arrays.first() {
+            if axis < array.ndim() {
+                let mut permutation: Axes = (0..array.ndim()).into_iter().collect();
+                permutation.swap(0, axis);
+                Ok(permutation)
+            } else {
+                Err(Error::Bounds(format!("{array:?} has no axis {axis}")))
+            }
         } else {
-            Ok(Shape::from_slice(arrays[0].shape()))
+            Err(Error::Bounds(
+                "cannot concatenate an empty list of arrays".into(),
+            ))
         }?;
 
-        #[inline]
-        fn compatible(l: &[usize], r: &[usize], axis: usize) -> bool {
-            if l.len() != r.len() {
-                return false;
-            }
+        let arrays = arrays
+            .into_iter()
+            .map(|array| array.transpose(permutation.clone()))
+            .collect::<Result<Vec<Array<T, _, P>>, Error>>()?;
 
-            for x in 0..axis {
-                if l[x] != r[x] {
-                    return false;
+        Array::concat(arrays)?.transpose(permutation)
+    }
+}
+
+impl<T, A, P> Array<T, A, P>
+where
+    T: CType,
+    A: Access<T>,
+    P: ConstructConcat<A, T>,
+{
+    pub fn concat(arrays: Vec<Self>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
+        let mut array_iter = arrays.iter();
+        let first = array_iter.next();
+
+        if let Some(first) = first {
+            let mut shape = Shape::from_slice(first.shape());
+            while let Some(next) = array_iter.next() {
+                if next.ndim() != shape.len() {
+                    return Err(Error::Bounds(format!(
+                        "cannot concatenate shapes {:?} and {:?}",
+                        shape,
+                        next.shape()
+                    )));
+                } else {
+                    shape[0] += next.shape()[0];
                 }
             }
 
-            for x in (axis + 1)..r.len() {
-                if l[x] != r[x] {
-                    return false;
-                }
-            }
-
-            true
+            Self::concat_inner(arrays, shape)
+        } else {
+            Err(Error::Bounds(
+                "cannot concatenate an empty list of arrays".into(),
+            ))
         }
+    }
 
-        let mut data = Vec::with_capacity(arrays.len());
+    fn concat_inner(
+        arrays: Vec<Array<T, A, P>>,
+        shape: Shape,
+    ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
+        let platform = P::select(shape.iter().product());
 
-        for array in arrays {
-            let dim = if compatible(array.shape(), &shape, axis) {
-                Ok(array.shape()[axis])
-            } else {
-                Err(Error::Bounds(format!(
-                    "cannot concatenate {array:?} to {shape:?}"
-                )))
-            }?;
+        let data = arrays
+            .into_iter()
+            .map(|array| array.into_access())
+            .collect();
 
-            shape[axis] += dim;
-            data.push(array.into_access());
-        }
-
-        let size = shape.iter().product();
-        let platform = P::select(size);
-        platform.concat(data).map(|access| Self {
+        platform.concat(data).map(|access| Array {
             shape,
             access,
             platform,
