@@ -9,10 +9,11 @@ use smallvec::SmallVec;
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
-    Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast,
-    ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
-    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
-    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+    Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
+    ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig,
+    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random,
+    ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
@@ -267,7 +268,19 @@ impl<T: Number> Convert<T> for OpenCL {
     }
 }
 
-impl<T: Number + PartialOrd> Construct<T> for OpenCL {
+impl<A, T> ConstructConcat<A, T> for OpenCL
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Op = Concat<A, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Concat::new(data).into())
+    }
+}
+
+impl<T: Number + PartialOrd> ConstructRange<T> for OpenCL {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {

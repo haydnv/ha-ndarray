@@ -6,10 +6,11 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
-    Construct, ElementwiseAbs, ElementwiseBoolean, ElementwiseBooleanScalar, ElementwiseCast,
-    ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
-    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
-    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+    Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
+    ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig,
+    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random,
+    ReduceAll, ReduceAxes, Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Real, Shape};
@@ -227,7 +228,19 @@ impl From<Stack> for Host {
     }
 }
 
-impl<T: Number + PartialOrd> Construct<T> for Host {
+impl<A, T> ConstructConcat<A, T> for Host
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Op = Concat<A, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Concat::new(data).into())
+    }
+}
+
+impl<T: Number + PartialOrd> ConstructRange<T> for Host {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {

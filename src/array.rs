@@ -211,9 +211,99 @@ where
 }
 
 // op constructors
+impl<T, A, P> Array<T, A, P>
+where
+    T: Number,
+    A: Access<T>,
+    P: Transform<A, T>,
+    P: ConstructConcat<AccessOp<<P as Transform<A, T>>::Transpose, P>, T>,
+    P: Transform<
+        AccessOp<<P as ConstructConcat<AccessOp<<P as Transform<A, T>>::Transpose, P>, T>>::Op, P>,
+        T,
+    >,
+{
+    pub fn transpose_concat(
+        arrays: Vec<Self>,
+        axis: usize,
+    ) -> Result<Array<T, impl Access<T>, P>, Error> {
+        let permutation = if let Some(array) = arrays.first() {
+            if axis < array.ndim() {
+                let mut permutation: Axes = (0..array.ndim()).into_iter().collect();
+                permutation.swap(0, axis);
+                Ok(permutation)
+            } else {
+                Err(Error::Bounds(format!("{array:?} has no axis {axis}")))
+            }
+        } else {
+            Err(Error::Bounds(
+                "cannot concatenate an empty list of arrays".into(),
+            ))
+        }?;
+
+        let arrays = arrays
+            .into_iter()
+            .map(|array| array.transpose(permutation.clone()))
+            .collect::<Result<Vec<Array<T, _, P>>, Error>>()?;
+
+        Array::concat(arrays)?.transpose(permutation)
+    }
+}
+
+impl<T, A, P> Array<T, A, P>
+where
+    T: Number,
+    A: Access<T>,
+    P: ConstructConcat<A, T>,
+{
+    pub fn concat(arrays: Vec<Self>) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
+        let mut array_iter = arrays.iter();
+        let first = array_iter.next();
+
+        if let Some(first) = first {
+            let mut shape = Shape::from_slice(first.shape());
+            while let Some(next) = array_iter.next() {
+                if next.ndim() != shape.len() {
+                    return Err(Error::Bounds(format!(
+                        "cannot concatenate shapes {:?} and {:?}",
+                        shape,
+                        next.shape()
+                    )));
+                } else {
+                    shape[0] += next.shape()[0];
+                }
+            }
+
+            Self::concat_inner(arrays, shape)
+        } else {
+            Err(Error::Bounds(
+                "cannot concatenate an empty list of arrays".into(),
+            ))
+        }
+    }
+
+    fn concat_inner(
+        arrays: Vec<Array<T, A, P>>,
+        shape: Shape,
+    ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
+        let platform = P::select(shape.iter().product());
+
+        let data = arrays
+            .into_iter()
+            .map(|array| array.into_access())
+            .collect();
+
+        platform.concat(data).map(|access| Array {
+            shape,
+            access,
+            platform,
+            dtype: PhantomData,
+        })
+    }
+}
+
 impl<T: Number, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
-    P: Construct<T>,
+    P: ConstructRange<T>,
 {
     pub fn range(start: T, stop: T, shape: Shape) -> Result<Self, Error> {
         let size = shape.iter().product();

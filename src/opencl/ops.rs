@@ -7,9 +7,10 @@ use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
 use crate::access::{Access, AccessBuf, AccessMut};
-use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
+use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
-    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Range, Real, Shape, Strides,
+    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Platform, Range, Real, Shape,
+    Strides,
 };
 
 use super::platform::OpenCL;
@@ -70,6 +71,43 @@ impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<OpenCL, OT> for Cast<A, IT
             .read_value(offset)
             .map(|n| n.into())
             .map(OT::cast_from)
+    }
+}
+
+impl<A, T> Enqueue<OpenCL, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Buffer = Buffer<T::CType>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let queue = OpenCL::queue(self.size(), &[])?;
+
+        let mut buffer = Buffer::builder()
+            .queue(queue.clone())
+            .len(self.size())
+            .build()?;
+
+        let mut offset = 0;
+        for access in self.data() {
+            let data = access.read()?.to_cl()?;
+            data.copy(&mut buffer, Some(offset), Some(data.len()))
+                .enq()?;
+            offset += data.len();
+        }
+
+        Ok(buffer)
+    }
+}
+
+impl<A, T> ReadValue<OpenCL, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: Number,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        ReadValue::<Platform, T>::read_value(self, offset)
     }
 }
 

@@ -8,10 +8,10 @@ use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
-use crate::ops::{Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
+use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
 use crate::{
-    strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Range, Real, Shape,
-    Strides,
+    strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real,
+    Shape, Strides,
 };
 
 use super::buffer::Buffer;
@@ -101,244 +101,6 @@ impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<Host, OT> for Cast<A, IT, 
             .read_value(offset)
             .map(|n| n.into())
             .map(OT::cast_from)
-    }
-}
-
-pub struct Dual<L, R, IT, OT> {
-    left: L,
-    right: R,
-    zip: fn(IT, IT) -> OT,
-}
-
-impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
-where
-    L: Access<IT>,
-    R: Access<IT>,
-    IT: Number,
-    OT: Number,
-{
-    fn size(&self) -> usize {
-        self.left.size()
-    }
-}
-
-// arithmetic
-impl<L, R, T: Number> Dual<L, R, T, T> {
-    pub fn add(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::add,
-        }
-    }
-
-    pub fn div(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::div,
-        }
-    }
-
-    pub fn log(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |a, b| T::from_float(a.to_float().log(b.to_float())),
-        }
-    }
-
-    pub fn mul(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::mul,
-        }
-    }
-
-    pub fn pow(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::pow,
-        }
-    }
-
-    pub fn sub(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::sub,
-        }
-    }
-}
-
-impl<L, R, T: Real> Dual<L, R, T, T> {
-    pub fn rem(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: T::rem,
-        }
-    }
-}
-
-// boolean operations
-impl<L, R, T: Number> Dual<L, R, T, u8> {
-    pub fn and(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 },
-        }
-    }
-
-    pub fn or(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 },
-        }
-    }
-
-    pub fn xor(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |l, r| {
-                if (l != T::ZERO) ^ (r != T::ZERO) {
-                    1
-                } else {
-                    0
-                }
-            },
-        }
-    }
-}
-
-// comparison
-impl<L, R, T: Number> Dual<L, R, T, u8> {
-    pub fn eq(left: L, right: R) -> Self
-    where
-        T: PartialEq,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l == r { 1 } else { 0 },
-        }
-    }
-
-    pub fn ge(left: L, right: R) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l >= r { 1 } else { 0 },
-        }
-    }
-
-    pub fn gt(left: L, right: R) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l > r { 1 } else { 0 },
-        }
-    }
-
-    pub fn le(left: L, right: R) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l <= r { 1 } else { 0 },
-        }
-    }
-
-    pub fn lt(left: L, right: R) -> Self
-    where
-        T: PartialOrd,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l < r { 1 } else { 0 },
-        }
-    }
-
-    pub fn ne(left: L, right: R) -> Self
-    where
-        T: PartialEq,
-    {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l != r { 1 } else { 0 },
-        }
-    }
-}
-
-impl<L, R, IT, OT> Enqueue<Stack, OT> for Dual<L, R, IT, OT>
-where
-    L: Access<IT>,
-    R: Access<IT>,
-    IT: Number,
-    OT: Number,
-{
-    type Buffer = StackVec<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let left = self.left.read()?.to_slice()?;
-        let right = self.right.read()?.to_slice()?;
-        exec_dual(self.zip, left, right)
-    }
-}
-
-impl<L, R, IT, OT> Enqueue<Heap, OT> for Dual<L, R, IT, OT>
-where
-    L: Access<IT>,
-    R: Access<IT>,
-    IT: Number,
-    OT: Number,
-{
-    type Buffer = Vec<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let (left, right) = try_join_read(&self.left, &self.right)?;
-        exec_dual_parallel(self.zip, left, right)
-    }
-}
-
-impl<L, R, IT, OT> Enqueue<Host, OT> for Dual<L, R, IT, OT>
-where
-    L: Access<IT>,
-    R: Access<IT>,
-    IT: Number,
-    OT: Number,
-{
-    type Buffer = Buffer<OT>;
-
-    fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
-    }
-}
-
-impl<L, R, IT, OT> ReadValue<Host, OT> for Dual<L, R, IT, OT>
-where
-    L: Access<IT>,
-    R: Access<IT>,
-    IT: Number,
-    OT: Number,
-{
-    fn read_value(&self, offset: usize) -> Result<OT, Error> {
-        try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
     }
 }
 
@@ -489,6 +251,258 @@ where
         } else {
             Ok(or_else)
         }
+    }
+}
+
+impl<A, T> Enqueue<Host, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Buffer = Buffer<T>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let mut buffer = Vec::with_capacity(self.size());
+
+        for access in self.data() {
+            let data = access.read()?.to_slice()?;
+            buffer.par_extend(data.into_par_iter().copied());
+        }
+
+        Ok(buffer.into())
+    }
+}
+
+impl<A, T> ReadValue<Host, T> for Concat<A, T>
+where
+    A: Access<T>,
+    T: Number,
+{
+    fn read_value(&self, offset: usize) -> Result<T, Error> {
+        ReadValue::<Platform, T>::read_value(self, offset)
+    }
+}
+
+pub struct Dual<L, R, IT, OT> {
+    left: L,
+    right: R,
+    zip: fn(IT, IT) -> OT,
+}
+
+// arithmetic
+impl<L, R, T: Number> Dual<L, R, T, T> {
+    pub fn add(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::add,
+        }
+    }
+
+    pub fn div(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::div,
+        }
+    }
+
+    pub fn log(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |a, b| T::from_float(a.to_float().log(b.to_float())),
+        }
+    }
+
+    pub fn mul(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::mul,
+        }
+    }
+
+    pub fn pow(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::pow,
+        }
+    }
+
+    pub fn rem(left: L, right: R) -> Self
+    where
+        T: Real,
+    {
+        Self {
+            left,
+            right,
+            zip: T::pow,
+        }
+    }
+
+    pub fn sub(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::sub,
+        }
+    }
+}
+
+// boolean operations
+impl<L, R, T: Number> Dual<L, R, T, u8> {
+    pub fn and(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 },
+        }
+    }
+
+    pub fn or(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 },
+        }
+    }
+
+    pub fn xor(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| {
+                if (l != T::ZERO) ^ (r != T::ZERO) {
+                    1
+                } else {
+                    0
+                }
+            },
+        }
+    }
+}
+
+// comparison
+impl<L, R, T: Number> Dual<L, R, T, u8> {
+    pub fn eq(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l == r { 1 } else { 0 },
+        }
+    }
+
+    pub fn ne(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l != r { 1 } else { 0 },
+        }
+    }
+}
+
+impl<L, R, T: Number + PartialOrd> Dual<L, R, T, u8> {
+    pub fn ge(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l >= r { 1 } else { 0 },
+        }
+    }
+
+    pub fn gt(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l > r { 1 } else { 0 },
+        }
+    }
+
+    pub fn le(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l <= r { 1 } else { 0 },
+        }
+    }
+
+    pub fn lt(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l < r { 1 } else { 0 },
+        }
+    }
+}
+
+impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: Number,
+    OT: Number,
+{
+    fn size(&self) -> usize {
+        self.left.size()
+    }
+}
+
+impl<L, R, IT, OT> Enqueue<Stack, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: Number,
+    OT: Number,
+{
+    type Buffer = StackVec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let left = self.left.read()?.to_slice()?;
+        let right = self.right.read()?.to_slice()?;
+        exec_dual(self.zip, left, right)
+    }
+}
+
+impl<L, R, IT, OT> Enqueue<Heap, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: Number,
+    OT: Number,
+{
+    type Buffer = Vec<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        let (left, right) = try_join_read(&self.left, &self.right)?;
+        exec_dual_parallel(self.zip, left, right)
+    }
+}
+
+impl<L, R, IT, OT> Enqueue<Host, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: Number,
+    OT: Number,
+{
+    type Buffer = Buffer<OT>;
+
+    fn enqueue(&self) -> Result<Self::Buffer, Error> {
+        host_enqueue!(self, self.size() < VEC_MIN_SIZE, OT)
+    }
+}
+
+impl<L, R, IT, OT> ReadValue<Host, OT> for Dual<L, R, IT, OT>
+where
+    L: Access<IT>,
+    R: Access<IT>,
+    IT: Number,
+    OT: Number,
+{
+    fn read_value(&self, offset: usize) -> Result<OT, Error> {
+        try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
     }
 }
 
