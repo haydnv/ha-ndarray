@@ -83,7 +83,7 @@ where
     }
 }
 
-/// Shift the primary frequency component to the center of the given axis.
+/// Shift the primary frequency component to the center of the given axis, or invert a shift.
 pub fn shift<'a, T, A, B, X>(
     data: &'a Array<T, A>,
     axis: X,
@@ -101,14 +101,12 @@ where
         let pivot = dim / 2 + 1;
 
         let range = slice_range(data.shape(), axis, 0..pivot);
-        let _left = data.as_ref().slice(range)?;
+        let left = data.as_ref().slice(range)?;
 
         let range = slice_range(data.shape(), axis, pivot..dim);
-        let _right = data.as_ref().slice(range)?;
+        let right = data.as_ref().slice(range)?;
 
-        // TODO: let data = Array::concat([left, right], axis);
-
-        Ok(data.as_ref())
+        Array::transpose_concat(vec![left, right], axis)
     } else {
         Err(Error::Bounds(format!("{data:?} has no axis {axis}")))
     }

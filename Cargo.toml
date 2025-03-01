@@ -15,7 +15,7 @@ categories = ["data-structures", "hardware-support", "mathematics"]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-all = ["freqfs", "opencl", "stream"]
+all = ["complex", "freqfs", "opencl", "stream"]
 complex = ["num-complex", "rustfft"]
 freqfs = ["freqfs/stream", "stream"]
 opencl = ["memoize", "ocl"]

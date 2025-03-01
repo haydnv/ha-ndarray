@@ -105,6 +105,37 @@ impl<T: Number> Constant<T> for Platform {
 }
 
 #[cfg(not(feature = "opencl"))]
+impl<A, T> ConstructConcat<A, T> for Platform
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Op = Concat<A, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.concat(data).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl<A, T> ConstructConcat<A, T> for Platform
+where
+    A: Access<T>,
+    T: Number,
+{
+    type Op = Concat<A, T>;
+
+    fn concat(self, data: Vec<A>) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.concat(data).map(AccessOp::wrap),
+            Self::Host(host) => host.concat(data).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(not(feature = "opencl"))]
 impl<T: Number + PartialOrd> ConstructRange<T> for Platform {
     type Range = Linear<T>;
 
@@ -949,6 +980,52 @@ impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Platform {
         match self {
             Self::CL(cl) => cl.not(access).map(AccessOp::wrap),
             Self::Host(host) => host.not(access).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(all(feature = "complex", not(feature = "opencl")))]
+impl<A, T> complex::Fourier<A, num_complex::Complex<T>> for Platform
+where
+    A: Access<num_complex::Complex<T>>,
+    T: rustfft::FftNum,
+    num_complex::Complex<T>: crate::Complex,
+{
+    type Op = complex::FFT<A, num_complex::Complex<T>>;
+
+    fn fft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.fft(access, dim).map(AccessOp::wrap),
+        }
+    }
+
+    fn ifft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::Host(host) => host.ifft(access, dim).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(all(feature = "complex", feature = "opencl"))]
+impl<A, T> complex::Fourier<A, num_complex::Complex<T>> for Platform
+where
+    A: Access<num_complex::Complex<T>>,
+    T: rustfft::FftNum,
+    num_complex::Complex<T>: crate::Complex,
+{
+    type Op = complex::FFT<A, num_complex::Complex<T>>;
+
+    fn fft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(_cl) => Err(Error::Unsupported("OpenCL FFT".into())),
+            Self::Host(host) => host.fft(access, dim).map(AccessOp::wrap),
+        }
+    }
+
+    fn ifft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            Self::CL(_cl) => Err(Error::Unsupported("OpenCL IFFT".into())),
+            Self::Host(host) => host.ifft(access, dim).map(AccessOp::wrap),
         }
     }
 }

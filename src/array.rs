@@ -62,10 +62,9 @@ impl<T, A, P> Array<T, A, P> {
         axes.sort();
         axes.dedup();
 
-        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
-        let size = shape.iter().product::<usize>();
+        let platform = P::select(self.size());
         let stride = axes.iter().copied().map(|x| self.shape[x]).product();
-        let platform = P::select(size);
+        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
 
         let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
         let access = (op)(self.platform, access, stride)?;
