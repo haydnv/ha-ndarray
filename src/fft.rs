@@ -32,12 +32,9 @@ where
 }
 
 /// Two-dimensional Fast Fourier Transform
-#[cfg(feature = "complex")]
-pub fn fft2<T, A>(
-    data: Array<Complex<T>, A>,
-) -> Result<Array<Complex<T>, impl Access<Complex<T>>>, Error>
+pub fn fft2<T, A>(data: Array<Complex<T>, A>) -> Result<ArrayAccess<Complex<T>>, Error>
 where
-    A: Access<Complex<T>>,
+    A: Access<Complex<T>> + 'static,
     T: rustfft::FftNum,
     Complex<T>: crate::Complex,
 {
@@ -49,6 +46,7 @@ where
             .transpose(permutation.clone())?
             .fft()?
             .transpose(permutation)
+            .map(ArrayAccess::from)
     } else {
         Err(Error::Bounds(format!(
             "array of shape {:?} has less than two dimensions",
@@ -58,12 +56,9 @@ where
 }
 
 /// Inverse two-dimensional Fast Fourier Transform
-#[cfg(feature = "complex")]
-pub fn ifft2<T, A>(
-    data: Array<Complex<T>, A>,
-) -> Result<Array<Complex<T>, impl Access<Complex<T>>>, Error>
+pub fn ifft2<T, A>(data: Array<Complex<T>, A>) -> Result<ArrayAccess<Complex<T>>, Error>
 where
-    A: Access<Complex<T>>,
+    A: Access<Complex<T>> + 'static,
     T: rustfft::FftNum,
     Complex<T>: crate::Complex,
 {
@@ -75,6 +70,7 @@ where
             .ifft()?
             .transpose(permutation)?
             .ifft()
+            .map(ArrayAccess::from)
     } else {
         Err(Error::Bounds(format!(
             "array of shape {:?} has less than two dimensions",
