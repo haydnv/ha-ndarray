@@ -3,7 +3,7 @@ use std::iter;
 use num_complex::Complex;
 
 use crate::{
-    Access, AccessBorrow, Array, Axes, AxisRange, Error, NDArray, NDArrayFourier, NDArrayTransform,
+    Access, Array, ArrayAccess, Axes, AxisRange, Error, NDArray, NDArrayFourier, NDArrayTransform,
     Number, Range,
 };
 
@@ -84,14 +84,12 @@ where
 }
 
 /// Shift the primary frequency component to the center of the given axis, or invert a shift.
-pub fn shift<'a, T, A, B, X>(
-    data: &'a Array<T, A>,
+pub fn shift<'a, T, X>(
+    data: ArrayAccess<T>,
     axis: X,
-) -> Result<Array<T, impl Access<T>>, Error>
+) -> Result<Array<T, impl Access<T> + 'a>, Error>
 where
     T: Number,
-    A: AccessBorrow<'a, T, B>,
-    B: Access<T> + 'a,
     X: Into<Option<usize>>,
 {
     let axis = axis.into().unwrap_or_else(|| data.ndim() - 1);
@@ -101,10 +99,10 @@ where
         let pivot = dim / 2 + 1;
 
         let range = slice_range(data.shape(), axis, 0..pivot);
-        let left = data.as_ref().slice(range)?;
+        let left = data.clone().slice(range)?;
 
         let range = slice_range(data.shape(), axis, pivot..dim);
-        let right = data.as_ref().slice(range)?;
+        let right = data.clone().slice(range)?;
 
         Array::transpose_concat(vec![left, right], axis)
     } else {

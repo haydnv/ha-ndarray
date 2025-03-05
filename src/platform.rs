@@ -158,7 +158,11 @@ impl<T: Number + PartialOrd> ConstructRange<T> for Platform {
     }
 }
 
-impl<A, T> ElementwiseAbs<A, T> for Platform where A: Access<T>, T: Number {
+impl<A, T> ElementwiseAbs<A, T> for Platform
+where
+    A: Access<T>,
+    T: Number,
+{
     type Op = Unary<A, T, T::Abs>;
 
     fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
