@@ -49,7 +49,7 @@ impl PlatformInstance for Platform {
     }
 }
 
-#[cfg(not(feature = "opencl"))]
+#[cfg(not(feature = "opencl"))] // TODO: remove these redundant impl-level compilation directives
 impl PlatformInstance for Platform {
     fn select(size_hint: usize) -> Self {
         Self::Host(host::Host::select(size_hint))
@@ -154,6 +154,18 @@ impl<T: Number + PartialOrd> ConstructRange<T> for Platform {
         match self {
             Self::CL(cl) => cl.range(start, stop, size).map(AccessOp::wrap),
             Self::Host(host) => host.range(start, stop, size).map(AccessOp::wrap),
+        }
+    }
+}
+
+impl<A, T> ElementwiseAbs<A, T> for Platform where A: Access<T>, T: Number {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        match self {
+            #[cfg(feature = "opencl")]
+            Self::CL(cl) => cl.abs(access).map(AccessOp::wrap),
+            Self::Host(host) => host.abs(access).map(AccessOp::wrap),
         }
     }
 }
