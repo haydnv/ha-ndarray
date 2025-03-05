@@ -11,13 +11,16 @@ where
     A: Access<T>,
     T: Complex,
 {
-    type Op: ReadOp<Self, T::Real>;
+    type Real: ReadOp<Self, T::Real>;
+    type Complex: ReadOp<Self, T>;
 
-    fn angle(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error>;
 
-    fn re(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error>;
 
-    fn im(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error>;
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error>;
 }
 
 pub trait Fourier<A, T>: PlatformInstance

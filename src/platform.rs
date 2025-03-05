@@ -408,7 +408,7 @@ where
 }
 
 #[cfg(not(feature = "opencl"))]
-impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -461,7 +461,7 @@ impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
+impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -515,6 +515,40 @@ impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for Platform {
         match self {
             Self::CL(cl) => cl.ne_scalar(left, right).map(AccessOp::wrap),
             Self::Host(host) => host.ne_scalar(left, right).map(AccessOp::wrap),
+        }
+    }
+}
+
+#[cfg(all(feature = "complex", not(feature = "opencl")))]
+impl<A, T> crate::ops::complex::ElementwiseUnaryComplex<A, T> for Platform
+where
+    A: Access<T>,
+    T: crate::Complex,
+{
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::Host(host) => host.angle(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        match self {
+            Self::Host(host) => host.conj(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::Host(host) => host.re(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::Host(host) => host.im(access).map(AccessOp::wrap),
         }
     }
 }

@@ -1161,7 +1161,7 @@ impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
 where
     T: Number,
     A: Access<T>,
-    P: ElementwiseScalarCompare<A, T>,
+    P: ElementwiseCompareScalar<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
 
@@ -1214,16 +1214,20 @@ pub trait NDArrayComplex: NDArray + Sized
 where
     Self::DType: Complex,
 {
-    type Output: Access<<Self::DType as Complex>::Real>;
+    type Real: Access<<Self::DType as Complex>::Real>;
+    type Complex: Access<Self::DType>;
 
     /// Calculate the angle in the complex plane elementwise.
-    fn angle(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
+
+    /// Calculate the angle in the complex plane elementwise.
+    fn conj(self) -> Result<Array<Self::DType, Self::Complex, Self::Platform>, Error>;
 
     /// Return the real part of this array elementwise.
-    fn re(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn re(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
 
     /// Return the imaginary part of this array elementwise.
-    fn im(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn im(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
 }
 
 #[cfg(feature = "complex")]
@@ -1233,17 +1237,22 @@ where
     A: Access<T>,
     P: complex::ElementwiseUnaryComplex<A, T>,
 {
-    type Output = AccessOp<P::Op, P>;
+    type Real = AccessOp<P::Real, P>;
+    type Complex = AccessOp<P::Complex, P>;
 
-    fn angle(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
         self.apply(|platform, access| platform.angle(access))
     }
 
-    fn re(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn conj(self) -> Result<Array<Self::DType, Self::Complex, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.conj(access))
+    }
+
+    fn re(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
         self.apply(|platform, access| platform.re(access))
     }
 
-    fn im(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn im(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
         self.apply(|platform, access| platform.im(access))
     }
 }

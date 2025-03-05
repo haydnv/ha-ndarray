@@ -153,7 +153,7 @@ pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
     fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
 
-pub trait ElementwiseScalarCompare<A, T>: PlatformInstance {
+pub trait ElementwiseCompareScalar<A, T>: PlatformInstance {
     type Op: ReadOp<Self, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;

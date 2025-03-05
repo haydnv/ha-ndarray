@@ -591,6 +591,8 @@ pub trait Complex: Float<Abs = Self::Real> {
 
     fn angle(self) -> Self::Real;
 
+    fn conj(self) -> Self;
+
     fn im(self) -> Self::Real;
 
     fn re(self) -> Self::Real;
@@ -604,6 +606,10 @@ macro_rules! complex_type {
 
             fn angle(self) -> $r {
                 Self::arg(self)
+            }
+
+            fn conj(self) -> Self {
+                num_complex::Complex::<$r>::conj(&self)
             }
 
             fn im(self) -> $r {

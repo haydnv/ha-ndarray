@@ -10,10 +10,10 @@ use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::ops::{
     Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
-    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
-    ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig,
-    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random,
-    ReduceAll, ReduceAxes, Transform,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseTrig, ElementwiseUnary,
+    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes,
+    Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
@@ -406,7 +406,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseScalarCompare<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for OpenCL {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {

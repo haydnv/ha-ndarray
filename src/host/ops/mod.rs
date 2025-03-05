@@ -9,6 +9,8 @@ use rayon::prelude::*;
 
 use crate::access::Access;
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
+#[cfg(feature = "complex")]
+use crate::Complex;
 use crate::{
     strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real,
     Shape, Strides,
@@ -1680,6 +1682,48 @@ impl<A: Access<T>, T: Float> Unary<A, T, u8> {
         Self {
             access,
             op: |n| if n.is_nan() { 1 } else { 0 },
+        }
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T> Unary<A, T, T>
+where
+    A: Access<T>,
+    T: Complex,
+{
+    pub fn conj(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.conj(),
+        }
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T> Unary<A, T, T::Real>
+where
+    A: Access<T>,
+    T: Complex,
+{
+    pub fn angle(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.angle(),
+        }
+    }
+
+    pub fn re(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.re(),
+        }
+    }
+
+    pub fn im(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.im(),
         }
     }
 }

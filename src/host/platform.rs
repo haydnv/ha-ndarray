@@ -7,10 +7,10 @@ use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
     Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
-    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseDual,
-    ElementwiseNumeric, ElementwiseScalar, ElementwiseScalarCompare, ElementwiseTrig,
-    ElementwiseUnary, ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random,
-    ReduceAll, ReduceAxes, Transform,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseTrig, ElementwiseUnary,
+    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes,
+    Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Real, Shape};
@@ -372,7 +372,7 @@ where
     }
 }
 
-impl<A, T> ElementwiseScalarCompare<A, T> for Host
+impl<A, T> ElementwiseCompareScalar<A, T> for Host
 where
     A: Access<T>,
     T: Number,
@@ -419,6 +419,32 @@ where
         T: PartialEq,
     {
         Ok(Scalar::ne(left, right).into())
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T> crate::ops::complex::ElementwiseUnaryComplex<A, T> for Host
+where
+    A: Access<T>,
+    T: crate::Complex,
+{
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::angle(access).into())
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        Ok(Unary::conj(access).into())
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::re(access).into())
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::im(access).into())
     }
 }
 
