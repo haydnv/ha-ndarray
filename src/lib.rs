@@ -833,8 +833,6 @@ pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape,
     }?;
     let i = left.next().unwrap_or(1);
 
-    let mut left = left.rev();
-    let mut right = right.rev();
     let mut broadcast_shape = Shape::with_capacity(ndim);
     loop {
         if let Some(dim) = broadcast_dim(left.next(), right.next())? {
@@ -843,6 +841,8 @@ pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape,
             break;
         }
     }
+
+    broadcast_shape.reverse();
 
     let left = broadcast_shape.iter().copied().chain([i, j]).collect();
     let right = broadcast_shape.into_iter().chain([j, k]).collect();
