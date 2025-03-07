@@ -140,7 +140,7 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot construct an array with shape {shape:?} from a buffer of size {}",
                 buffer.len(),
             )))
@@ -183,7 +183,7 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot construct an array with an empty shape".to_string(),
             ))
         }
@@ -231,10 +231,10 @@ where
                 permutation.swap(0, axis);
                 Ok(permutation)
             } else {
-                Err(Error::Bounds(format!("{array:?} has no axis {axis}")))
+                Err(Error::bounds(format!("{array:?} has no axis {axis}")))
             }
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot concatenate an empty list of arrays".into(),
             ))
         }?;
@@ -262,7 +262,7 @@ where
             let mut shape = Shape::from_slice(first.shape());
             while let Some(next) = array_iter.next() {
                 if next.ndim() != shape.len() {
-                    return Err(Error::Bounds(format!(
+                    return Err(Error::bounds(format!(
                         "cannot concatenate shapes {:?} and {:?}",
                         shape,
                         next.shape()
@@ -274,7 +274,7 @@ where
 
             Self::concat_inner(arrays, shape)
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot concatenate an empty list of arrays".into(),
             ))
         }
@@ -732,7 +732,7 @@ where
 
     fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error> {
         if !can_broadcast(self.shape(), &shape) {
-            return Err(Error::Bounds(format!(
+            return Err(Error::bounds(format!(
                 "cannot broadcast {self:?} into {shape:?}"
             )));
         }
@@ -766,7 +766,7 @@ where
             self.shape = shape;
             Ok(self)
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot reshape an array with shape {:?} into {shape:?}",
                 self.shape
             )))
@@ -779,7 +779,7 @@ where
                 AxisRange::At(i) if i < dim => Ok(()),
                 AxisRange::In(start, stop, _step) if start < dim && stop <= dim => Ok(()),
                 AxisRange::Of(indices) if indices.iter().all(|i| i < dim) => Ok(()),
-                range => Err(Error::Bounds(format!(
+                range => Err(Error::bounds(format!(
                     "invalid range {range:?} for dimension {dim}"
                 ))),
             }?;
@@ -803,7 +803,7 @@ where
 
     fn squeeze(mut self, mut axes: Axes) -> Result<Self, Error> {
         if axes.iter().copied().any(|x| x >= self.ndim()) {
-            return Err(Error::Bounds(format!("invalid contraction axes: {axes:?}")));
+            return Err(Error::bounds(format!("invalid contraction axes: {axes:?}")));
         }
 
         axes.sort();
@@ -817,7 +817,7 @@ where
 
     fn unsqueeze(mut self, mut axes: Axes) -> Result<Self, Error> {
         if axes.iter().copied().any(|x| x > self.ndim()) {
-            return Err(Error::Bounds(format!("invalid expansion axes: {axes:?}")));
+            return Err(Error::bounds(format!("invalid expansion axes: {axes:?}")));
         }
 
         axes.sort();
@@ -842,7 +842,7 @@ where
             {
                 Ok(axes)
             } else {
-                Err(Error::Bounds(format!(
+                Err(Error::bounds(format!(
                     "invalid permutation for shape {:?}: {:?}",
                     self.shape, axes
                 )))
@@ -1286,7 +1286,7 @@ where
             .shape
             .last()
             .copied()
-            .ok_or_else(|| Error::Bounds("a scalar value has no Fourier transform".into()))?;
+            .ok_or_else(|| Error::bounds("a scalar value has no Fourier transform".into()))?;
 
         self.apply(|platform, access| platform.fft(access, dim))
     }
@@ -1296,7 +1296,7 @@ where
             .shape
             .last()
             .copied()
-            .ok_or_else(|| Error::Bounds("a scalar value has no Fourier transform".into()))?;
+            .ok_or_else(|| Error::bounds("a scalar value has no Fourier transform".into()))?;
 
         self.apply(|platform, access| platform.ifft(access, dim))
     }
@@ -1467,12 +1467,12 @@ where
         self,
         rhs: Self::DType,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        if rhs != T::ZERO {
-            self.apply(|platform, left| platform.div_scalar(left, rhs))
-        } else {
-            Err(Error::Unsupported(format!(
+        if rhs == T::ZERO {
+            Err(Error::unsupported(format!(
                 "cannot divide {self:?} by {rhs}"
             )))
+        } else {
+            self.apply(|platform, left| platform.div_scalar(left, rhs))
         }
     }
 
@@ -1793,7 +1793,7 @@ where
         other: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         let dims = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
-            Error::Bounds(format!(
+            Error::bounds(format!(
                 "invalid dimensions for matrix multiply: {:?} and {:?}",
                 self.shape, other.shape
             ))
@@ -1850,7 +1850,7 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid shape for diagonal: {:?}",
                 self.shape
             )))
@@ -1934,7 +1934,7 @@ fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape,
 
     for x in axes.iter().copied().rev() {
         if x >= shape.len() {
-            return Err(Error::Bounds(format!(
+            return Err(Error::bounds(format!(
                 "axis {x} is out of bounds for {shape:?}"
             )));
         } else if keepdims {
@@ -1956,11 +1956,11 @@ fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<
     if left == right {
         Ok(())
     } else if can_broadcast(left, right) {
-        Err(Error::Bounds(format!(
+        Err(Error::bounds(format!(
             "cannot {op_name} arrays with shapes {left:?} and {right:?} (consider broadcasting)"
         )))
     } else {
-        Err(Error::Bounds(format!(
+        Err(Error::bounds(format!(
             "cannot {op_name} arrays with shapes {left:?} and {right:?}"
         )))
     }
@@ -1974,7 +1974,7 @@ fn valid_coord(coord: &[usize], shape: &[usize]) -> Result<(), Error> {
         }
     }
 
-    Err(Error::Bounds(format!(
+    Err(Error::bounds(format!(
         "invalid coordinate {coord:?} for shape {shape:?}"
     )))
 }

@@ -75,7 +75,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a [T] {
 
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         self.get(offset).copied().ok_or_else(|| {
-            Error::Bounds(format!(
+            Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
                 self.len()
             ))
@@ -108,7 +108,7 @@ impl<'a, T: Number> BufferMut<T> for &'a mut [T] {
             self.copy_from_slice(&*data);
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
                 self.len(),
                 data.len()
@@ -126,7 +126,7 @@ impl<'a, T: Number> BufferMut<T> for &'a mut [T] {
             self[offset] = value;
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
                 self.len()
             )))

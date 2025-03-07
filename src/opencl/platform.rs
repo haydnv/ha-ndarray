@@ -289,7 +289,7 @@ impl<T: Number + PartialOrd> ConstructRange<T> for OpenCL {
             let step = T::div(T::sub(stop, start), size_t);
             Linear::new(start, step, size).map(AccessOp::from)
         } else {
-            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+            Err(Error::bounds(format!("invalid range: [{start}, {stop})")))
         }
     }
 }

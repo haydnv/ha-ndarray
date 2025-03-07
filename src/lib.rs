@@ -631,10 +631,27 @@ complex_type!(Complex64, f64);
 /// An array math error
 pub enum Error {
     Bounds(String),
-    Interface(String),
     Unsupported(String),
     #[cfg(feature = "opencl")]
     OCL(std::sync::Arc<ocl::Error>),
+}
+
+impl Error {
+    fn bounds(msg: String) -> Self {
+        #[cfg(feature = "debug_crash")]
+        panic!("{}", msg);
+
+        #[cfg(not(feature = "debug_crash"))]
+        Self::Bounds(msg)
+    }
+
+    fn unsupported(msg: String) -> Self {
+        #[cfg(feature = "debug_crash")]
+        panic!("{}", msg);
+
+        #[cfg(not(feature = "debug_crash"))]
+        Self::Unsupported(msg)
+    }
 }
 
 // Clone is required to support memoizing OpenCL programs
@@ -643,7 +660,6 @@ impl Clone for Error {
     fn clone(&self) -> Self {
         match self {
             Self::Bounds(msg) => Self::Bounds(msg.clone()),
-            Self::Interface(msg) => Self::Interface(msg.clone()),
             Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => Self::OCL(cause.clone()),
@@ -654,10 +670,10 @@ impl Clone for Error {
 #[cfg(feature = "opencl")]
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug_crash")]
         panic!("OpenCL error: {:?}", cause);
 
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(feature = "debug_crash"))]
         Self::OCL(std::sync::Arc::new(cause))
     }
 }
@@ -666,7 +682,6 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Interface(cause) => f.write_str(cause),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -678,7 +693,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Interface(cause) => f.write_str(cause),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -776,7 +790,7 @@ impl fmt::Debug for AxisRange {
 #[inline]
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
     if left.is_empty() || right.is_empty() {
-        return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
+        return Err(Error::bounds("cannot broadcast empty shape".to_string()));
     } else if left.len() < right.len() {
         return broadcast_shape(right, left);
     }
@@ -792,7 +806,7 @@ pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> 
         } else if l == 1 {
             shape.push(r);
         } else {
-            return Err(Error::Bounds(format!(
+            return Err(Error::bounds(format!(
                 "cannot broadcast dimensions {l} and {r}"
             )));
         }

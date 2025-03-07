@@ -732,7 +732,7 @@ where
     T: Number,
 {
     fn read_value(&self, _offset: usize) -> Result<T, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "reading an individual value from a matrix multiplication is not implemented"
                 .to_string(),
         ))
@@ -861,7 +861,7 @@ impl Enqueue<OpenCL, f32> for RandomNormal {
 
 impl ReadValue<OpenCL, f32> for RandomNormal {
     fn read_value(&self, _offset: usize) -> Result<f32, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "cannot read an individual value from a random normal distribution".to_string(),
         ))
     }

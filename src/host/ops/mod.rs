@@ -900,7 +900,7 @@ where
     T: Number,
 {
     fn read_value(&self, _offset: usize) -> Result<T, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "reading an individual value from a matrix multiplication is not implemented"
                 .to_string(),
         ))
@@ -1197,7 +1197,7 @@ impl Enqueue<Host, f32> for RandomNormal {
 
 impl ReadValue<Host, f32> for RandomNormal {
     fn read_value(&self, _offset: usize) -> Result<f32, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "cannot calculate an individual value of a random normal distribution".to_string(),
         ))
     }
@@ -1373,7 +1373,7 @@ impl<A: Access<T>, T: Number> ReadValue<Host, T> for Reduce<A, T> {
                 .map(|offset| self.access.read_value(offset))
                 .try_reduce(|| self.id, |r, v| Ok((self.reduce)(r, v)))
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a reduce op with size {}",
                 self.size()
             )))
@@ -1437,7 +1437,7 @@ where
 
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot overwrite a slice of size {} with a buffer of size {}",
                 self.size(),
                 data.len(),

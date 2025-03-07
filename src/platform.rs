@@ -1067,14 +1067,14 @@ where
 
     fn fft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(_cl) => Err(Error::Unsupported("OpenCL FFT".into())),
+            Self::CL(_cl) => Err(Error::unsupported("OpenCL FFT".into())),
             Self::Host(host) => host.fft(access, dim).map(AccessOp::wrap),
         }
     }
 
     fn ifft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
-            Self::CL(_cl) => Err(Error::Unsupported("OpenCL IFFT".into())),
+            Self::CL(_cl) => Err(Error::unsupported("OpenCL IFFT".into())),
             Self::Host(host) => host.ifft(access, dim).map(AccessOp::wrap),
         }
     }

@@ -17,6 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 all = ["complex", "freqfs", "opencl", "stream"]
 complex = ["num-complex", "rustfft"]
+debug_crash = [] # enable this to panic rather than retuning an error when debugging
 freqfs = ["freqfs/stream", "stream"]
 opencl = ["memoize", "ocl"]
 stream = ["destream", "futures"]

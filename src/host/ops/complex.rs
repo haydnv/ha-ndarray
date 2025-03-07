@@ -25,7 +25,7 @@ impl<A: Access<T>, T: Number> FFT<A, T> {
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "dimension {dim} is not a factor of size {size}"
             )))
         }
@@ -67,7 +67,7 @@ where
 
 impl<A: Access<T>, T: Number> ReadValue<Host, T> for FFT<A, T> {
     fn read_value(&self, _offset: usize) -> Result<T, Error> {
-        Err(Error::Unsupported(
+        Err(Error::unsupported(
             "read an individual value from a Fourier transform".into(),
         ))
     }

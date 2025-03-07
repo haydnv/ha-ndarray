@@ -18,7 +18,7 @@ impl<T: Number> BufferInstance<T> for Buffer<T::CType> {
             let value = value.get(0).copied().expect("value");
             Ok(T::from_cl(value))
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
                 self.len()
             )))
@@ -40,7 +40,7 @@ impl<T: Number> BufferMut<T> for Buffer<T::CType> {
             let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
                 Buffer::len(self),
                 data.len()
@@ -66,7 +66,7 @@ impl<T: Number> BufferMut<T> for Buffer<T::CType> {
             slice.as_mut()[0] = value.to_cl();
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
                 Buffer::len(self)
             )))

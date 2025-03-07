@@ -249,7 +249,7 @@ impl<T: Number + PartialOrd> ConstructRange<T> for Host {
             let step = T::div(T::sub(stop, start), size_t);
             Ok(Linear::new(start, step, size).into())
         } else {
-            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+            Err(Error::bounds(format!("invalid range: [{start}, {stop})")))
         }
     }
 }

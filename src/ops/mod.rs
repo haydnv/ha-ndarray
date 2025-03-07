@@ -506,7 +506,7 @@ where
             start = end;
         }
 
-        Err(Error::Bounds(format!(
+        Err(Error::bounds(format!(
             "offset {} is out of bounds for a concatenation of size",
             self.size()
         )))
@@ -1172,7 +1172,7 @@ impl FlipSpec {
                 axis,
             })
         } else {
-            Err(Error::Bounds(format!("shape {shape:?} has no axis {axis}")))
+            Err(Error::bounds(format!("shape {shape:?} has no axis {axis}")))
         }
     }
 

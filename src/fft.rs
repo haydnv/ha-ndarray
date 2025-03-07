@@ -49,9 +49,8 @@ where
             .fft()?
             .transpose(permutation)
     } else {
-        Err(Error::Bounds(format!(
-            "array of shape {:?} has less than two dimensions",
-            data.shape()
+        Err(Error::bounds(format!(
+            "{data:?} has less than two dimensions",
         )))
     }
 }
@@ -74,9 +73,8 @@ where
             .transpose(permutation)?
             .ifft()
     } else {
-        Err(Error::Bounds(format!(
-            "array of shape {:?} has less than two dimensions",
-            data.shape()
+        Err(Error::bounds(format!(
+            "{data:?} has less than two dimensions",
         )))
     }
 }
@@ -104,7 +102,7 @@ where
 
         Array::transpose_concat(vec![left, right], axis)
     } else {
-        Err(Error::Bounds(format!("{data:?} has no axis {axis}")))
+        Err(Error::bounds(format!("{data:?} has no axis {axis}")))
     }
 }
 

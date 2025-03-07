@@ -25,7 +25,7 @@ pub trait BufferMut<T: Number>: BufferInstance<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
     /// Borrow this buffer as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
     fn cl(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
-        Err(Error::Unsupported(format!(
+        Err(Error::unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
     }
