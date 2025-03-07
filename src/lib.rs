@@ -789,32 +789,79 @@ impl fmt::Debug for AxisRange {
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
 #[inline]
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
-    if left.is_empty() || right.is_empty() {
-        return Err(Error::bounds("cannot broadcast empty shape".to_string()));
-    } else if left.len() < right.len() {
-        return broadcast_shape(right, left);
-    }
+    let ndim = usize::max(left.len(), right.len());
+    let mut shape = Shape::with_capacity(ndim);
 
-    let offset = left.len() - right.len();
+    let mut left = left.into_iter().rev().copied();
+    let mut right = right.into_iter().rev().copied();
 
-    let mut shape = Shape::with_capacity(left.len());
-    shape.extend_from_slice(&left[..offset]);
-
-    for (l, r) in left.into_iter().copied().zip(right.into_iter().copied()) {
-        if r == 1 || r == l {
-            shape.push(l);
-        } else if l == 1 {
-            shape.push(r);
+    loop {
+        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
+            shape.push(dim)
         } else {
-            return Err(Error::bounds(format!(
-                "cannot broadcast dimensions {l} and {r}"
-            )));
+            break;
         }
     }
 
-    debug_assert!(!shape.iter().any(|dim| *dim == 0));
+    shape.reverse();
 
     Ok(shape)
+}
+
+/// Compute the shapes needed to multiply the `left` and `right` matrices, if possible.
+#[inline]
+pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape, Shape), Error> {
+    let (left_ndim, right_ndim) = (left.len(), right.len());
+    let ndim = usize::max(left_ndim, right_ndim);
+
+    let mut left = left.into_iter().rev().copied();
+    let mut right = right.into_iter().rev().copied();
+
+    let k = right.next().unwrap_or(1);
+    let j = match (left.next(), right.next()) {
+        (Some(jl), Some(jr)) => match (jl, jr) {
+            (jl, jr) if jl == jr => Ok(jl),
+            (jl, jr) if jl == 1 => Ok(jr),
+            (jl, jr) if jr == 1 => Ok(jl),
+            _ => Err(Error::bounds(format!(
+                "cannot matrix-multiply shapes {left:?} and {right:?}"
+            ))),
+        },
+        (Some(jl), None) => Ok(jl),
+        (None, Some(jr)) => Ok(jr),
+        (None, None) => Ok(1),
+    }?;
+    let i = left.next().unwrap_or(1);
+
+    let mut left = left.rev();
+    let mut right = right.rev();
+    let mut broadcast_shape = Shape::with_capacity(ndim);
+    loop {
+        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
+            broadcast_shape.push(dim);
+        } else {
+            break;
+        }
+    }
+
+    let left = broadcast_shape.iter().copied().chain([i, j]).collect();
+    let right = broadcast_shape.into_iter().chain([j, k]).collect();
+    Ok((left, right))
+}
+
+#[inline]
+fn broadcast_dim(left: Option<usize>, right: Option<usize>) -> Result<Option<usize>, Error> {
+    match (left, right) {
+        (Some(l), Some(r)) if l == r => Ok(Some(l)),
+        (Some(1), Some(r)) => Ok(Some(r)),
+        (Some(l), Some(1)) => Ok(Some(l)),
+        (None, Some(r)) => Ok(Some(r)),
+        (Some(l), None) => Ok(Some(l)),
+        (None, None) => Ok(None),
+        (l, r) => Err(Error::bounds(format!(
+            "cannot broadcast dimensions {l:?} and {r:?}"
+        ))),
+    }
 }
 
 #[inline]
