@@ -8,8 +8,8 @@ use crate::platform::PlatformInstance;
 #[cfg(feature = "complex")]
 use crate::Complex;
 use crate::{
-    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, Constant, Convert, Error,
-    Float, Number, Platform, Range, Real, Shape,
+    axes, range_shape, shape, strides_for, ArrayAccess, Axes, AxisRange, BufferConverter, Constant,
+    Convert, Error, Float, Number, Platform, Range, Real, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -111,7 +111,7 @@ impl<T, L, P> Array<T, L, P> {
 impl<T: Number> Array<T, Accessor<T>, Platform> {
     pub fn from<A, P>(array: Array<T, A, P>) -> Self
     where
-        Accessor<T>: From<A>,
+        A: Into<Accessor<T>>,
         Platform: From<P>,
     {
         Self {
@@ -190,21 +190,21 @@ where
     }
 }
 
-impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
+// copy constructors
+impl<T, A, P> Array<T, A, P>
 where
     T: Number,
+    A: Access<T>,
     P: Convert<T>,
 {
-    pub fn copy<A: Access<T>>(source: &Array<T, A, P>) -> Result<Self, Error> {
-        let buffer = source
-            .buffer()
-            .and_then(|buf| source.platform.convert(buf))?;
+    pub fn copy(&self) -> Result<Array<T, AccessBuf<P::Buffer>, P>, Error> {
+        let buffer = self.buffer().and_then(|buf| self.platform.convert(buf))?;
 
-        Ok(Self {
-            shape: source.shape.clone(),
+        Ok(Array {
+            shape: self.shape.clone(),
             access: buffer.into(),
-            platform: source.platform,
-            dtype: source.dtype,
+            platform: self.platform,
+            dtype: self.dtype,
         })
     }
 }
@@ -221,6 +221,18 @@ where
         T,
     >,
 {
+    pub fn stack<AS>(arrays: AS, axis: usize) -> Result<Array<T, impl Access<T>, P>, Error>
+    where
+        AS: IntoIterator<Item = Self>,
+    {
+        let arrays = arrays
+            .into_iter()
+            .map(|arr| arr.unsqueeze(axes![axis]))
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        Array::transpose_concat(arrays, axis)
+    }
+
     pub fn transpose_concat(
         arrays: Vec<Self>,
         axis: usize,
@@ -382,6 +394,39 @@ where
             platform: self.platform,
             dtype: PhantomData,
         }
+    }
+}
+
+// helper methods
+
+impl<T: Number> ArrayAccess<T> {
+    pub fn unstack(self, axis: usize) -> Result<Vec<Array<T, impl Access<T>, Platform>>, Error> {
+        let dim = self
+            .shape()
+            .get(axis)
+            .copied()
+            .ok_or_else(|| Error::bounds(format!("{self:?} has no axis {axis}")))?;
+
+        let prefix = if axis == 0 {
+            Range::with_capacity(1)
+        } else {
+            self.shape
+                .iter()
+                .take(axis)
+                .copied()
+                .map(|dim| AxisRange::In(0, dim, 1))
+                .collect()
+        };
+
+        (0..dim)
+            .into_iter()
+            .map(|r| {
+                let mut range = prefix.clone();
+                range.push(AxisRange::At(r));
+                range
+            })
+            .map(|r| self.clone().slice(r))
+            .collect()
     }
 }
 
@@ -802,28 +847,26 @@ where
     }
 
     fn squeeze(mut self, mut axes: Axes) -> Result<Self, Error> {
-        if axes.iter().copied().any(|x| x >= self.ndim()) {
-            return Err(Error::bounds(format!("invalid contraction axes: {axes:?}")));
-        }
-
         axes.sort();
 
         for x in axes.into_iter().rev() {
-            self.shape.remove(x);
+            if x < self.shape.len() {
+                self.shape.remove(x);
+            } else {
+                return Err(Error::bounds(format!("axis out of bounds: {x}")));
+            }
         }
 
         Ok(self)
     }
 
-    fn unsqueeze(mut self, mut axes: Axes) -> Result<Self, Error> {
-        if axes.iter().copied().any(|x| x > self.ndim()) {
-            return Err(Error::bounds(format!("invalid expansion axes: {axes:?}")));
-        }
-
-        axes.sort();
-
-        for x in axes.into_iter().rev() {
-            self.shape.insert(x, 1);
+    fn unsqueeze(mut self, axes: Axes) -> Result<Self, Error> {
+        for x in axes {
+            if x <= self.shape.len() {
+                self.shape.insert(x, 1);
+            } else {
+                return Err(Error::bounds(format!("axis out of bounds: {x}")));
+            }
         }
 
         Ok(self)
