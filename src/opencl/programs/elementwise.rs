@@ -3,7 +3,7 @@ use ocl::Program;
 
 use crate::Error;
 
-use super::{build, Builder, ElementDual};
+use super::{build, Builder, ElementDual, ElementDualBoolean};
 
 #[memoize]
 pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error> {
@@ -23,44 +23,14 @@ pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error
 }
 
 #[memoize]
-pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
+pub fn dual_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
+    let c_type = op.c_type;
+    let name = op.name;
+    let op = op.build()?;
+
     let src = format!(
         r#"
-        inline uchar eq(const {c_type} left, const {c_type} right) {{
-            return left == right;
-        }}
-
-        inline uchar ge(const {c_type} left, const {c_type} right) {{
-            return left >= right;
-        }}
-
-        inline uchar gt(const {c_type} left, const {c_type} right) {{
-            return left > right;
-        }}
-
-        inline uchar le(const {c_type} left, const {c_type} right) {{
-            return left <= right;
-        }}
-
-        inline uchar lt(const {c_type} left, const {c_type} right) {{
-            return left < right;
-        }}
-
-        inline uchar ne(const {c_type} left, const {c_type} right) {{
-            return left != right;
-        }}
-
-        inline uchar and(const {c_type} left, const {c_type} right) {{
-            return (left != 0) && (right != 0);
-        }}
-
-        inline uchar or(const {c_type} left, const {c_type} right) {{
-            return (left != 0) || (right != 0);
-        }}
-
-        inline uchar xor(const {c_type} left, const {c_type} right) {{
-            return (left != 0) ^ (right != 0);
-        }}
+        {op}
 
         __kernel void dual(
             __global const {c_type}* restrict left,
@@ -68,8 +38,23 @@ pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, E
             __global uchar* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = {op}(left[offset], right[offset]);
+            output[offset] = {name}(left[offset], right[offset]);
         }}
+        "#
+    );
+
+    build(&src)
+}
+
+#[memoize]
+pub fn dual_scalar_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
+    let c_type = op.c_type;
+    let name = op.name;
+    let op = op.build()?;
+
+    let src = format!(
+        r#"
+        {op}
 
         __kernel void dual_scalar(
             __global const {c_type}* restrict left,
@@ -77,7 +62,7 @@ pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, E
             __global uchar* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = {op}(left[offset], right);
+            output[offset] = {name}(left[offset], right);
         }}
         "#
     );

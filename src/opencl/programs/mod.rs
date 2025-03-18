@@ -38,6 +38,28 @@ impl Builder for ElementDual {
     }
 }
 
+#[derive(Clone, Hash, Eq, PartialEq, fmt::Debug)]
+pub struct ElementDualBoolean {
+    pub c_type: &'static str,
+    pub name: &'static str,
+    pub op: &'static str,
+}
+
+impl Builder for ElementDualBoolean {
+    fn build(self) -> Result<String, Error> {
+        Ok(format!(
+            r#"
+            inline uchar {name}(const {c_type} lhs, const {c_type} rhs) {{
+                {op}
+            }}
+            "#,
+            c_type = self.c_type,
+            name = self.name,
+            op = self.op
+        ))
+    }
+}
+
 struct ArrayFormat<'a, T> {
     arr: &'a [T],
 }

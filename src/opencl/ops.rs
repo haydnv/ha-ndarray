@@ -9,7 +9,7 @@ use ocl::{Buffer, Kernel, Program, Queue};
 use super::platform::OpenCL;
 use super::{programs, CLElement, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
-use crate::opencl::programs::ElementDual;
+use crate::opencl::programs::{ElementDual, ElementDualBoolean};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
     strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
@@ -174,19 +174,19 @@ impl<L, R, T: Real> Dual<L, R, T, T> {
 // boolean operations
 impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn and(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "and")?;
+        let program = programs::elementwise::dual_boolean(T::cl_and())?;
         let op = |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
     pub fn or(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "or")?;
+        let program = programs::elementwise::dual_boolean(T::cl_or())?;
         let op = |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
     pub fn xor(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "xor")?;
+        let program = programs::elementwise::dual_boolean(T::cl_xor())?;
         let op = |l, r| {
             if (l != T::ZERO) ^ (r != T::ZERO) {
                 1
@@ -201,7 +201,7 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
 // comparison
 impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "eq")?;
+        let program = programs::elementwise::dual_boolean(T::cl_eq())?;
         let op = |l, r| if l == r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -210,7 +210,8 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "ge")?;
+        let op = T::cl_ge().ok_or_else(|| Error::Unsupported(format!("{}::ge", T::TYPE)))?;
+        let program = programs::elementwise::dual_boolean(op)?;
         let op = |l, r| if l >= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -219,7 +220,8 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "gt")?;
+        let op = T::cl_gt().ok_or_else(|| Error::Unsupported(format!("{}::gt", T::TYPE)))?;
+        let program = programs::elementwise::dual_boolean(op)?;
         let op = |l, r| if l > r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -228,7 +230,8 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "le")?;
+        let op = T::cl_le().ok_or_else(|| Error::Unsupported(format!("{}::le", T::TYPE)))?;
+        let program = programs::elementwise::dual_boolean(op)?;
         let op = |l, r| if l <= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -237,13 +240,14 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "lt")?;
+        let op = T::cl_lt().ok_or_else(|| Error::Unsupported(format!("{}::lt", T::TYPE)))?;
+        let program = programs::elementwise::dual_boolean(op)?;
         let op = |l, r| if l < r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
     pub fn ne(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::TYPE, "ne")?;
+        let program = programs::elementwise::dual_boolean(T::cl_ne())?;
         let op = |l, r| if l != r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -1175,21 +1179,21 @@ where
     fn compare(
         access: A,
         scalar: T,
-        program: &'static str,
-        op: fn(T, T) -> u8,
+        cl_op: ElementDualBoolean,
+        scalar_op: fn(T, T) -> u8,
     ) -> Result<Self, Error> {
-        programs::elementwise::dual_boolean(T::TYPE, program)
+        programs::elementwise::dual_scalar_boolean(cl_op)
             .map(|program| Self {
                 access,
                 scalar,
                 program,
-                op,
+                op: scalar_op,
             })
             .map_err(Error::from)
     }
 
     pub fn and(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "and", |l, r| {
+        Self::compare(access, scalar, T::cl_and(), |l, r| {
             if l != T::ZERO && r != T::ZERO {
                 1
             } else {
@@ -1199,7 +1203,7 @@ where
     }
 
     pub fn or(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "or", |l, r| {
+        Self::compare(access, scalar, T::cl_or(), |l, r| {
             if l != T::ZERO || r != T::ZERO {
                 1
             } else {
@@ -1209,7 +1213,7 @@ where
     }
 
     pub fn xor(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "xor", |l, r| {
+        Self::compare(access, scalar, T::cl_xor(), |l, r| {
             if (l != T::ZERO) ^ (r != T::ZERO) {
                 1
             } else {
@@ -1219,39 +1223,53 @@ where
     }
 
     pub fn eq(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "eq", |l, r| if l == r { 1 } else { 0 })
+        Self::compare(
+            access,
+            scalar,
+            T::cl_eq(),
+            |l, r| if l == r { 1 } else { 0 },
+        )
     }
 
     pub fn ge(access: A, scalar: T) -> Result<Self, Error>
     where
         T: PartialOrd,
     {
-        Self::compare(access, scalar, "ge", |l, r| if l >= r { 1 } else { 0 })
+        let op = T::cl_ge().ok_or_else(|| Error::Unsupported(format!("{}::ge", T::TYPE)))?;
+        Self::compare(access, scalar, op, |l, r| if l >= r { 1 } else { 0 })
     }
 
     pub fn gt(access: A, scalar: T) -> Result<Self, Error>
     where
         T: PartialOrd,
     {
-        Self::compare(access, scalar, "gt", |l, r| if l > r { 1 } else { 0 })
+        let op = T::cl_gt().ok_or_else(|| Error::Unsupported(format!("{}::gt", T::TYPE)))?;
+        Self::compare(access, scalar, op, |l, r| if l > r { 1 } else { 0 })
     }
 
     pub fn le(access: A, scalar: T) -> Result<Self, Error>
     where
         T: PartialOrd,
     {
-        Self::compare(access, scalar, "le", |l, r| if l <= r { 1 } else { 0 })
+        let op = T::cl_le().ok_or_else(|| Error::Unsupported(format!("{}::le", T::TYPE)))?;
+        Self::compare(access, scalar, op, |l, r| if l <= r { 1 } else { 0 })
     }
 
     pub fn lt(access: A, scalar: T) -> Result<Self, Error>
     where
         T: PartialOrd,
     {
-        Self::compare(access, scalar, "lt", |l, r| if l < r { 1 } else { 0 })
+        let op = T::cl_lt().ok_or_else(|| Error::Unsupported(format!("{}::lt", T::TYPE)))?;
+        Self::compare(access, scalar, op, |l, r| if l < r { 1 } else { 0 })
     }
 
     pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
-        Self::compare(access, scalar, "ne", |l, r| if l != r { 1 } else { 0 })
+        Self::compare(
+            access,
+            scalar,
+            T::cl_ne(),
+            |l, r| if l != r { 1 } else { 0 },
+        )
     }
 }
 

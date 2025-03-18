@@ -8,6 +8,7 @@ use crate::host::VEC_MIN_SIZE;
 
 use programs::ElementDual;
 
+use crate::opencl::programs::ElementDualBoolean;
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
@@ -23,6 +24,7 @@ const WG_SIZE: usize = 64;
 pub trait CLElement: OclPrm {
     const TYPE: &'static str;
 
+    // basic arithmetic (dual)
     fn cl_add() -> ElementDual {
         ElementDual {
             c_type: Self::TYPE,
@@ -76,6 +78,80 @@ pub trait CLElement: OclPrm {
             c_type: Self::TYPE,
             name: "rem",
             op: "return mod(lhs, rhs);",
+        })
+    }
+
+    // boolean logic
+    fn cl_and() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs != 0) && (rhs != 0);",
+        }
+    }
+
+    fn cl_or() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs != 0) || (rhs != 0);",
+        }
+    }
+
+    fn cl_xor() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs != 0) ^ (rhs != 0);",
+        }
+    }
+
+    // comparison
+    fn cl_eq() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "eq",
+            op: "return lhs == rhs;",
+        }
+    }
+
+    fn cl_ne() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "eq",
+            op: "return lhs != rhs;",
+        }
+    }
+
+    fn cl_ge() -> Option<ElementDualBoolean> {
+        Some(ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "ge",
+            op: "return lhs >= rhs;",
+        })
+    }
+
+    fn cl_gt() -> Option<ElementDualBoolean> {
+        Some(ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "gt",
+            op: "return lhs > rhs;",
+        })
+    }
+
+    fn cl_le() -> Option<ElementDualBoolean> {
+        Some(ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "le",
+            op: "return lhs >= rhs;",
+        })
+    }
+
+    fn cl_lt() -> Option<ElementDualBoolean> {
+        Some(ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "lt",
+            op: "return lhs > rhs;",
         })
     }
 }
@@ -140,6 +216,7 @@ impl CLElement for u64 {
 impl CLElement for num_complex::Complex<f32> {
     const TYPE: &'static str = "float2";
 
+    // basic arithmetic (dual)
     fn cl_div() -> ElementDual {
         ElementDual {
             c_type: Self::TYPE,
@@ -171,12 +248,71 @@ impl CLElement for num_complex::Complex<f32> {
     fn cl_rem() -> Option<ElementDual> {
         None
     }
+
+    // boolean logic
+    fn cl_and() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) && (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    fn cl_or() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) || (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    fn cl_xor() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) ^ (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    // comparison
+    fn cl_eq() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "eq",
+            op: "return lhs.x == rhs.x && lhs.y == rhs.y;",
+        }
+    }
+
+    fn cl_ne() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "ne",
+            op: "return lhs.x != rhs.x || lhs.y != rhs.y;",
+        }
+    }
+
+    fn cl_ge() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_gt() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_le() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_lt() -> Option<ElementDualBoolean> {
+        None
+    }
 }
 
 #[cfg(feature = "complex")]
 impl CLElement for num_complex::Complex<f64> {
     const TYPE: &'static str = "double2";
 
+    // basic arithmetic (dual)
     fn cl_div() -> ElementDual {
         ElementDual {
             c_type: Self::TYPE,
@@ -206,6 +342,64 @@ impl CLElement for num_complex::Complex<f64> {
     }
 
     fn cl_rem() -> Option<ElementDual> {
+        None
+    }
+
+    // boolean logic
+    fn cl_and() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) && (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    fn cl_or() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) || (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    fn cl_xor() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "and",
+            op: "return (lhs.x != 0 || lhs.y != 0) ^ (rhs.x != 0 || rhs.y != 0);",
+        }
+    }
+
+    // comparison
+    fn cl_eq() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "eq",
+            op: "return lhs.x == rhs.x && lhs.y == rhs.y;",
+        }
+    }
+
+    fn cl_ne() -> ElementDualBoolean {
+        ElementDualBoolean {
+            c_type: Self::TYPE,
+            name: "ne",
+            op: "return lhs.x != rhs.x || lhs.y != rhs.y;",
+        }
+    }
+
+    fn cl_ge() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_gt() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_le() -> Option<ElementDualBoolean> {
+        None
+    }
+
+    fn cl_lt() -> Option<ElementDualBoolean> {
         None
     }
 }
