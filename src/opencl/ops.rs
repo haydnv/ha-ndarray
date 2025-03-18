@@ -9,12 +9,12 @@ use ocl::{Buffer, Kernel, Program, Queue};
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
-    strides_for, Axes, BufferConverter, CLType, Error, Float, Number, Platform, Range, Real, Shape,
+    strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape,
     Strides,
 };
 
 use super::platform::OpenCL;
-use super::{programs, TILE_SIZE, WG_SIZE};
+use super::{programs, TILE_SIZE, WG_SIZE, CLElement};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -39,7 +39,7 @@ impl<A: Access<IT>, IT: Number, OT: Number> Op for Cast<A, IT, OT> {
 }
 
 impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<OpenCL, OT> for Cast<A, IT, OT> {
-    type Buffer = Buffer<OT::CType>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -79,7 +79,7 @@ where
     A: Access<T>,
     T: Number,
 {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let queue = OpenCL::queue(self.size(), &[])?;
@@ -269,7 +269,7 @@ where
     IT: Number,
     OT: Number,
 {
-    type Buffer = Buffer<OT::CType>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let left = self.left.read()?.to_cl()?;
@@ -359,7 +359,7 @@ where
     R: Access<T>,
     T: Number,
 {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let cond = self.cond.read()?;
@@ -450,7 +450,7 @@ impl<A: Access<T>, T: Number> Op for Flip<A, T> {
 }
 
 impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Flip<A, T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -515,7 +515,7 @@ impl<A: Access<T>, T: Number> Op for MatDiag<A, T> {
 }
 
 impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for MatDiag<A, T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -597,10 +597,10 @@ where
 
     fn matmul(
         &self,
-        left: &Buffer<T::CType>,
-        right: &Buffer<T::CType>,
+        left: &Buffer<T>,
+        right: &Buffer<T>,
         dims: [usize; 3],
-    ) -> Result<Buffer<T::CType>, Error> {
+    ) -> Result<Buffer<T>, Error> {
         let [a, b, c] = dims;
 
         assert_eq!(self.batch_size * a * b, left.len());
@@ -642,10 +642,10 @@ where
 
     fn pad_matrices<'a>(
         &self,
-        batch: &Buffer<T::CType>,
+        batch: &Buffer<T>,
         dims_in: [usize; 2],
         dims_out: [usize; 2],
-    ) -> Result<Buffer<T::CType>, Error> {
+    ) -> Result<Buffer<T>, Error> {
         if dims_in == dims_out {
             return Ok(batch.clone());
         }
@@ -704,7 +704,7 @@ where
     R: Access<T>,
     T: Number,
 {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let [a, b, c] = self.dims;
@@ -773,7 +773,7 @@ impl<T: Send + Sync> Op for Linear<T> {
 }
 
 impl<T: Number> Enqueue<OpenCL, T> for Linear<T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let queue = OpenCL::queue(self.size, &[])?;
@@ -922,7 +922,7 @@ pub struct Reduce<A, T: Number> {
     stride: usize,
     fold: Program,
     reduce: Program,
-    reduce_all: fn(OpenCL, AccessBuf<Buffer<T::CType>>) -> Result<T, Error>,
+    reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
     id: T,
 }
 
@@ -931,7 +931,7 @@ impl<A, T: Number> Reduce<A, T> {
         access: A,
         stride: usize,
         reduce: &'static str,
-        reduce_all: fn(OpenCL, AccessBuf<Buffer<T::CType>>) -> Result<T, Error>,
+        reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
         id: T,
     ) -> Result<Self, Error> {
         let fold = programs::reduce::fold_axis(T::TYPE, reduce)?;
@@ -952,7 +952,7 @@ impl<A, T: Number> Reduce<A, T> {
             access,
             stride,
             "mul",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::product,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::product,
             T::ONE,
         )
     }
@@ -962,7 +962,7 @@ impl<A, T: Number> Reduce<A, T> {
             access,
             stride,
             "add",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::sum,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::sum,
             T::ZERO,
         )
     }
@@ -970,10 +970,10 @@ impl<A, T: Number> Reduce<A, T> {
     fn fold(
         &self,
         queue: Queue,
-        input: &Buffer<T::CType>,
+        input: &Buffer<T>,
         reduce_dim: usize,
         target_dim: usize,
-    ) -> Result<Buffer<T::CType>, Error> {
+    ) -> Result<Buffer<T>, Error> {
         let output_size = (input.len() / reduce_dim) * target_dim;
 
         let output = Buffer::builder()
@@ -1002,10 +1002,10 @@ impl<A, T: Number> Reduce<A, T> {
     fn reduce(
         &self,
         queue: Queue,
-        input: &Buffer<T::CType>,
+        input: &Buffer<T>,
         stride: usize,
         wg_size: usize,
-    ) -> Result<Buffer<T::CType>, Error> {
+    ) -> Result<Buffer<T>, Error> {
         debug_assert_eq!(input.len() % stride, 0);
 
         let output = Buffer::builder()
@@ -1023,7 +1023,7 @@ impl<A, T: Number> Reduce<A, T> {
             .arg(self.id.to_cl())
             .arg(input)
             .arg(&output)
-            .arg_local::<T::CType>(wg_size)
+            .arg_local::<T>(wg_size)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -1038,7 +1038,7 @@ impl<A, T: Real> Reduce<A, T> {
             access,
             stride,
             "max",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::max,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::max,
             T::MIN,
         )
     }
@@ -1048,7 +1048,7 @@ impl<A, T: Real> Reduce<A, T> {
             access,
             stride,
             "min",
-            <OpenCL as ReduceAll<AccessBuf<Buffer<T::CType>>, T>>::min,
+            <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::min,
             T::MAX,
         )
     }
@@ -1062,7 +1062,7 @@ impl<A: Access<T>, T: Number> Op for Reduce<A, T> {
 }
 
 impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Reduce<A, T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1269,7 +1269,7 @@ where
     IT: Number,
     OT: Number,
 {
-    type Buffer = Buffer<OT::CType>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1345,7 +1345,7 @@ impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
 }
 
 impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Slice<A, T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -1550,7 +1550,7 @@ where
     IT: Number,
     OT: Number,
 {
-    type Buffer = Buffer<OT::CType>;
+    type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let input = self.access.read()?.to_cl()?;
@@ -1633,7 +1633,7 @@ where
 }
 
 impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for View<A, T> {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let source = self.access.read()?.to_cl()?;
@@ -1672,7 +1672,7 @@ fn pad_dim(dim: usize, size: usize) -> usize {
 }
 
 #[allow(unused)]
-fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T::CType>) -> Result<(), Error> {
+fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
     let mut inspect = vec![T::ZERO.to_cl(); buffer.len()];
     buffer.read(inspect.as_mut_slice()).enq()?;
     Ok(())

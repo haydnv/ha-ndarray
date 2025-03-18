@@ -24,7 +24,7 @@ pub trait Access<T: Number>: Send + Sync {
 pub trait AccessMut<T: Number>: Access<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
     /// Borrow the array data as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
-    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Err(Error::unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
@@ -144,7 +144,7 @@ where
     B: BufferMut<T>,
 {
     #[cfg(feature = "opencl")]
-    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         self.buffer.cl()
     }
 

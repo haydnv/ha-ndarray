@@ -24,7 +24,7 @@ pub trait BufferInstance<T: Number>: Send + Sync {
 pub trait BufferMut<T: Number>: BufferInstance<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
     /// Borrow this buffer as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
-    fn cl(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Err(Error::unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
@@ -44,7 +44,7 @@ pub trait BufferMut<T: Number>: BufferInstance<T> + fmt::Debug {
 #[derive(Clone)]
 pub enum Buffer<T: Number> {
     #[cfg(feature = "opencl")]
-    CL(ocl::Buffer<T::CType>),
+    CL(ocl::Buffer<T>),
     Host(host::Buffer<T>),
 }
 
@@ -85,7 +85,7 @@ impl<T: Number> BufferInstance<T> for Buffer<T> {
 
 impl<T: Number> BufferMut<T> for Buffer<T> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buf) => BufferMut::<T>::cl(buf),
@@ -148,7 +148,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
 
 impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Buffer::<T>::cl(&mut **self)
     }
 
@@ -198,7 +198,7 @@ impl<FE: Send + Sync, T: Number> BufferInstance<T> for freqfs::FileWriteGuardOwn
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: Number> BufferMut<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
     #[cfg(feature = "opencl")]
-    fn cl(&mut self) -> Result<&mut ocl::Buffer<T::CType>, Error> {
+    fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         BufferMut::cl(&mut **self)
     }
 
@@ -216,8 +216,8 @@ impl<FE: Send + Sync, T: Number> BufferMut<T> for freqfs::FileWriteGuardOwned<FE
 }
 
 #[cfg(feature = "opencl")]
-impl<T: Number> From<ocl::Buffer<T::CType>> for Buffer<T> {
-    fn from(buf: ocl::Buffer<T::CType>) -> Self {
+impl<T: Number> From<ocl::Buffer<T>> for Buffer<T> {
+    fn from(buf: ocl::Buffer<T>) -> Self {
         Self::CL(buf)
     }
 }
@@ -274,7 +274,7 @@ impl<'a, T: Number> BufferConverter<'a, T> {
             Self::CL(buffer) => Ok(buffer),
             Self::Host(buffer) => {
                 // TODO: is there a more efficient way to do this?
-                let buffer = buffer.into_iter().map(T::to_cl).collect::<Vec<T::CType>>();
+                let buffer = buffer.into_iter().map(T::to_cl).collect::<Vec<T>>();
                 opencl::OpenCL::copy_into_buffer::<T>(&buffer).map(opencl::CLConverter::Owned)
             }
         }
@@ -342,15 +342,15 @@ impl<'a, T: Number> From<&'a [T]> for BufferConverter<'a, T> {
 }
 
 #[cfg(feature = "opencl")]
-impl<T: Number> From<ocl::Buffer<T::CType>> for BufferConverter<'static, T> {
-    fn from(buf: ocl::Buffer<T::CType>) -> Self {
+impl<T: Number> From<ocl::Buffer<T>> for BufferConverter<'static, T> {
+    fn from(buf: ocl::Buffer<T>) -> Self {
         Self::CL(buf.into())
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: Number> From<&'a ocl::Buffer<T::CType>> for BufferConverter<'a, T> {
-    fn from(buf: &'a ocl::Buffer<T::CType>) -> Self {
+impl<'a, T: Number> From<&'a ocl::Buffer<T>> for BufferConverter<'a, T> {
+    fn from(buf: &'a ocl::Buffer<T>) -> Self {
         Self::CL(buf.into())
     }
 }

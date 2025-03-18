@@ -1,6 +1,7 @@
 //! The OpenCL platform
 
 use lazy_static::lazy_static;
+use ocl::OclPrm;
 
 use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
@@ -16,6 +17,60 @@ mod programs;
 const TILE_SIZE: usize = 8;
 
 const WG_SIZE: usize = 64;
+
+pub trait CLElement: OclPrm {
+    const TYPE: &'static str;
+}
+
+impl CLElement for f32 {
+    const TYPE: &'static str = "float";
+}
+
+impl CLElement for f64 {
+    const TYPE: &'static str = "double";
+}
+
+impl CLElement for i8 {
+    const TYPE: &'static str = "char";
+}
+
+impl CLElement for i16 {
+    const TYPE: &'static str = "short";
+}
+
+impl CLElement for i32 {
+    const TYPE: &'static str = "int";
+}
+
+impl CLElement for i64 {
+    const TYPE: &'static str = "long";
+}
+
+impl CLElement for u8 {
+    const TYPE: &'static str = "uchar";
+}
+
+impl CLElement for u16 {
+    const TYPE: &'static str = "ushort";
+}
+
+impl CLElement for u32 {
+    const TYPE: &'static str = "uint";
+}
+
+impl CLElement for u64 {
+    const TYPE: &'static str = "ulong";
+}
+
+#[cfg(feature = "complex")]
+impl CLElement for num_complex::Complex<f32> {
+    const TYPE: &'static str = "float2";
+}
+
+#[cfg(feature = "complex")]
+impl CLElement for num_complex::Complex<f64> {
+    const TYPE: &'static str = "double2";
+}
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {

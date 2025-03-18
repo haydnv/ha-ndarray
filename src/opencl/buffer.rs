@@ -6,7 +6,7 @@ use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::opencl::OpenCL;
 use crate::{Error, Number};
 
-impl<T: Number> BufferInstance<T> for Buffer<T::CType> {
+impl<T: Number> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL(self.into())
     }
@@ -30,8 +30,8 @@ impl<T: Number> BufferInstance<T> for Buffer<T::CType> {
     }
 }
 
-impl<T: Number> BufferMut<T> for Buffer<T::CType> {
-    fn cl(&mut self) -> Result<&mut Buffer<T::CType>, Error> {
+impl<T: Number> BufferMut<T> for Buffer<T> {
+    fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
         Ok(self)
     }
 
@@ -74,7 +74,7 @@ impl<T: Number> BufferMut<T> for Buffer<T::CType> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T::CType> {
+impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL((*self).into())
     }
@@ -88,7 +88,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T::CType> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T::CType> {
+impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL((&**self).into())
     }
@@ -98,12 +98,12 @@ impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T::CType> {
     }
 
     fn len(&self) -> usize {
-        Buffer::<T::CType>::len(self)
+        Buffer::<T>::len(self)
     }
 }
 
-impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T::CType> {
-    fn cl(&mut self) -> Result<&mut Buffer<T::CType>, Error> {
+impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
+    fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
         Ok(*self)
     }
 
@@ -123,15 +123,15 @@ impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T::CType> {
 /// A buffer in OpenCL memory
 #[derive(Clone)]
 pub enum CLConverter<'a, T: Number> {
-    Owned(Buffer<T::CType>),
-    Borrowed(&'a Buffer<T::CType>),
+    Owned(Buffer<T>),
+    Borrowed(&'a Buffer<T>),
 }
 
 #[cfg(feature = "opencl")]
 impl<'a, T: Number> CLConverter<'a, T> {
     /// Return this buffer as an owned [`Buffer`].
     /// This will allocate a new [`Buffer`] only if this buffer is borrowed.
-    pub fn into_buffer(self) -> Result<Buffer<T::CType>, Error> {
+    pub fn into_buffer(self) -> Result<Buffer<T>, Error> {
         match self {
             Self::Owned(buffer) => Ok(buffer),
             Self::Borrowed(buffer) => {
@@ -159,9 +159,9 @@ impl<'a, T: Number> CLConverter<'a, T> {
 
 #[cfg(feature = "opencl")]
 impl<'a, T: Number> Deref for CLConverter<'a, T> {
-    type Target = Buffer<T::CType>;
+    type Target = Buffer<T>;
 
-    fn deref(&self) -> &Buffer<T::CType> {
+    fn deref(&self) -> &Buffer<T> {
         match self {
             Self::Owned(buffer) => &buffer,
             Self::Borrowed(buffer) => buffer,
@@ -169,14 +169,14 @@ impl<'a, T: Number> Deref for CLConverter<'a, T> {
     }
 }
 
-impl<T: Number> From<Buffer<T::CType>> for CLConverter<'static, T> {
-    fn from(buf: Buffer<T::CType>) -> Self {
+impl<T: Number> From<Buffer<T>> for CLConverter<'static, T> {
+    fn from(buf: Buffer<T>) -> Self {
         Self::Owned(buf)
     }
 }
 
-impl<'a, T: Number> From<&'a Buffer<T::CType>> for CLConverter<'a, T> {
-    fn from(buf: &'a Buffer<T::CType>) -> Self {
+impl<'a, T: Number> From<&'a Buffer<T>> for CLConverter<'a, T> {
+    fn from(buf: &'a Buffer<T>) -> Self {
         Self::Borrowed(buf)
     }
 }

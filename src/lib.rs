@@ -43,49 +43,26 @@ fn id<T>(this: T) -> T {
     this
 }
 
-pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {
-    #[cfg(feature = "opencl")]
-    type CType: ocl::OclPrm;
+#[cfg(feature = "opencl")]
+pub trait CLType: opencl::CLElement + PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {}
 
-    const TYPE: &'static str;
-}
+#[cfg(not(feature = "opencl"))]
+pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {}
 
-macro_rules! cl_type {
-    ($t:ty, $ct:ty, $str:expr) => {
-        impl CLType for $t {
-            #[cfg(feature = "opencl")]
-            type CType = $ct;
-            const TYPE: &'static str = $str;
-        }
-    };
-}
-
+impl CLType for f32 {}
+impl CLType for f64 {}
+impl CLType for i8 {}
+impl CLType for i16 {}
+impl CLType for i32 {}
+impl CLType for i64 {}
+impl CLType for u8 {}
+impl CLType for u16 {}
+impl CLType for u32 {}
+impl CLType for u64 {}
 #[cfg(feature = "complex")]
-impl CLType for Complex32 {
-    #[cfg(feature = "opencl")]
-    type CType = Self;
-
-    const TYPE: &'static str = "float2";
-}
-
+impl CLType for num_complex::Complex<f32> {}
 #[cfg(feature = "complex")]
-impl CLType for Complex64 {
-    #[cfg(feature = "opencl")]
-    type CType = Self;
-
-    const TYPE: &'static str = "double2";
-}
-
-cl_type!(f32, Self, "float");
-cl_type!(f64, Self, "double");
-cl_type!(i8, Self, "char");
-cl_type!(i16, Self, "short");
-cl_type!(i32, Self, "int");
-cl_type!(i64, Self, "long");
-cl_type!(u8, Self, "uchar");
-cl_type!(u16, Self, "ushort");
-cl_type!(u32, Self, "uint");
-cl_type!(u64, Self, "ulong");
+impl CLType for num_complex::Complex<f64> {}
 
 /// A numeric type supported by ha-ndarray
 pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
@@ -111,7 +88,7 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     /// Construct an instance of this type from its OpenCL type
     #[cfg(feature = "opencl")]
-    fn from_cl(value: Self::CType) -> Self;
+    fn from_cl(value: Self) -> Self;
 
     /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
@@ -140,7 +117,7 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     /// Return this value as an instance of its OpenCL type.
     #[cfg(feature = "opencl")]
-    fn to_cl(&self) -> Self::CType;
+    fn to_cl(&self) -> Self;
 
     /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
@@ -195,7 +172,7 @@ macro_rules! number {
             }
 
             #[cfg(feature = "opencl")]
-            fn to_cl(&self) -> Self::CType {
+            fn to_cl(&self) -> Self {
                 *self
             }
 
@@ -631,6 +608,8 @@ complex_type!(Complex64, f64);
 /// An array math error
 pub enum Error {
     Bounds(String),
+    #[cfg(feature = "opencl")]
+    Format(String),
     Unsupported(String),
     #[cfg(feature = "opencl")]
     OCL(std::sync::Arc<ocl::Error>),
@@ -660,10 +639,22 @@ impl Clone for Error {
     fn clone(&self) -> Self {
         match self {
             Self::Bounds(msg) => Self::Bounds(msg.clone()),
+            #[cfg(feature = "opencl")]
+            Self::Format(msg) => Self::Format(msg.clone()),
             Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => Self::OCL(cause.clone()),
         }
+    }
+}
+
+#[cfg(feature = "opencl")]
+impl From<formatx::Error> for Error {
+    fn from(cause: formatx::Error) -> Self {
+        #[cfg(feature = "debug_crash")]
+        panic!("OpenCL kernel format error: {:?}", cause);
+
+        Self::Format(cause.to_string())
     }
 }
 
@@ -682,6 +673,8 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -693,6 +686,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),

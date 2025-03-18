@@ -170,7 +170,7 @@ impl OpenCL {
     }
 
     /// Copy the given `data` into a new [`Buffer`].
-    pub fn copy_into_buffer<T: Number>(data: &[T::CType]) -> Result<Buffer<T::CType>, ocl::Error> {
+    pub fn copy_into_buffer<T: Number>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
         let queue = Self::queue(data.len(), &[])?;
 
         ocl::builders::BufferBuilder::new()
@@ -243,7 +243,7 @@ impl PlatformInstance for OpenCL {
 }
 
 impl<T: Number> Constant<T> for OpenCL {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
         let queue = Self::queue(size, &[])?;
@@ -258,7 +258,7 @@ impl<T: Number> Constant<T> for OpenCL {
 }
 
 impl<T: Number> Convert<T> for OpenCL {
-    type Buffer = Buffer<T::CType>;
+    type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
         buffer
@@ -770,10 +770,10 @@ impl<A: Access<T>, T: Number> Transform<A, T> for OpenCL {
 }
 
 fn reduce_all<T: Number>(
-    input: &Buffer<T::CType>,
+    input: &Buffer<T>,
     reduce: &'static str,
-    id: T::CType,
-) -> Result<Vec<T::CType>, Error> {
+    id: T,
+) -> Result<Vec<T>, Error> {
     const MIN_SIZE: usize = 8192;
 
     let min_size = MIN_SIZE * num_cpus::get();
@@ -789,7 +789,7 @@ fn reduce_all<T: Number>(
     let program = programs::reduce::reduce(T::TYPE, reduce)?;
 
     let mut buffer = {
-        let output = Buffer::<T::CType>::builder()
+        let output = Buffer::<T>::builder()
             .queue(queue.clone())
             .len(input.len().div_ceil(WG_SIZE))
             .fill_val(id)
@@ -804,7 +804,7 @@ fn reduce_all<T: Number>(
             .arg(input.len() as u64)
             .arg(&*input)
             .arg(&output)
-            .arg_local::<T::CType>(WG_SIZE)
+            .arg_local::<T>(WG_SIZE)
             .build()?;
 
         unsafe { kernel.enq()? };
@@ -815,7 +815,7 @@ fn reduce_all<T: Number>(
     while buffer.len() >= min_size {
         let input = buffer;
 
-        let output = Buffer::<T::CType>::builder()
+        let output = Buffer::<T>::builder()
             .queue(queue.clone())
             .len(input.len().div_ceil(WG_SIZE))
             .fill_val(id)
@@ -830,7 +830,7 @@ fn reduce_all<T: Number>(
             .arg(input.len() as u64)
             .arg(&input)
             .arg(&output)
-            .arg_local::<T::CType>(WG_SIZE)
+            .arg_local::<T>(WG_SIZE)
             .build()?;
 
         unsafe { kernel.enq()? }

@@ -19,12 +19,13 @@ all = ["complex", "freqfs", "opencl", "stream"]
 complex = ["num-complex", "rustfft"]
 debug_crash = [] # enable this to panic rather than retuning an error when debugging
 freqfs = ["freqfs/stream", "stream"]
-opencl = ["memoize", "ocl"]
+opencl = ["formatx", "memoize", "ocl"]
 stream = ["destream", "futures"]
 wasm = ["wasm-bindgen"]
 
 [dependencies]
 destream = { version = "0.9", optional = true }
+formatx = { version = "0.2", optional = true }
 futures = { version = "0.3", optional = true }
 frand = "0.10"
 freqfs = { version = "0.11", optional = true }
