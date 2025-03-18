@@ -6,15 +6,14 @@ use frand::Rand;
 use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
+use super::platform::OpenCL;
+use super::{programs, CLElement, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
+use crate::opencl::programs::ElementDual;
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
-    strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape,
-    Strides,
+    strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
 };
-
-use super::platform::OpenCL;
-use super::{programs, TILE_SIZE, WG_SIZE, CLElement};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -132,42 +131,42 @@ impl<L, R, IT, OT> Dual<L, R, IT, OT> {
 // arithmetic
 impl<L, R, T: Number> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "add")?;
+        let program = programs::elementwise::dual(T::cl_add())?;
         Self::new(left, right, program, T::add)
     }
 
     pub fn div(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "div")?;
+        let program = programs::elementwise::dual(T::cl_div())?;
         Self::new(left, right, program, T::div)
     }
 
     pub fn log(arg: L, exp: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "_log")?;
+        let program = programs::elementwise::dual(T::cl_log())?;
         Self::new(arg, exp, program, |a, e| {
             T::from_float(a.to_float().log(e.to_float()))
         })
     }
 
     pub fn mul(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "mul")?;
+        let program = programs::elementwise::dual(T::cl_mul())?;
         Self::new(left, right, program, T::mul)
     }
 
     pub fn pow(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "pow")?;
+        let program = programs::elementwise::dual(T::cl_pow())?;
         Self::new(left, right, program, T::pow)
     }
 
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::TYPE, "sub")?;
+        let program = programs::elementwise::dual(T::cl_sub())?;
         Self::new(left, right, program, T::sub)
     }
 }
 
 impl<L, R, T: Real> Dual<L, R, T, T> {
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
-        let program = if T::IS_FLOAT { "fmod" } else { "mod" };
-        let program = programs::elementwise::dual(T::TYPE, program)?;
+        let op = T::cl_rem().ok_or_else(|| Error::Unsupported(format!("{}::rem", T::TYPE)))?;
+        let program = programs::elementwise::dual(op)?;
         Self::new(left, right, program, T::rem)
     }
 }
@@ -1115,53 +1114,57 @@ pub struct Scalar<A, IT, OT> {
 }
 
 impl<A, T: Number> Scalar<A, T, T> {
-    pub fn new(
+    fn new(
         access: A,
         scalar: T,
-        program: &'static str,
-        op: fn(T, T) -> T,
+        cl_op: ElementDual,
+        scalar_op: fn(T, T) -> T,
     ) -> Result<Self, Error> {
-        programs::elementwise::dual(T::TYPE, program)
+        programs::elementwise::dual_scalar(cl_op)
             .map(|program| Self {
                 access,
                 scalar,
                 program,
-                op,
+                op: scalar_op,
             })
             .map_err(Error::from)
     }
 
     pub fn add(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "add", T::add)
+        Self::new(access, scalar, T::cl_add(), T::add)
     }
 
     pub fn div(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "div", T::div)
+        Self::new(access, scalar, T::cl_div(), T::div)
     }
 
     pub fn log(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "_log", |a, e| {
+        Self::new(access, scalar, T::cl_log(), |a, e| {
             T::from_float(a.to_float().log(e.to_float()))
         })
     }
 
     pub fn mul(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "mul", T::mul)
+        Self::new(access, scalar, T::cl_mul(), T::mul)
     }
 
     pub fn pow(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "pow", T::pow)
+        Self::new(access, scalar, T::cl_pow(), T::pow)
     }
 
     pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, "sub", T::sub)
+        Self::new(access, scalar, T::cl_sub(), T::sub)
     }
 }
 
-impl<A, T: Real> Scalar<A, T, T> {
+impl<A, T> Scalar<A, T, T>
+where
+    A: Access<T>,
+    T: Real,
+{
     pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
-        let program = if T::IS_FLOAT { "fmod" } else { "mod" };
-        Self::new(access, scalar, program, T::rem)
+        let cl_op = T::cl_rem().ok_or_else(|| Error::unsupported(format!("{}::rem", T::TYPE)))?;
+        Self::new(access, scalar, cl_op, T::rem)
     }
 }
 

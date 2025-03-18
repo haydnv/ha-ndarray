@@ -44,7 +44,10 @@ fn id<T>(this: T) -> T {
 }
 
 #[cfg(feature = "opencl")]
-pub trait CLType: opencl::CLElement + PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {}
+pub trait CLType:
+    opencl::CLElement + PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
+{
+}
 
 #[cfg(not(feature = "opencl"))]
 pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {}

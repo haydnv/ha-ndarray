@@ -6,6 +6,8 @@ use ocl::OclPrm;
 use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
 
+use programs::ElementDual;
+
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
@@ -20,14 +22,86 @@ const WG_SIZE: usize = 64;
 
 pub trait CLElement: OclPrm {
     const TYPE: &'static str;
+
+    fn cl_add() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "add",
+            op: "return lhs + rhs;",
+        }
+    }
+
+    fn cl_div() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "div",
+            op: "if (rhs == 0) { return 0; } else { return lhs / rhs; }",
+        }
+    }
+
+    fn cl_log() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "_log",
+            op: "return log(lhs) / log(rhs);",
+        }
+    }
+
+    fn cl_mul() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "mul",
+            op: "return lhs * rhs;",
+        }
+    }
+
+    fn cl_sub() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "sub",
+            op: "return lhs - rhs;",
+        }
+    }
+
+    fn cl_pow() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "_pow",
+            op: "return pow(lhs, rhs);",
+        }
+    }
+
+    fn cl_rem() -> Option<ElementDual> {
+        Some(ElementDual {
+            c_type: Self::TYPE,
+            name: "rem",
+            op: "return mod(lhs, rhs);",
+        })
+    }
 }
 
 impl CLElement for f32 {
     const TYPE: &'static str = "float";
+
+    fn cl_rem() -> Option<ElementDual> {
+        Some(ElementDual {
+            c_type: Self::TYPE,
+            name: "rem",
+            op: "fmod(lhs, rhs)",
+        })
+    }
 }
 
 impl CLElement for f64 {
     const TYPE: &'static str = "double";
+
+    fn cl_rem() -> Option<ElementDual> {
+        Some(ElementDual {
+            c_type: Self::TYPE,
+            name: "rem",
+            op: "fmod(lhs, rhs)",
+        })
+    }
 }
 
 impl CLElement for i8 {
@@ -65,11 +139,75 @@ impl CLElement for u64 {
 #[cfg(feature = "complex")]
 impl CLElement for num_complex::Complex<f32> {
     const TYPE: &'static str = "float2";
+
+    fn cl_div() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "div",
+            op: r#"
+            if (rhs.x == 0.0f && rhs.y == 0.0f) {
+                return (float2)(0.0f, 0.0f);
+            } else {
+                float denom = (lhs.x * lhs.x + lhs.y * lhs.y);
+                float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
+                float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
+                return (float2)(re, im);
+            }"#,
+        }
+    }
+
+    fn cl_mul() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "div",
+            op: r#"
+            float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
+            float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
+            return (float2)(re, im);
+            "#,
+        }
+    }
+
+    fn cl_rem() -> Option<ElementDual> {
+        None
+    }
 }
 
 #[cfg(feature = "complex")]
 impl CLElement for num_complex::Complex<f64> {
     const TYPE: &'static str = "double2";
+
+    fn cl_div() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "div",
+            op: r#"
+            if (rhs.x == 0.0f && rhs.y == 0.0f) {
+                return (double2)(0.0f, 0.0f);
+            } else {
+                float denom = (rhs.x * rhs.x) + (rhs.y * rhs.y);
+                float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
+                float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
+                return (double2)(re, im);
+            }"#,
+        }
+    }
+
+    fn cl_mul() -> ElementDual {
+        ElementDual {
+            c_type: Self::TYPE,
+            name: "div",
+            op: r#"
+            float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
+            float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
+            return (double2)(re, im);
+            "#,
+        }
+    }
+
+    fn cl_rem() -> Option<ElementDual> {
+        None
+    }
 }
 
 lazy_static! {
@@ -221,6 +359,40 @@ mod tests {
 
         slice.write(&ones)?;
 
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
+    fn test_mul_complex() -> Result<(), Error> {
+        type C32 = num_complex::Complex<f32>;
+
+        let buf = OpenCL::copy_into_buffer(&[C32::new(0.5, 0.5)])?;
+        let lhs = ArrayBuf::new(buf, shape![1])?;
+
+        let buf = OpenCL::copy_into_buffer(&[C32::new(1., -1.)])?;
+        let rhs = ArrayBuf::new(buf, shape![1])?;
+
+        let actual = lhs.mul(rhs)?;
+        let actual = actual.buffer()?.to_slice()?;
+        assert_eq!(actual.into_vec(), vec![C32::new(1., 0.)]);
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
+    fn test_div_complex() -> Result<(), Error> {
+        use num_complex::Complex64 as C64;
+
+        let buf = OpenCL::copy_into_buffer(&[C64::new(0.5, 0.5)])?;
+        let lhs = ArrayBuf::new(buf, shape![1])?;
+
+        let buf = OpenCL::copy_into_buffer(&[C64::new(1., -1.)])?;
+        let rhs = ArrayBuf::new(buf, shape![1])?;
+
+        let actual = lhs.div(rhs)?;
+        let actual = actual.buffer()?.to_slice()?;
+        assert_eq!(actual.into_vec(), vec![C64::new(0., 0.5)]);
         Ok(())
     }
 }

@@ -769,11 +769,7 @@ impl<A: Access<T>, T: Number> Transform<A, T> for OpenCL {
     }
 }
 
-fn reduce_all<T: Number>(
-    input: &Buffer<T>,
-    reduce: &'static str,
-    id: T,
-) -> Result<Vec<T>, Error> {
+fn reduce_all<T: Number>(input: &Buffer<T>, reduce: &'static str, id: T) -> Result<Vec<T>, Error> {
     const MIN_SIZE: usize = 8192;
 
     let min_size = MIN_SIZE * num_cpus::get();

@@ -3,7 +3,7 @@ use ocl::Program;
 
 use crate::Error;
 
-use super::build;
+use super::{build, Builder, ElementDual};
 
 #[memoize]
 pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error> {
@@ -86,32 +86,14 @@ pub fn dual_boolean(c_type: &'static str, op: &'static str) -> Result<Program, E
 }
 
 #[memoize]
-pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
+pub fn dual(op: ElementDual) -> Result<Program, Error> {
+    let name = op.name;
+    let c_type = op.c_type;
+    let op = op.build()?;
+
     let src = format!(
         r#"
-        inline {c_type} _log(const double left, const double right) {{
-            return log(left) / log(right);
-        }}
-
-        inline {c_type} add(const {c_type} left, const {c_type} right) {{
-            return left + right;
-        }}
-
-        inline {c_type} div(const {c_type} left, const {c_type} right) {{
-            if (right == 0) {{
-                return 0;
-            }} else {{
-                return left / right;
-            }}
-        }}
-
-        inline {c_type} mul(const {c_type} left, const {c_type} right) {{
-            return left * right;
-        }}
-
-        inline {c_type} sub(const {c_type} left, const {c_type} right) {{
-            return left - right;
-        }}
+        {op}
 
         __kernel void dual(
             __global const {c_type}* restrict left,
@@ -119,8 +101,23 @@ pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
             __global {c_type}* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = {op}(left[offset], right[offset]);
+            output[offset] = {name}(left[offset], right[offset]);
         }}
+        "#,
+    );
+
+    build(&src)
+}
+
+#[memoize]
+pub fn dual_scalar(op: ElementDual) -> Result<Program, Error> {
+    let name = op.name;
+    let c_type = op.c_type;
+    let op = op.build()?;
+
+    let src = format!(
+        r#"
+        {op}
 
         __kernel void dual_scalar(
             __global const {c_type}* restrict left,
@@ -128,7 +125,7 @@ pub fn dual(c_type: &'static str, op: &'static str) -> Result<Program, Error> {
             __global {c_type}* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = {op}(left[offset], right);
+            output[offset] = {name}(left[offset], right);
         }}
         "#,
     );
