@@ -379,45 +379,39 @@ where
 {
     type Op = Scalar<A, T, u8>;
 
-    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
-    where
-        T: PartialEq,
-    {
+    fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Scalar::eq(left, right).into())
     }
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Ok(Scalar::ge(left, right).into())
     }
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Ok(Scalar::gt(left, right).into())
     }
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Ok(Scalar::le(left, right).into())
     }
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Ok(Scalar::lt(left, right).into())
     }
 
-    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
-    where
-        T: PartialEq,
-    {
+    fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Scalar::ne(left, right).into())
     }
 }

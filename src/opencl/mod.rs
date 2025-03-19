@@ -7,7 +7,7 @@ use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
 use crate::Number;
 
-use programs::{ElementDual, ElementDualBoolean, ElementUnary};
+use programs::{ElementDual, ElementUnary};
 
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
@@ -114,34 +114,34 @@ pub trait CLElement: OclPrm {
 
     // basic arithmetic (dual)
     fn cl_add() -> ElementDual {
-        ElementDual::new::<Self, _>("add", "return lhs + rhs;")
+        ElementDual::new::<Self, Self, _>("add", "return lhs + rhs;")
     }
 
     fn cl_div() -> ElementDual {
-        ElementDual::new::<Self, _>(
+        ElementDual::new::<Self, Self, _>(
             "div",
             "if (rhs == 0) { return 0; } else { return lhs / rhs; }",
         )
     }
 
     fn cl_log() -> ElementDual {
-        ElementDual::new::<Self, _>("_log", "return log(lhs) / log(rhs);")
+        ElementDual::new::<Self, Self, _>("_log", "return log(lhs) / log(rhs);")
     }
 
     fn cl_mul() -> ElementDual {
-        ElementDual::new::<Self, _>("mul", "return lhs * rhs;")
+        ElementDual::new::<Self, Self, _>("mul", "return lhs * rhs;")
     }
 
     fn cl_sub() -> ElementDual {
-        ElementDual::new::<Self, _>("sub", "return lhs - rhs;")
+        ElementDual::new::<Self, Self, _>("sub", "return lhs - rhs;")
     }
 
     fn cl_pow() -> ElementDual {
-        ElementDual::new::<Self, _>("_pow", "return pow(lhs, rhs);")
+        ElementDual::new::<Self, Self, _>("_pow", "return pow(lhs, rhs);")
     }
 
     fn cl_rem() -> Option<ElementDual> {
-        ElementDual::new::<Self, _>("rem", "return mod(lhs, rhs);").into()
+        ElementDual::new::<Self, Self, _>("rem", "return mod(lhs, rhs);").into()
     }
 
     // boolean logic (unary)
@@ -150,41 +150,25 @@ pub trait CLElement: OclPrm {
     }
 
     // boolean logic (dual)
-    fn cl_and() -> ElementDualBoolean {
-        ElementDualBoolean::new::<Self, _>("and", real_bool_cmp("&&"))
+    fn cl_and() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("and", real_bool_cmp("&&"))
     }
 
-    fn cl_or() -> ElementDualBoolean {
-        ElementDualBoolean::new::<Self, _>("or", real_bool_cmp("||"))
+    fn cl_or() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("or", real_bool_cmp("||"))
     }
 
-    fn cl_xor() -> ElementDualBoolean {
-        ElementDualBoolean::new::<Self, _>("xor", real_bool_cmp("^"))
+    fn cl_xor() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("xor", real_bool_cmp("^"))
     }
 
     // comparison
-    fn cl_eq() -> ElementDualBoolean {
-        ElementDualBoolean::new::<Self, _>("eq", real_cmp("=="))
+    fn cl_eq() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("eq", real_cmp("=="))
     }
 
-    fn cl_ne() -> ElementDualBoolean {
-        ElementDualBoolean::new::<Self, _>("ne", real_cmp("!="))
-    }
-
-    fn cl_ge() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean::new::<Self, _>("ge", real_cmp(">=")))
-    }
-
-    fn cl_gt() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean::new::<Self, _>("gt", real_cmp(">")))
-    }
-
-    fn cl_le() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean::new::<Self, _>("le", real_cmp("<=")))
-    }
-
-    fn cl_lt() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean::new::<Self, _>("lt", real_cmp("<")))
+    fn cl_ne() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("ne", real_cmp("!="))
     }
 
     // floating-point identities
@@ -194,6 +178,40 @@ pub trait CLElement: OclPrm {
 
     fn cl_nan() -> ElementUnary {
         ElementUnary::new::<Self, u8, _>("_isnan", "return false;")
+    }
+}
+
+pub trait CLElementOrd: CLElement {
+    fn cl_round() -> Option<ElementUnary> {
+        Some(ElementUnary::new::<Self, Self, _>(
+            "_round",
+            "return round(n));",
+        ))
+    }
+
+    // comparison
+    fn cl_ge() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("ge", real_cmp(">="))
+    }
+
+    fn cl_gt() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("gt", real_cmp(">"))
+    }
+
+    fn cl_le() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("le", real_cmp("<="))
+    }
+
+    fn cl_lt() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("lt", real_cmp("<"))
+    }
+
+    fn cl_max() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("_max", "return max(lhs, rhs);")
+    }
+
+    fn cl_min() -> ElementDual {
+        ElementDual::new::<Self, u8, _>("_min", "return min(lhs, rhs);")
     }
 }
 
@@ -264,7 +282,10 @@ impl CLElement for f32 {
     const TYPE: &'static str = "float";
 
     fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
+        Some(ElementDual::new::<Self, Self, _>(
+            "rem",
+            "return fmod(lhs, rhs);",
+        ))
     }
 
     fn cl_inf() -> ElementUnary {
@@ -275,6 +296,8 @@ impl CLElement for f32 {
         ElementUnary::new::<Self, u8, _>("_isnan", "return isnan(n);")
     }
 }
+
+impl CLElementOrd for f32 {}
 
 cl_trig_real!(f32);
 
@@ -282,7 +305,10 @@ impl CLElement for f64 {
     const TYPE: &'static str = "double";
 
     fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
+        Some(ElementDual::new::<Self, Self, _>(
+            "rem",
+            "return fmod(lhs, rhs);",
+        ))
     }
 
     fn cl_inf() -> ElementUnary {
@@ -294,11 +320,15 @@ impl CLElement for f64 {
     }
 }
 
+impl CLElementOrd for f64 {}
+
 cl_trig_real!(f64);
 
 impl CLElement for i8 {
     const TYPE: &'static str = "char";
 }
+
+impl CLElementOrd for i8 {}
 
 cl_trig_real!(i8);
 
@@ -306,11 +336,15 @@ impl CLElement for i16 {
     const TYPE: &'static str = "short";
 }
 
+impl CLElementOrd for i16 {}
+
 cl_trig_real!(i16);
 
 impl CLElement for i32 {
     const TYPE: &'static str = "int";
 }
+
+impl CLElementOrd for i32 {}
 
 cl_trig_real!(i32);
 
@@ -318,11 +352,15 @@ impl CLElement for i64 {
     const TYPE: &'static str = "long";
 }
 
+impl CLElementOrd for i64 {}
+
 cl_trig_real!(i64);
 
 impl CLElement for u8 {
     const TYPE: &'static str = "uchar";
 }
+
+impl CLElementOrd for u8 {}
 
 cl_trig_real!(u8);
 
@@ -330,17 +368,23 @@ impl CLElement for u16 {
     const TYPE: &'static str = "ushort";
 }
 
+impl CLElementOrd for u16 {}
+
 cl_trig_real!(u16);
 
 impl CLElement for u32 {
     const TYPE: &'static str = "uint";
 }
 
+impl CLElementOrd for u32 {}
+
 cl_trig_real!(u32);
 
 impl CLElement for u64 {
     const TYPE: &'static str = "ulong";
 }
+
+impl CLElementOrd for u64 {}
 
 cl_trig_real!(u64);
 
@@ -352,11 +396,11 @@ macro_rules! cl_complex {
 
             // basic arithmetic (dual)
             fn cl_div() -> ElementDual {
-                ElementDual::new::<Self, _>("div", complex_div::<Self>())
+                ElementDual::new::<Self, Self, _>("div", complex_div::<Self>())
             }
 
             fn cl_mul() -> ElementDual {
-                ElementDual::new::<Self, _>("mul", complex_mul::<Self>())
+                ElementDual::new::<Self, Self, _>("mul", complex_mul::<Self>())
             }
 
             fn cl_rem() -> Option<ElementDual> {
@@ -364,41 +408,25 @@ macro_rules! cl_complex {
             }
 
             // boolean logic
-            fn cl_and() -> ElementDualBoolean {
-                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("&&"))
+            fn cl_and() -> ElementDual {
+                ElementDual::new::<Self, u8, _>("and", complex_bool_cmp("&&"))
             }
 
-            fn cl_or() -> ElementDualBoolean {
-                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("||"))
+            fn cl_or() -> ElementDual {
+                ElementDual::new::<Self, u8, _>("and", complex_bool_cmp("||"))
             }
 
-            fn cl_xor() -> ElementDualBoolean {
-                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("^"))
+            fn cl_xor() -> ElementDual {
+                ElementDual::new::<Self, u8, _>("and", complex_bool_cmp("^"))
             }
 
             // comparison
-            fn cl_eq() -> ElementDualBoolean {
-                ElementDualBoolean::new::<Self, _>("eq", complex_cmp("==", "&&"))
+            fn cl_eq() -> ElementDual {
+                ElementDual::new::<Self, u8, _>("eq", complex_cmp("==", "&&"))
             }
 
-            fn cl_ne() -> ElementDualBoolean {
-                ElementDualBoolean::new::<Self, _>("ne", complex_cmp("!=", "||"))
-            }
-
-            fn cl_ge() -> Option<ElementDualBoolean> {
-                None
-            }
-
-            fn cl_gt() -> Option<ElementDualBoolean> {
-                None
-            }
-
-            fn cl_le() -> Option<ElementDualBoolean> {
-                None
-            }
-
-            fn cl_lt() -> Option<ElementDualBoolean> {
-                None
+            fn cl_ne() -> ElementDual {
+                ElementDual::new::<Self, u8, _>("ne", complex_cmp("!=", "||"))
             }
         }
     };

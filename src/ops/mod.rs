@@ -136,19 +136,19 @@ pub trait ElementwiseCompare<L, R, T>: PlatformInstance {
 
     fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 }
@@ -160,19 +160,19 @@ pub trait ElementwiseCompareScalar<A, T>: PlatformInstance {
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd;
+        T: Real;
 
     fn ne_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 }

@@ -45,19 +45,22 @@ pub trait Builder {
 
 #[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
 pub struct ElementDual {
-    pub(super) c_type: &'static str,
+    pub(super) i_type: &'static str,
+    pub(super) o_type: &'static str,
     pub(super) name: &'static str,
     pub(super) op: CLExpr,
 }
 
 impl ElementDual {
-    pub(super) fn new<T, Op>(name: &'static str, op: Op) -> Self
+    pub(super) fn new<I, O, Op>(name: &'static str, op: Op) -> Self
     where
-        T: CLElement,
+        I: CLElement,
+        O: CLElement,
         Op: Into<CLExpr>,
     {
         Self {
-            c_type: T::TYPE,
+            i_type: I::TYPE,
+            o_type: O::TYPE,
             name,
             op: op.into(),
         }
@@ -68,47 +71,12 @@ impl Builder for ElementDual {
     fn build(self) -> String {
         format!(
             r#"
-            inline {c_type} {name}(const {c_type} lhs, const {c_type} rhs) {{
+            inline {o_type} {name}(const {i_type} lhs, const {i_type} rhs) {{
                 {op}
             }}
             "#,
-            c_type = self.c_type,
-            name = self.name,
-            op = self.op
-        )
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
-pub struct ElementDualBoolean {
-    pub(super) c_type: &'static str,
-    pub(super) name: &'static str,
-    pub(super) op: CLExpr,
-}
-
-impl ElementDualBoolean {
-    pub(super) fn new<T, Op>(name: &'static str, op: Op) -> Self
-    where
-        T: CLElement,
-        Op: Into<CLExpr>,
-    {
-        Self {
-            c_type: T::TYPE,
-            name,
-            op: op.into(),
-        }
-    }
-}
-
-impl Builder for ElementDualBoolean {
-    fn build(self) -> String {
-        format!(
-            r#"
-            inline uchar {name}(const {c_type} lhs, const {c_type} rhs) {{
-                {op}
-            }}
-            "#,
-            c_type = self.c_type,
+            i_type = self.i_type,
+            o_type = self.o_type,
             name = self.name,
             op = self.op
         )

@@ -383,8 +383,31 @@ number!(
     |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX))
 );
 
+#[cfg(not(feature = "opencl"))]
 /// A real-valued [`Number`]
-pub trait Real: Number {
+pub trait Real: Number + PartialOrd {
+    /// The maximum value of this data type.
+    const MAX: Self;
+
+    /// The minimum value of this data type.
+    const MIN: Self;
+
+    /// Return the maximum of the given values.
+    fn max(l: Self, r: Self) -> Self;
+
+    /// Return the maximum of the given values.
+    fn min(l: Self, r: Self) -> Self;
+
+    /// Compute the remainder of `self.div(other)`.
+    fn rem(self, other: Self) -> Self;
+
+    /// Round this value to the nearest integer.
+    fn round(self) -> Self;
+}
+
+#[cfg(feature = "opencl")]
+/// A real-valued [`Number`]
+pub trait Real: Number + PartialOrd + opencl::CLElementOrd {
     /// The maximum value of this data type.
     const MAX: Self;
 

@@ -3,42 +3,25 @@ use ocl::Program;
 
 use crate::Error;
 
-use super::build;
+use super::{build, Builder, ElementDual};
 
 #[memoize]
-pub fn fold_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, Error> {
+pub fn fold_axis(op: ElementDual) -> Result<Program, Error> {
+    let i_type = op.i_type;
+    let o_type = op.o_type;
+    let name = op.name;
+    let op = op.build();
+
     let src = format!(
         r#"
-        inline void add({c_type}* left, const {c_type} right) {{
-            *left += right;
-        }}
-
-        inline void and({c_type}* left, const {c_type} right) {{
-            if (left == 0) {{
-                // no-op
-            }} else if (right == 0) {{
-                *left = 0;
-            }}
-        }}
-
-        inline void mul({c_type}* left, const {c_type} right) {{
-            *left *= right;
-        }}
-
-        inline void or({c_type}* left, const {c_type} right) {{
-            if (left != 0) {{
-                // no-op
-            }} else if (right != 0) {{
-                *left = right;
-            }}
-        }}
+        {op}
 
         __kernel void fold_axis(
             const ulong reduce_dim,
             const ulong target_dim,
-            {c_type} init,
-            __global const {c_type}* input,
-            __global {c_type}* output)
+            {i_type} init,
+            __global const {i_type}* input,
+            __global {o_type}* output)
         {{
             // the global offset in the output basis
             const ulong o_offset = get_global_id(0);
@@ -52,10 +35,10 @@ pub fn fold_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, 
             // the global offset in the input basis
             const ulong i_offset = (a * reduce_dim) + b;
 
-            {c_type} reduced = init;
+            {o_type} reduced = init;
 
             for (uint stride = i_offset; stride < (a + 1) * reduce_dim; stride += target_dim) {{
-                {reduce}(&reduced, input[stride]);
+                reduced = {name}(reduced, input[stride]);
             }}
 
             output[o_offset] = reduced;
@@ -66,38 +49,21 @@ pub fn fold_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, 
     build(&src)
 }
 
-pub fn reduce_axis(c_type: &'static str, reduce: &'static str) -> Result<Program, Error> {
+pub fn reduce_axis(op: ElementDual) -> Result<Program, Error> {
+    let i_type = op.i_type;
+    let o_type = op.o_type;
+    let name = op.name;
+    let op = op.build();
+
     let src = format!(
         r#"
-        inline void add({c_type}* left, const {c_type} right) {{
-            *left += right;
-        }}
-
-        inline void and({c_type}* left, const {c_type} right) {{
-            if (left == 0) {{
-                // no-op
-            }} else if (right == 0) {{
-                *left = 0;
-            }}
-        }}
-
-        inline void mul({c_type}* left, const {c_type} right) {{
-            *left *= right;
-        }}
-
-        inline void or({c_type}* left, const {c_type} right) {{
-            if (left != 0) {{
-                // no-op
-            }} else if (right != 0) {{
-                *left = right;
-            }}
-        }}
+        {op}
 
         __kernel void reduce(
-                {c_type} init,
-                __global const {c_type}* input,
-                __global {c_type}* output,
-                __local {c_type}* partials)
+                {i_type} init,
+                __global const {i_type}* input,
+                __global {o_type}* output,
+                __local {o_type}* partials)
         {{
             const ulong offset = get_global_id(0);
             const uint reduce_dim = get_local_size(0);
@@ -114,7 +80,7 @@ pub fn reduce_axis(c_type: &'static str, reduce: &'static str) -> Result<Program
 
                 uint next = b + stride;
                 if (next < reduce_dim) {{
-                    {reduce}(&partials[b], partials[next]);
+                    partials[b] = {name}(partials[b], partials[next]);
                 }}
             }}
 
@@ -129,38 +95,21 @@ pub fn reduce_axis(c_type: &'static str, reduce: &'static str) -> Result<Program
 }
 
 #[memoize]
-pub fn reduce(c_type: &'static str, reduce: &'static str) -> Result<Program, Error> {
+pub fn reduce(op: ElementDual) -> Result<Program, Error> {
+    let i_type = op.i_type;
+    let o_type = op.o_type;
+    let name = op.name;
+    let op = op.build();
+
     let src = format!(
         r#"
-        inline void add({c_type}* left, const {c_type} right) {{
-            *left += right;
-        }}
-
-        inline void and({c_type}* left, const {c_type} right) {{
-            if (left == 0) {{
-                // no-op
-            }} else if (right == 0) {{
-                *left = 0;
-            }}
-        }}
-
-        inline void mul({c_type}* left, const {c_type} right) {{
-            *left *= right;
-        }}
-
-        inline void or({c_type}* left, const {c_type} right) {{
-            if (left != 0) {{
-                // no-op
-            }} else if (right != 0) {{
-                *left = right;
-            }}
-        }}
+        {op}
 
         __kernel void reduce(
                 const ulong size,
-                __global const {c_type}* input,
-                __global {c_type}* output,
-                __local {c_type}* partials)
+                __global const {i_type}* input,
+                __global {o_type}* output,
+                __local {o_type}* partials)
         {{
             const ulong offset = get_global_id(0);
             const uint group_size = get_local_size(0);
@@ -177,7 +126,7 @@ pub fn reduce(c_type: &'static str, reduce: &'static str) -> Result<Program, Err
                 if (offset + stride < size) {{
                     uint next = b + stride;
                     if (next < group_size) {{
-                        {reduce}(&partials[b], partials[b + stride]);
+                        partials[b] = {name}(partials[b], partials[b + stride]);
                     }}
                 }}
             }}

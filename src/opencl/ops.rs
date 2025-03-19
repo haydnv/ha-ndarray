@@ -9,7 +9,7 @@ use ocl::{Buffer, Kernel, Program, Queue};
 use super::platform::OpenCL;
 use super::{programs, CLElementTrig, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
-use crate::opencl::programs::{ElementDual, ElementDualBoolean, ElementUnary};
+use crate::opencl::programs::{ElementDual, ElementUnary};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
     strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
@@ -174,19 +174,19 @@ impl<L, R, T: Real> Dual<L, R, T, T> {
 // boolean operations
 impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn and(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::cl_and())?;
+        let program = programs::elementwise::dual(T::cl_and())?;
         let op = |l, r| if l != T::ZERO && r != T::ZERO { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
     pub fn or(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::cl_or())?;
+        let program = programs::elementwise::dual(T::cl_or())?;
         let op = |l, r| if l != T::ZERO || r != T::ZERO { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
     pub fn xor(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::cl_xor())?;
+        let program = programs::elementwise::dual(T::cl_xor())?;
         let op = |l, r| {
             if (l != T::ZERO) ^ (r != T::ZERO) {
                 1
@@ -201,17 +201,24 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
 // comparison
 impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::cl_eq())?;
+        let program = programs::elementwise::dual(T::cl_eq())?;
         let op = |l, r| if l == r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 
+    pub fn ne(left: L, right: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::cl_ne())?;
+        let op = |l, r| if l != r { 1 } else { 0 };
+        Self::new(left, right, program, op)
+    }
+}
+
+impl<L, R, T: Real> Dual<L, R, T, u8> {
     pub fn ge(left: L, right: R) -> Result<Self, Error>
     where
         T: PartialOrd,
     {
-        let op = T::cl_ge().ok_or_else(|| Error::Unsupported(format!("{}::ge", T::TYPE)))?;
-        let program = programs::elementwise::dual_boolean(op)?;
+        let program = programs::elementwise::dual(T::cl_ge())?;
         let op = |l, r| if l >= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -220,8 +227,7 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let op = T::cl_gt().ok_or_else(|| Error::Unsupported(format!("{}::gt", T::TYPE)))?;
-        let program = programs::elementwise::dual_boolean(op)?;
+        let program = programs::elementwise::dual(T::cl_gt())?;
         let op = |l, r| if l > r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -230,8 +236,7 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let op = T::cl_le().ok_or_else(|| Error::Unsupported(format!("{}::le", T::TYPE)))?;
-        let program = programs::elementwise::dual_boolean(op)?;
+        let program = programs::elementwise::dual(T::cl_le())?;
         let op = |l, r| if l <= r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
@@ -240,15 +245,8 @@ impl<L, R, T: Number> Dual<L, R, T, u8> {
     where
         T: PartialOrd,
     {
-        let op = T::cl_lt().ok_or_else(|| Error::Unsupported(format!("{}::lt", T::TYPE)))?;
-        let program = programs::elementwise::dual_boolean(op)?;
+        let program = programs::elementwise::dual(T::cl_lt())?;
         let op = |l, r| if l < r { 1 } else { 0 };
-        Self::new(left, right, program, op)
-    }
-
-    pub fn ne(left: L, right: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual_boolean(T::cl_ne())?;
-        let op = |l, r| if l != r { 1 } else { 0 };
         Self::new(left, right, program, op)
     }
 }
@@ -933,12 +931,12 @@ impl<A, T: Number> Reduce<A, T> {
     fn new(
         access: A,
         stride: usize,
-        reduce: &'static str,
+        reduce: ElementDual,
         reduce_all: fn(OpenCL, AccessBuf<Buffer<T>>) -> Result<T, Error>,
         id: T,
     ) -> Result<Self, Error> {
-        let fold = programs::reduce::fold_axis(T::TYPE, reduce)?;
-        let reduce = programs::reduce::reduce_axis(T::TYPE, reduce)?;
+        let fold = programs::reduce::fold_axis(reduce.clone())?;
+        let reduce = programs::reduce::reduce_axis(reduce)?;
 
         Ok(Self {
             access,
@@ -954,7 +952,7 @@ impl<A, T: Number> Reduce<A, T> {
         Self::new(
             access,
             stride,
-            "mul",
+            T::cl_mul(),
             <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::product,
             T::ONE,
         )
@@ -964,7 +962,7 @@ impl<A, T: Number> Reduce<A, T> {
         Self::new(
             access,
             stride,
-            "add",
+            T::cl_add(),
             <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::sum,
             T::ZERO,
         )
@@ -1037,20 +1035,24 @@ impl<A, T: Number> Reduce<A, T> {
 
 impl<A, T: Real> Reduce<A, T> {
     pub fn max(access: A, stride: usize) -> Result<Self, Error> {
+        let reduce = T::cl_max();
+
         Self::new(
             access,
             stride,
-            "max",
+            reduce,
             <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::max,
             T::MIN,
         )
     }
 
     pub fn min(access: A, stride: usize) -> Result<Self, Error> {
+        let reduce = T::cl_min();
+
         Self::new(
             access,
             stride,
-            "min",
+            reduce,
             <OpenCL as ReduceAll<AccessBuf<Buffer<T>>, T>>::min,
             T::MAX,
         )
@@ -1179,10 +1181,10 @@ where
     fn compare(
         access: A,
         scalar: T,
-        cl_op: ElementDualBoolean,
+        cl_op: ElementDual,
         scalar_op: fn(T, T) -> u8,
     ) -> Result<Self, Error> {
-        programs::elementwise::dual_scalar_boolean(cl_op)
+        programs::elementwise::dual_scalar(cl_op)
             .map(|program| Self {
                 access,
                 scalar,
@@ -1231,38 +1233,6 @@ where
         )
     }
 
-    pub fn ge(access: A, scalar: T) -> Result<Self, Error>
-    where
-        T: PartialOrd,
-    {
-        let op = T::cl_ge().ok_or_else(|| Error::Unsupported(format!("{}::ge", T::TYPE)))?;
-        Self::compare(access, scalar, op, |l, r| if l >= r { 1 } else { 0 })
-    }
-
-    pub fn gt(access: A, scalar: T) -> Result<Self, Error>
-    where
-        T: PartialOrd,
-    {
-        let op = T::cl_gt().ok_or_else(|| Error::Unsupported(format!("{}::gt", T::TYPE)))?;
-        Self::compare(access, scalar, op, |l, r| if l > r { 1 } else { 0 })
-    }
-
-    pub fn le(access: A, scalar: T) -> Result<Self, Error>
-    where
-        T: PartialOrd,
-    {
-        let op = T::cl_le().ok_or_else(|| Error::Unsupported(format!("{}::le", T::TYPE)))?;
-        Self::compare(access, scalar, op, |l, r| if l <= r { 1 } else { 0 })
-    }
-
-    pub fn lt(access: A, scalar: T) -> Result<Self, Error>
-    where
-        T: PartialOrd,
-    {
-        let op = T::cl_lt().ok_or_else(|| Error::Unsupported(format!("{}::lt", T::TYPE)))?;
-        Self::compare(access, scalar, op, |l, r| if l < r { 1 } else { 0 })
-    }
-
     pub fn ne(access: A, scalar: T) -> Result<Self, Error> {
         Self::compare(
             access,
@@ -1270,6 +1240,49 @@ where
             T::cl_ne(),
             |l, r| if l != r { 1 } else { 0 },
         )
+    }
+}
+
+impl<A, T> Scalar<A, T, u8>
+where
+    T: Real,
+{
+    pub fn ge(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
+        Self::compare(
+            access,
+            scalar,
+            T::cl_ge(),
+            |l, r| if l >= r { 1 } else { 0 },
+        )
+    }
+
+    pub fn gt(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
+        Self::compare(access, scalar, T::cl_gt(), |l, r| if l > r { 1 } else { 0 })
+    }
+
+    pub fn le(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
+        Self::compare(
+            access,
+            scalar,
+            T::cl_le(),
+            |l, r| if l <= r { 1 } else { 0 },
+        )
+    }
+
+    pub fn lt(access: A, scalar: T) -> Result<Self, Error>
+    where
+        T: PartialOrd,
+    {
+        Self::compare(access, scalar, T::cl_lt(), |l, r| if l < r { 1 } else { 0 })
     }
 }
 

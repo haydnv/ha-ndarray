@@ -954,11 +954,11 @@ impl<A, T: Number> Scalar<A, T, T> {
     }
 }
 
-impl<A, T> Scalar<A, T, u8> {
-    pub fn and(access: A, scalar: T) -> Self
-    where
-        T: Number,
-    {
+impl<A, T> Scalar<A, T, u8>
+where
+    T: Number,
+{
+    pub fn and(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) && (r != T::ZERO) {
                 1
@@ -968,10 +968,7 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn or(access: A, scalar: T) -> Self
-    where
-        T: Number,
-    {
+    pub fn or(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) || (r != T::ZERO) {
                 1
@@ -981,10 +978,7 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn xor(access: A, scalar: T) -> Self
-    where
-        T: Number,
-    {
+    pub fn xor(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) ^ (r != T::ZERO) {
                 1
@@ -994,45 +988,39 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn eq(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
+    pub fn eq(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| if l == r { 1 } else { 0 })
     }
 
     pub fn ge(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l >= r { 1 } else { 0 })
     }
 
     pub fn gt(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l > r { 1 } else { 0 })
     }
 
     pub fn le(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l <= r { 1 } else { 0 })
     }
 
     pub fn lt(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l < r { 1 } else { 0 })
     }
 
-    pub fn ne(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
+    pub fn ne(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| if l != r { 1 } else { 0 })
     }
 }

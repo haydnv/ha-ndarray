@@ -1078,22 +1078,22 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     /// Elementwise greater-than-or-equal comparison
     fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd<O::DType>;
+        Self::DType: Real;
 
     /// Elementwise greater-than comparison
     fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd<O::DType>;
+        Self::DType: Real;
 
     /// Elementwise less-than-or-equal comparison
     fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd<O::DType>;
+        Self::DType: Real;
 
     /// Elementwise less-than comparison
     fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd<O::DType>;
+        Self::DType: Real;
 
     /// Elementwise not-equal comparison
     fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
@@ -1115,7 +1115,7 @@ where
 
     fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.ge(left, right))
@@ -1123,7 +1123,7 @@ where
 
     fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.gt(left, right))
@@ -1131,7 +1131,7 @@ where
 
     fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.le(left, right))
@@ -1139,7 +1139,7 @@ where
 
     fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.lt(left, right))
@@ -1167,7 +1167,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd;
+        Self::DType: Real;
 
     /// Construct an equal-or-greater-than comparison with the `other` value.
     fn ge_scalar(
@@ -1175,7 +1175,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd;
+        Self::DType: Real;
 
     /// Construct a less-than comparison with the `other` value.
     fn lt_scalar(
@@ -1183,7 +1183,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd;
+        Self::DType: Real;
 
     /// Construct an equal-or-less-than comparison with the `other` value.
     fn le_scalar(
@@ -1191,7 +1191,7 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        Self::DType: PartialOrd;
+        Self::DType: Real;
 
     /// Construct an not-equal comparison with the `other` value.
     fn ne_scalar(
@@ -1217,28 +1217,28 @@ where
 
     fn gt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         self.apply(|platform, access| platform.gt_scalar(access, other))
     }
 
     fn ge_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         self.apply(|platform, access| platform.ge_scalar(access, other))
     }
 
     fn lt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         self.apply(|platform, access| platform.lt_scalar(access, other))
     }
 
     fn le_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         self.apply(|platform, access| platform.le_scalar(access, other))
     }

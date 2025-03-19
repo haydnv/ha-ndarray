@@ -318,7 +318,7 @@ where
 
     fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.ge(left, right).map(AccessOp::wrap),
@@ -327,7 +327,7 @@ where
 
     fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.gt(left, right).map(AccessOp::wrap),
@@ -336,7 +336,7 @@ where
 
     fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.le(left, right).map(AccessOp::wrap),
@@ -345,7 +345,7 @@ where
 
     fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.lt(left, right).map(AccessOp::wrap),
@@ -377,7 +377,7 @@ where
 
     fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.ge(left, right).map(AccessOp::wrap),
@@ -387,7 +387,7 @@ where
 
     fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.gt(left, right).map(AccessOp::wrap),
@@ -397,7 +397,7 @@ where
 
     fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.le(left, right).map(AccessOp::wrap),
@@ -407,7 +407,7 @@ where
 
     fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.lt(left, right).map(AccessOp::wrap),
@@ -435,7 +435,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.ge_scalar(left, right).map(AccessOp::wrap),
@@ -444,7 +444,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.gt_scalar(left, right).map(AccessOp::wrap),
@@ -453,7 +453,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.le_scalar(left, right).map(AccessOp::wrap),
@@ -462,7 +462,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::Host(host) => host.lt_scalar(left, right).map(AccessOp::wrap),
@@ -489,7 +489,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.ge_scalar(left, right).map(AccessOp::wrap),
@@ -499,7 +499,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.gt_scalar(left, right).map(AccessOp::wrap),
@@ -509,7 +509,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.le_scalar(left, right).map(AccessOp::wrap),
@@ -519,7 +519,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         match self {
             Self::CL(cl) => cl.lt_scalar(left, right).map(AccessOp::wrap),

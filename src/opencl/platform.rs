@@ -6,8 +6,12 @@ use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
 use smallvec::SmallVec;
 
+use super::ops::*;
+use super::{programs, CLElementTrig};
+use super::{CL_PLATFORM, WG_SIZE};
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
+use crate::opencl::programs::ElementDual;
 use crate::ops::{
     Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
     ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
@@ -17,10 +21,6 @@ use crate::ops::{
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
-
-use super::ops::*;
-use super::{programs, CLElementTrig};
-use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
 pub const GPU_MIN_SIZE: usize = 128;
@@ -375,28 +375,28 @@ where
 
     fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Dual::ge(left, right).map(AccessOp::from)
     }
 
     fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Dual::gt(left, right).map(AccessOp::from)
     }
 
     fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Dual::le(left, right).map(AccessOp::from)
     }
 
     fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Dual::lt(left, right).map(AccessOp::from)
     }
@@ -415,28 +415,28 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for OpenCL {
 
     fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Scalar::ge(left, right).map(AccessOp::from)
     }
 
     fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Scalar::gt(left, right).map(AccessOp::from)
     }
 
     fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Scalar::le(left, right).map(AccessOp::from)
     }
 
     fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
     where
-        T: PartialOrd,
+        T: Real,
     {
         Scalar::lt(left, right).map(AccessOp::from)
     }
@@ -648,13 +648,13 @@ impl Random for OpenCL {
 impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "and", T::ONE.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_and(), T::ONE.to_cl())?;
         Ok(result.into_par_iter().map(T::from_cl).all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "or", T::ZERO.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_or(), T::ZERO.to_cl())?;
         Ok(result.into_par_iter().map(T::from_cl).any(|n| n != T::ZERO))
     }
 
@@ -663,7 +663,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         T: Real,
     {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "max", T::MIN.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_max(), T::MIN.to_cl())?;
         Ok(result
             .into_par_iter()
             .map(T::from_cl)
@@ -675,7 +675,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         T: Real,
     {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "min", T::MAX.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_min(), T::MAX.to_cl())?;
         Ok(result
             .into_par_iter()
             .map(T::from_cl)
@@ -684,7 +684,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
 
     fn product(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "mul", T::ONE.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_mul(), T::ONE.to_cl())?;
         Ok(result
             .into_par_iter()
             .map(T::from_cl)
@@ -693,7 +693,7 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
 
     fn sum(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, "add", T::ZERO.to_cl())?;
+        let result = reduce_all::<T>(&*input, T::cl_add(), T::ZERO.to_cl())?;
         Ok(result
             .into_par_iter()
             .map(T::from_cl)
@@ -770,7 +770,7 @@ impl<A: Access<T>, T: Number> Transform<A, T> for OpenCL {
     }
 }
 
-fn reduce_all<T: Number>(input: &Buffer<T>, reduce: &'static str, id: T) -> Result<Vec<T>, Error> {
+fn reduce_all<T: Number>(input: &Buffer<T>, reduce: ElementDual, id: T) -> Result<Vec<T>, Error> {
     const MIN_SIZE: usize = 8192;
 
     let min_size = MIN_SIZE * num_cpus::get();
@@ -783,7 +783,7 @@ fn reduce_all<T: Number>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resu
 
     let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
-    let program = programs::reduce::reduce(T::TYPE, reduce)?;
+    let program = programs::reduce::reduce(reduce)?;
 
     let mut buffer = {
         let output = Buffer::<T>::builder()
