@@ -587,9 +587,23 @@ float_type!(Complex64, |_| false, |_| false);
 float_type!(f32, f32::is_infinite, f32::is_nan);
 float_type!(f64, f64::is_infinite, f64::is_nan);
 
-#[cfg(feature = "complex")]
+#[cfg(all(feature = "complex", not(feature = "opencl")))]
 /// A complex [`Number`]
 pub trait Complex: Float<Abs = Self::Real> {
+    type Real: Float + Real;
+
+    fn angle(self) -> Self::Real;
+
+    fn conj(self) -> Self;
+
+    fn im(self) -> Self::Real;
+
+    fn re(self) -> Self::Real;
+}
+
+#[cfg(all(feature = "complex", feature = "opencl"))]
+/// A complex [`Number`]
+pub trait Complex: Float<Abs = Self::Real> + opencl::CLElementComplex {
     type Real: Float + Real;
 
     fn angle(self) -> Self::Real;

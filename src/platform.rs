@@ -535,8 +535,46 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
     }
 }
 
+#[cfg(all(feature = "complex", feature = "opencl"))]
+impl<A, T> complex::ElementwiseUnaryComplex<A, T> for Platform
+where
+    A: Access<T>,
+    T: crate::Complex,
+{
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.angle(access).map(AccessOp::wrap),
+            Self::Host(host) => host.angle(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.conj(access).map(AccessOp::wrap),
+            Self::Host(host) => host.conj(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.re(access).map(AccessOp::wrap),
+            Self::Host(host) => host.re(access).map(AccessOp::wrap),
+        }
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        match self {
+            Self::CL(cl) => cl.im(access).map(AccessOp::wrap),
+            Self::Host(host) => host.im(access).map(AccessOp::wrap),
+        }
+    }
+}
+
 #[cfg(all(feature = "complex", not(feature = "opencl")))]
-impl<A, T> crate::ops::complex::ElementwiseUnaryComplex<A, T> for Platform
+impl<A, T> complex::ElementwiseUnaryComplex<A, T> for Platform
 where
     A: Access<T>,
     T: crate::Complex,

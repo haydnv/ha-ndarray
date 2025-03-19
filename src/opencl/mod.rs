@@ -194,6 +194,24 @@ pub trait CLElement: OclPrm {
     }
 }
 
+pub trait CLElementComplex: CLElement {
+    fn cl_angle() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("angle", "return atan2(n.y, n.x);")
+    }
+
+    fn cl_conj() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("conj", format!("return ({})(n.x, -n.y);", Self::TYPE))
+    }
+
+    fn cl_real() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("real", "return n.x;")
+    }
+
+    fn cl_imag() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("imag", "return n.y;")
+    }
+}
+
 pub trait CLElementOrd: CLElement {
     fn cl_round() -> Option<ElementUnary> {
         Some(ElementUnary::new::<Self, Self, _>(
@@ -437,11 +455,11 @@ macro_rules! cl_complex {
             }
 
             fn cl_or() -> ElementDual {
-                ElementDual::new::<Self, u8, _>("and", complex_bool_cmp("||"))
+                ElementDual::new::<Self, u8, _>("or", complex_bool_cmp("||"))
             }
 
             fn cl_xor() -> ElementDual {
-                ElementDual::new::<Self, u8, _>("and", complex_bool_cmp("^"))
+                ElementDual::new::<Self, u8, _>("xor", complex_bool_cmp("^"))
             }
 
             // comparison
@@ -453,6 +471,8 @@ macro_rules! cl_complex {
                 ElementDual::new::<Self, u8, _>("ne", complex_cmp("!=", "||"))
             }
         }
+
+        impl CLElementComplex for num_complex::Complex<$t> {}
     };
 }
 

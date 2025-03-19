@@ -6,14 +6,15 @@ use frand::Rand;
 use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
-use super::platform::OpenCL;
-use super::{programs, CLElementTrig, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::opencl::programs::{ElementDual, ElementUnary};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
     strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
 };
+
+use super::platform::OpenCL;
+use super::{programs, CLElementTrig, TILE_SIZE, WG_SIZE};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -1565,6 +1566,28 @@ impl<A, T: Float> Unary<A, T, u8> {
 
     pub fn nan(access: A) -> Result<Self, Error> {
         Self::new(access, T::cl_nan(), |n| if n.is_nan() { 1 } else { 0 })
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T: crate::Complex> Unary<A, T, T> {
+    pub fn conj(access: A) -> Result<Self, Error> {
+        Self::new(access, T::cl_conj(), T::conj)
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T: crate::Complex> Unary<A, T, T::Real> {
+    pub fn angle(access: A) -> Result<Self, Error> {
+        Self::new(access, T::cl_angle(), T::angle)
+    }
+
+    pub fn real(access: A) -> Result<Self, Error> {
+        Self::new(access, T::cl_real(), T::re)
+    }
+
+    pub fn imag(access: A) -> Result<Self, Error> {
+        Self::new(access, T::cl_imag(), T::im)
     }
 }
 

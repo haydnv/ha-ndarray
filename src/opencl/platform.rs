@@ -12,6 +12,7 @@ use super::{CL_PLATFORM, WG_SIZE};
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::opencl::programs::ElementDual;
+use crate::ops::complex::ElementwiseUnaryComplex;
 use crate::ops::{
     Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
     ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
@@ -598,6 +599,28 @@ impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for OpenCL {
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::not(access).map(AccessOp::from)
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A: Access<T>, T: crate::Complex> ElementwiseUnaryComplex<A, T> for OpenCL {
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::angle(access).map(AccessOp::from)
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        Unary::conj(access).map(AccessOp::from)
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::real(access).map(AccessOp::from)
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::imag(access).map(AccessOp::from)
     }
 }
 
