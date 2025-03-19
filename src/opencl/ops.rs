@@ -571,7 +571,7 @@ where
 {
     pub fn new(left: L, right: R, dims: [usize; 4]) -> Result<Self, Error> {
         let pad_matrices = programs::linalg::pad_matrices(T::TYPE)?;
-        let matmul = programs::linalg::matmul(T::TYPE)?;
+        let matmul = programs::linalg::matmul(T::cl_mul())?;
 
         let [batch_size, a, b, c] = dims;
         assert!(batch_size > 0);
