@@ -26,7 +26,7 @@ pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error
 pub fn dual_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
     let c_type = op.c_type;
     let name = op.name;
-    let op = op.build()?;
+    let op = op.build();
 
     let src = format!(
         r#"
@@ -50,7 +50,7 @@ pub fn dual_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
 pub fn dual_scalar_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
     let c_type = op.c_type;
     let name = op.name;
-    let op = op.build()?;
+    let op = op.build();
 
     let src = format!(
         r#"
@@ -74,7 +74,7 @@ pub fn dual_scalar_boolean(op: ElementDualBoolean) -> Result<Program, Error> {
 pub fn dual(op: ElementDual) -> Result<Program, Error> {
     let name = op.name;
     let c_type = op.c_type;
-    let op = op.build()?;
+    let op = op.build();
 
     let src = format!(
         r#"
@@ -98,7 +98,7 @@ pub fn dual(op: ElementDual) -> Result<Program, Error> {
 pub fn dual_scalar(op: ElementDual) -> Result<Program, Error> {
     let name = op.name;
     let c_type = op.c_type;
-    let op = op.build()?;
+    let op = op.build();
 
     let src = format!(
         r#"

@@ -652,16 +652,6 @@ impl Clone for Error {
 }
 
 #[cfg(feature = "opencl")]
-impl From<formatx::Error> for Error {
-    fn from(cause: formatx::Error) -> Self {
-        #[cfg(feature = "debug_crash")]
-        panic!("OpenCL kernel format error: {:?}", cause);
-
-        Self::Format(cause.to_string())
-    }
-}
-
-#[cfg(feature = "opencl")]
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
         #[cfg(feature = "debug_crash")]

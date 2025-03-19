@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::Error;
 
-use super::{OpenCL, TILE_SIZE, WG_SIZE};
+use super::{CLElement, OpenCL, TILE_SIZE, WG_SIZE};
 
 pub mod constructors;
 pub mod elementwise;
@@ -12,20 +12,61 @@ pub mod reduce;
 pub mod slice;
 pub mod view;
 
-pub trait Builder {
-    fn build(self) -> Result<String, Error>;
+#[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
+pub(super) enum CLExpr {
+    Static(&'static str),
+    String(String),
 }
 
-#[derive(Clone, Hash, Eq, PartialEq, fmt::Debug)]
+impl From<&'static str> for CLExpr {
+    fn from(s: &'static str) -> Self {
+        CLExpr::Static(s)
+    }
+}
+
+impl From<String> for CLExpr {
+    fn from(s: String) -> Self {
+        CLExpr::String(s)
+    }
+}
+
+impl fmt::Display for CLExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Static(s) => f.write_str(s),
+            Self::String(s) => f.write_str(s),
+        }
+    }
+}
+
+pub trait Builder {
+    fn build(self) -> String;
+}
+
+#[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
 pub struct ElementDual {
-    pub c_type: &'static str,
-    pub name: &'static str,
-    pub op: &'static str,
+    pub(super) c_type: &'static str,
+    pub(super) name: &'static str,
+    pub(super) op: CLExpr,
+}
+
+impl ElementDual {
+    pub(super) fn new<T, Op>(name: &'static str, op: Op) -> Self
+    where
+        T: CLElement,
+        Op: Into<CLExpr>,
+    {
+        Self {
+            c_type: T::TYPE,
+            name,
+            op: op.into(),
+        }
+    }
 }
 
 impl Builder for ElementDual {
-    fn build(self) -> Result<String, Error> {
-        Ok(format!(
+    fn build(self) -> String {
+        format!(
             r#"
             inline {c_type} {name}(const {c_type} lhs, const {c_type} rhs) {{
                 {op}
@@ -34,20 +75,34 @@ impl Builder for ElementDual {
             c_type = self.c_type,
             name = self.name,
             op = self.op
-        ))
+        )
     }
 }
 
-#[derive(Clone, Hash, Eq, PartialEq, fmt::Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
 pub struct ElementDualBoolean {
-    pub c_type: &'static str,
-    pub name: &'static str,
-    pub op: &'static str,
+    pub(super) c_type: &'static str,
+    pub(super) name: &'static str,
+    pub(super) op: CLExpr,
+}
+
+impl ElementDualBoolean {
+    pub(super) fn new<T, Op>(name: &'static str, op: Op) -> Self
+    where
+        T: CLElement,
+        Op: Into<CLExpr>,
+    {
+        Self {
+            c_type: T::TYPE,
+            name,
+            op: op.into(),
+        }
+    }
 }
 
 impl Builder for ElementDualBoolean {
-    fn build(self) -> Result<String, Error> {
-        Ok(format!(
+    fn build(self) -> String {
+        format!(
             r#"
             inline uchar {name}(const {c_type} lhs, const {c_type} rhs) {{
                 {op}
@@ -56,7 +111,7 @@ impl Builder for ElementDualBoolean {
             c_type = self.c_type,
             name = self.name,
             op = self.op
-        ))
+        )
     }
 }
 

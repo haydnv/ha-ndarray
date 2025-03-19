@@ -6,9 +6,8 @@ use ocl::OclPrm;
 use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
 
-use programs::ElementDual;
+use programs::{ElementDual, ElementDualBoolean};
 
-use crate::opencl::programs::ElementDualBoolean;
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
 
@@ -21,138 +20,140 @@ const TILE_SIZE: usize = 8;
 
 const WG_SIZE: usize = 64;
 
+fn real_bool(name: &'static str) -> String {
+    format!("{name} != 0")
+}
+
+fn real_bool_cmp(op: &'static str) -> String {
+    format!(
+        "return ({lhs}) {op} ({rhs});",
+        lhs = real_bool("lhs"),
+        rhs = real_bool("rhs")
+    )
+}
+
+fn real_cmp(op: &'static str) -> String {
+    format!("return lhs {op} rhs;")
+}
+
+#[cfg(feature = "complex")]
+fn complex_bool(name: &'static str) -> String {
+    format!("{name}.x != 0 || {name}.y != 0")
+}
+
+#[cfg(feature = "complex")]
+fn complex_bool_cmp(op: &'static str) -> String {
+    format!(
+        "return ({lhs}) {op} ({rhs});",
+        lhs = complex_bool("lhs"),
+        rhs = complex_bool("rhs")
+    )
+}
+
+#[cfg(feature = "complex")]
+fn complex_cmp(cmp: &'static str, cond: &'static str) -> String {
+    format!("return (lhs.x {cmp} rhs.x) {cond} (lhs.y {cmp} rhs.y);")
+}
+
+#[cfg(feature = "complex")]
+fn complex_div<T: CLElement>() -> String {
+    format!(
+        "
+        if (rhs.x == 0.0f && rhs.y == 0.0f) {{
+            return ({c_type})(0.0f, 0.0f);
+        }} else {{
+            float denom = (rhs.x * rhs.x) + (rhs.y * rhs.y);
+            float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
+            float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
+            return ({c_type})(re, im);
+        }}",
+        c_type = T::TYPE,
+    )
+}
+
+#[cfg(feature = "complex")]
+fn complex_mul<T: CLElement>() -> String {
+    format!(
+        "
+        float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
+        float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
+        return ({c_type})(re, im);
+        ",
+        c_type = T::TYPE,
+    )
+}
+
 pub trait CLElement: OclPrm {
     const TYPE: &'static str;
 
     // basic arithmetic (dual)
     fn cl_add() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "add",
-            op: "return lhs + rhs;",
-        }
+        ElementDual::new::<Self, _>("add", "return lhs + rhs;")
     }
 
     fn cl_div() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "div",
-            op: "if (rhs == 0) { return 0; } else { return lhs / rhs; }",
-        }
+        ElementDual::new::<Self, _>(
+            "div",
+            "if (rhs == 0) { return 0; } else { return lhs / rhs; }",
+        )
     }
 
     fn cl_log() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "_log",
-            op: "return log(lhs) / log(rhs);",
-        }
+        ElementDual::new::<Self, _>("_log", "return log(lhs) / log(rhs);")
     }
 
     fn cl_mul() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "mul",
-            op: "return lhs * rhs;",
-        }
+        ElementDual::new::<Self, _>("mul", "return lhs * rhs;")
     }
 
     fn cl_sub() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "sub",
-            op: "return lhs - rhs;",
-        }
+        ElementDual::new::<Self, _>("sub", "return lhs - rhs;")
     }
 
     fn cl_pow() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "_pow",
-            op: "return pow(lhs, rhs);",
-        }
+        ElementDual::new::<Self, _>("_pow", "return pow(lhs, rhs);")
     }
 
     fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual {
-            c_type: Self::TYPE,
-            name: "rem",
-            op: "return mod(lhs, rhs);",
-        })
+        ElementDual::new::<Self, _>("rem", "return mod(lhs, rhs);").into()
     }
 
     // boolean logic
     fn cl_and() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs != 0) && (rhs != 0);",
-        }
+        ElementDualBoolean::new::<Self, _>("and", real_bool_cmp("&&"))
     }
 
     fn cl_or() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs != 0) || (rhs != 0);",
-        }
+        ElementDualBoolean::new::<Self, _>("or", real_bool_cmp("||"))
     }
 
     fn cl_xor() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs != 0) ^ (rhs != 0);",
-        }
+        ElementDualBoolean::new::<Self, _>("xor", real_bool_cmp("^"))
     }
 
     // comparison
     fn cl_eq() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "eq",
-            op: "return lhs == rhs;",
-        }
+        ElementDualBoolean::new::<Self, _>("eq", real_cmp("=="))
     }
 
     fn cl_ne() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "eq",
-            op: "return lhs != rhs;",
-        }
+        ElementDualBoolean::new::<Self, _>("ne", real_cmp("!="))
     }
 
     fn cl_ge() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "ge",
-            op: "return lhs >= rhs;",
-        })
+        Some(ElementDualBoolean::new::<Self, _>("ge", real_cmp(">=")))
     }
 
     fn cl_gt() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "gt",
-            op: "return lhs > rhs;",
-        })
+        Some(ElementDualBoolean::new::<Self, _>("gt", real_cmp(">")))
     }
 
     fn cl_le() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "le",
-            op: "return lhs >= rhs;",
-        })
+        Some(ElementDualBoolean::new::<Self, _>("le", real_cmp("<=")))
     }
 
     fn cl_lt() -> Option<ElementDualBoolean> {
-        Some(ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "lt",
-            op: "return lhs > rhs;",
-        })
+        Some(ElementDualBoolean::new::<Self, _>("lt", real_cmp("<")))
     }
 }
 
@@ -160,11 +161,7 @@ impl CLElement for f32 {
     const TYPE: &'static str = "float";
 
     fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual {
-            c_type: Self::TYPE,
-            name: "rem",
-            op: "fmod(lhs, rhs)",
-        })
+        Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
     }
 }
 
@@ -172,11 +169,7 @@ impl CLElement for f64 {
     const TYPE: &'static str = "double";
 
     fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual {
-            c_type: Self::TYPE,
-            name: "rem",
-            op: "fmod(lhs, rhs)",
-        })
+        Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
     }
 }
 
@@ -213,196 +206,69 @@ impl CLElement for u64 {
 }
 
 #[cfg(feature = "complex")]
-impl CLElement for num_complex::Complex<f32> {
-    const TYPE: &'static str = "float2";
+macro_rules! complex_cl {
+    ($t:ty, $ct:expr) => {
+        impl CLElement for $t {
+            const TYPE: &'static str = $ct;
 
-    // basic arithmetic (dual)
-    fn cl_div() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "div",
-            op: r#"
-            if (rhs.x == 0.0f && rhs.y == 0.0f) {
-                return (float2)(0.0f, 0.0f);
-            } else {
-                float denom = (lhs.x * lhs.x + lhs.y * lhs.y);
-                float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
-                float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
-                return (float2)(re, im);
-            }"#,
+            // basic arithmetic (dual)
+            fn cl_div() -> ElementDual {
+                ElementDual::new::<Self, _>("div", complex_div::<Self>())
+            }
+
+            fn cl_mul() -> ElementDual {
+                ElementDual::new::<Self, _>("mul", complex_mul::<Self>())
+            }
+
+            fn cl_rem() -> Option<ElementDual> {
+                None
+            }
+
+            // boolean logic
+            fn cl_and() -> ElementDualBoolean {
+                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("&&"))
+            }
+
+            fn cl_or() -> ElementDualBoolean {
+                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("||"))
+            }
+
+            fn cl_xor() -> ElementDualBoolean {
+                ElementDualBoolean::new::<Self, _>("and", complex_bool_cmp("^"))
+            }
+
+            // comparison
+            fn cl_eq() -> ElementDualBoolean {
+                ElementDualBoolean::new::<Self, _>("eq", complex_cmp("==", "&&"))
+            }
+
+            fn cl_ne() -> ElementDualBoolean {
+                ElementDualBoolean::new::<Self, _>("ne", complex_cmp("!=", "||"))
+            }
+
+            fn cl_ge() -> Option<ElementDualBoolean> {
+                None
+            }
+
+            fn cl_gt() -> Option<ElementDualBoolean> {
+                None
+            }
+
+            fn cl_le() -> Option<ElementDualBoolean> {
+                None
+            }
+
+            fn cl_lt() -> Option<ElementDualBoolean> {
+                None
+            }
         }
-    }
-
-    fn cl_mul() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "div",
-            op: r#"
-            float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
-            float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
-            return (float2)(re, im);
-            "#,
-        }
-    }
-
-    fn cl_rem() -> Option<ElementDual> {
-        None
-    }
-
-    // boolean logic
-    fn cl_and() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) && (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    fn cl_or() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) || (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    fn cl_xor() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) ^ (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    // comparison
-    fn cl_eq() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "eq",
-            op: "return lhs.x == rhs.x && lhs.y == rhs.y;",
-        }
-    }
-
-    fn cl_ne() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "ne",
-            op: "return lhs.x != rhs.x || lhs.y != rhs.y;",
-        }
-    }
-
-    fn cl_ge() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_gt() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_le() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_lt() -> Option<ElementDualBoolean> {
-        None
-    }
+    };
 }
 
 #[cfg(feature = "complex")]
-impl CLElement for num_complex::Complex<f64> {
-    const TYPE: &'static str = "double2";
-
-    // basic arithmetic (dual)
-    fn cl_div() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "div",
-            op: r#"
-            if (rhs.x == 0.0f && rhs.y == 0.0f) {
-                return (double2)(0.0f, 0.0f);
-            } else {
-                float denom = (rhs.x * rhs.x) + (rhs.y * rhs.y);
-                float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
-                float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
-                return (double2)(re, im);
-            }"#,
-        }
-    }
-
-    fn cl_mul() -> ElementDual {
-        ElementDual {
-            c_type: Self::TYPE,
-            name: "div",
-            op: r#"
-            float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
-            float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
-            return (double2)(re, im);
-            "#,
-        }
-    }
-
-    fn cl_rem() -> Option<ElementDual> {
-        None
-    }
-
-    // boolean logic
-    fn cl_and() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) && (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    fn cl_or() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) || (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    fn cl_xor() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "and",
-            op: "return (lhs.x != 0 || lhs.y != 0) ^ (rhs.x != 0 || rhs.y != 0);",
-        }
-    }
-
-    // comparison
-    fn cl_eq() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "eq",
-            op: "return lhs.x == rhs.x && lhs.y == rhs.y;",
-        }
-    }
-
-    fn cl_ne() -> ElementDualBoolean {
-        ElementDualBoolean {
-            c_type: Self::TYPE,
-            name: "ne",
-            op: "return lhs.x != rhs.x || lhs.y != rhs.y;",
-        }
-    }
-
-    fn cl_ge() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_gt() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_le() -> Option<ElementDualBoolean> {
-        None
-    }
-
-    fn cl_lt() -> Option<ElementDualBoolean> {
-        None
-    }
-}
+complex_cl!(num_complex::Complex<f32>, "float2");
+#[cfg(feature = "complex")]
+complex_cl!(num_complex::Complex<f64>, "double2");
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {
