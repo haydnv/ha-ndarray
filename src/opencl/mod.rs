@@ -5,8 +5,9 @@ use ocl::OclPrm;
 
 use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
+use crate::Number;
 
-use programs::{ElementDual, ElementDualBoolean};
+use programs::{ElementDual, ElementDualBoolean, ElementUnary};
 
 pub use buffer::*;
 pub use platform::{OpenCL, ACC_MIN_SIZE, GPU_MIN_SIZE};
@@ -34,6 +35,11 @@ fn real_bool_cmp(op: &'static str) -> String {
 
 fn real_cmp(op: &'static str) -> String {
     format!("return lhs {op} rhs;")
+}
+
+fn real_trig<T: Number>(name: &'static str) -> ElementUnary {
+    debug_assert!(name.starts_with('_'));
+    ElementUnary::new::<T, T::Float, _>(name, format!("return {}(n);", &name[1..]))
 }
 
 #[cfg(feature = "complex")]
@@ -86,6 +92,26 @@ fn complex_mul<T: CLElement>() -> String {
 pub trait CLElement: OclPrm {
     const TYPE: &'static str;
 
+    // basic arithmetic (unary)
+    fn cl_abs() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("_abs", "return abs(n);")
+    }
+
+    fn cl_exp() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("_exp", "return exp(n);")
+    }
+
+    fn cl_ln() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("ln", "return log(n);")
+    }
+
+    fn cl_round() -> Option<ElementUnary> {
+        Some(ElementUnary::new::<Self, Self, _>(
+            "_round",
+            "return round(n));",
+        ))
+    }
+
     // basic arithmetic (dual)
     fn cl_add() -> ElementDual {
         ElementDual::new::<Self, _>("add", "return lhs + rhs;")
@@ -118,7 +144,12 @@ pub trait CLElement: OclPrm {
         ElementDual::new::<Self, _>("rem", "return mod(lhs, rhs);").into()
     }
 
-    // boolean logic
+    // boolean logic (unary)
+    fn cl_not() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("not", "return if (n == 0) { 1 } else { 0 };")
+    }
+
+    // boolean logic (dual)
     fn cl_and() -> ElementDualBoolean {
         ElementDualBoolean::new::<Self, _>("and", real_bool_cmp("&&"))
     }
@@ -155,6 +186,78 @@ pub trait CLElement: OclPrm {
     fn cl_lt() -> Option<ElementDualBoolean> {
         Some(ElementDualBoolean::new::<Self, _>("lt", real_cmp("<")))
     }
+
+    // floating-point identities
+    fn cl_inf() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isinf", "return false;")
+    }
+
+    fn cl_nan() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isnan", "return false;")
+    }
+}
+
+pub trait CLElementTrig {
+    // trigonometry
+    fn cl_sin() -> ElementUnary;
+
+    fn cl_asin() -> ElementUnary;
+
+    fn cl_sinh() -> ElementUnary;
+
+    fn cl_cos() -> ElementUnary;
+
+    fn cl_acos() -> ElementUnary;
+
+    fn cl_cosh() -> ElementUnary;
+
+    fn cl_tan() -> ElementUnary;
+
+    fn cl_atan() -> ElementUnary;
+
+    fn cl_tanh() -> ElementUnary;
+}
+
+macro_rules! cl_trig_real {
+    ($t:ty) => {
+        impl CLElementTrig for $t {
+            fn cl_sin() -> ElementUnary {
+                real_trig::<Self>("_sin")
+            }
+
+            fn cl_asin() -> ElementUnary {
+                real_trig::<Self>("_asin")
+            }
+
+            fn cl_sinh() -> ElementUnary {
+                real_trig::<Self>("_sinh")
+            }
+
+            fn cl_cos() -> ElementUnary {
+                real_trig::<Self>("_cos")
+            }
+
+            fn cl_acos() -> ElementUnary {
+                real_trig::<Self>("_acos")
+            }
+
+            fn cl_cosh() -> ElementUnary {
+                real_trig::<Self>("_cosh")
+            }
+
+            fn cl_tan() -> ElementUnary {
+                real_trig::<Self>("_tan")
+            }
+
+            fn cl_atan() -> ElementUnary {
+                real_trig::<Self>("_atan")
+            }
+
+            fn cl_tanh() -> ElementUnary {
+                real_trig::<Self>("_tanh")
+            }
+        }
+    };
 }
 
 impl CLElement for f32 {
@@ -163,7 +266,17 @@ impl CLElement for f32 {
     fn cl_rem() -> Option<ElementDual> {
         Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
     }
+
+    fn cl_inf() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isinf", "return isinf(n);")
+    }
+
+    fn cl_nan() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isnan", "return isnan(n);")
+    }
 }
+
+cl_trig_real!(f32);
 
 impl CLElement for f64 {
     const TYPE: &'static str = "double";
@@ -171,44 +284,70 @@ impl CLElement for f64 {
     fn cl_rem() -> Option<ElementDual> {
         Some(ElementDual::new::<Self, _>("rem", "return fmod(lhs, rhs);"))
     }
+
+    fn cl_inf() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isinf", "return isinf(n);")
+    }
+
+    fn cl_nan() -> ElementUnary {
+        ElementUnary::new::<Self, u8, _>("_isnan", "return isnan(n);")
+    }
 }
+
+cl_trig_real!(f64);
 
 impl CLElement for i8 {
     const TYPE: &'static str = "char";
 }
 
+cl_trig_real!(i8);
+
 impl CLElement for i16 {
     const TYPE: &'static str = "short";
 }
+
+cl_trig_real!(i16);
 
 impl CLElement for i32 {
     const TYPE: &'static str = "int";
 }
 
+cl_trig_real!(i32);
+
 impl CLElement for i64 {
     const TYPE: &'static str = "long";
 }
+
+cl_trig_real!(i64);
 
 impl CLElement for u8 {
     const TYPE: &'static str = "uchar";
 }
 
+cl_trig_real!(u8);
+
 impl CLElement for u16 {
     const TYPE: &'static str = "ushort";
 }
+
+cl_trig_real!(u16);
 
 impl CLElement for u32 {
     const TYPE: &'static str = "uint";
 }
 
+cl_trig_real!(u32);
+
 impl CLElement for u64 {
     const TYPE: &'static str = "ulong";
 }
 
+cl_trig_real!(u64);
+
 #[cfg(feature = "complex")]
-macro_rules! complex_cl {
+macro_rules! cl_complex {
     ($t:ty, $ct:expr) => {
-        impl CLElement for $t {
+        impl CLElement for num_complex::Complex<$t> {
             const TYPE: &'static str = $ct;
 
             // basic arithmetic (dual)
@@ -266,9 +405,9 @@ macro_rules! complex_cl {
 }
 
 #[cfg(feature = "complex")]
-complex_cl!(num_complex::Complex<f32>, "float2");
+cl_complex!(f32, "float2");
 #[cfg(feature = "complex")]
-complex_cl!(num_complex::Complex<f64>, "double2");
+cl_complex!(f64, "double2");
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {

@@ -7,9 +7,9 @@ use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
 use super::platform::OpenCL;
-use super::{programs, CLElement, TILE_SIZE, WG_SIZE};
+use super::{programs, CLElementTrig, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
-use crate::opencl::programs::{ElementDual, ElementDualBoolean};
+use crate::opencl::programs::{ElementDual, ElementDualBoolean, ElementUnary};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
     strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
@@ -1469,13 +1469,13 @@ pub struct Unary<A, IT, OT> {
 }
 
 impl<A, IT: Number, OT: Number> Unary<A, IT, OT> {
-    fn new(access: A, program: &'static str, op: fn(IT) -> OT) -> Result<Self, Error> {
-        let program = programs::elementwise::unary(IT::Float::TYPE, IT::TYPE, OT::TYPE, program)?;
+    fn new(access: A, cl_op: ElementUnary, scalar_op: fn(IT) -> OT) -> Result<Self, Error> {
+        let program = programs::elementwise::unary(cl_op)?;
 
         Ok(Self {
             access,
             program,
-            op,
+            op: scalar_op,
             dtype: PhantomData,
         })
     }
@@ -1483,74 +1483,75 @@ impl<A, IT: Number, OT: Number> Unary<A, IT, OT> {
 
 impl<A, T: Number> Unary<A, T, T> {
     pub fn exp(access: A) -> Result<Self, Error> {
-        Self::new(access, "exp", |n| T::from_float(n.to_float().ln()))
+        Self::new(access, T::cl_exp(), |n| T::from_float(n.to_float().ln()))
     }
 
     pub fn ln(access: A) -> Result<Self, Error> {
-        Self::new(access, "_log", |n| T::from_float(n.to_float().ln()))
+        Self::new(access, T::cl_ln(), |n| T::from_float(n.to_float().ln()))
     }
 
     pub fn round(access: A) -> Result<Self, Error> {
-        Self::new(access, "round", |n| T::from_float(n.to_float().ln()))
+        let op = T::cl_round().ok_or_else(|| Error::Unsupported(format!("{}::round", T::TYPE)))?;
+        Self::new(access, op, |n| T::from_float(n.to_float().ln()))
     }
 }
 
 impl<A, T: Number> Unary<A, T, T::Abs> {
     pub fn abs(access: A) -> Result<Self, Error> {
-        Self::new(access, "abs", Number::abs)
+        Self::new(access, T::cl_abs(), Number::abs)
     }
 }
 
-impl<A, T: Number> Unary<A, T, T::Float> {
+impl<A, T: Number + CLElementTrig> Unary<A, T, T::Float> {
     pub fn sin(access: A) -> Result<Self, Error> {
-        Self::new(access, "sin", |n| n.to_float().sin())
+        Self::new(access, T::cl_sin(), |n| n.to_float().sin())
     }
 
     pub fn sinh(access: A) -> Result<Self, Error> {
-        Self::new(access, "sinh", |n| n.to_float().sinh())
+        Self::new(access, T::cl_sinh(), |n| n.to_float().sinh())
     }
 
     pub fn asin(access: A) -> Result<Self, Error> {
-        Self::new(access, "asin", |n| n.to_float().asin())
+        Self::new(access, T::cl_asin(), |n| n.to_float().asin())
     }
 
     pub fn cos(access: A) -> Result<Self, Error> {
-        Self::new(access, "cos", |n| n.to_float().cos())
+        Self::new(access, T::cl_cos(), |n| n.to_float().cos())
     }
 
     pub fn cosh(access: A) -> Result<Self, Error> {
-        Self::new(access, "cosh", |n| n.to_float().cosh())
+        Self::new(access, T::cl_cosh(), |n| n.to_float().cosh())
     }
 
     pub fn acos(access: A) -> Result<Self, Error> {
-        Self::new(access, "acos", |n| n.to_float().acos())
+        Self::new(access, T::cl_acos(), |n| n.to_float().acos())
     }
     pub fn tan(access: A) -> Result<Self, Error> {
-        Self::new(access, "tan", |n| n.to_float().tan())
+        Self::new(access, T::cl_tan(), |n| n.to_float().tan())
     }
 
     pub fn tanh(access: A) -> Result<Self, Error> {
-        Self::new(access, "tanh", |n| n.to_float().tanh())
+        Self::new(access, T::cl_tanh(), |n| n.to_float().tanh())
     }
 
     pub fn atan(access: A) -> Result<Self, Error> {
-        Self::new(access, "atan", |n| n.to_float().atan())
+        Self::new(access, T::cl_atan(), |n| n.to_float().atan())
     }
 }
 
 impl<A, T: Number> Unary<A, T, u8> {
     pub fn not(access: A) -> Result<Self, Error> {
-        Self::new(access, "not", |n| if n == T::ZERO { 1 } else { 0 })
+        Self::new(access, T::cl_not(), |n| if n == T::ZERO { 1 } else { 0 })
     }
 }
 
 impl<A, T: Float> Unary<A, T, u8> {
     pub fn inf(access: A) -> Result<Self, Error> {
-        Self::new(access, "isinf", |n| if n.is_inf() { 1 } else { 0 })
+        Self::new(access, T::cl_inf(), |n| if n.is_inf() { 1 } else { 0 })
     }
 
     pub fn nan(access: A) -> Result<Self, Error> {
-        Self::new(access, "isnan", |n| if n.is_nan() { 1 } else { 0 })
+        Self::new(access, T::cl_nan(), |n| if n.is_nan() { 1 } else { 0 })
     }
 }
 

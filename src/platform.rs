@@ -889,7 +889,7 @@ impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Platform {
 }
 
 #[cfg(feature = "opencl")]
-impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Platform {
+impl<A: Access<T>, T: Number + opencl::CLElementTrig> ElementwiseTrig<A, T> for Platform {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {

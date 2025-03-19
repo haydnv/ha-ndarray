@@ -19,7 +19,7 @@ use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
 use super::ops::*;
-use super::programs;
+use super::{programs, CLElementTrig};
 use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
@@ -533,7 +533,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for OpenCL {
+// TODO: implement this trait separately per-type and remote the CLElementTrig boundary
+impl<A: Access<T>, T: Number + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {

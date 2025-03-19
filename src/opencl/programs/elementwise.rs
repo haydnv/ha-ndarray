@@ -3,7 +3,7 @@ use ocl::Program;
 
 use crate::Error;
 
-use super::{build, Builder, ElementDual, ElementDualBoolean};
+use super::{build, Builder, ElementDual, ElementDualBoolean, ElementUnary};
 
 #[memoize]
 pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error> {
@@ -118,29 +118,19 @@ pub fn dual_scalar(op: ElementDual) -> Result<Program, Error> {
     build(&src)
 }
 
-pub fn unary(
-    f_type: &'static str,
-    i_type: &'static str,
-    o_type: &'static str,
-    op: &'static str,
-) -> Result<Program, Error> {
+pub fn unary(op: ElementUnary) -> Result<Program, Error> {
+    let i_type = op.i_type;
+    let o_type = op.o_type;
+    let name = op.name;
+    let op = op.build();
+
     let src = format!(
         r#"
-        inline uchar not(const {i_type} input) {{
-            if (input == 0) {{
-                return 1;
-            }} else {{
-                return 0;
-            }}
-        }}
-
-        inline {f_type} _log(const {f_type} input) {{
-            return log(input);
-        }}
+        {op}
 
         __kernel void unary(__global const {i_type}* input, __global {o_type}* output) {{
             const ulong offset = get_global_id(0);
-            output[offset] = {op}(input[offset]);
+            output[offset] = {name}(input[offset]);
         }}
         "#,
     );
