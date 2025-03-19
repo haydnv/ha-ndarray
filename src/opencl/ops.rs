@@ -23,7 +23,7 @@ pub struct Cast<A, IT, OT> {
 
 impl<A, IT: Number, OT: Number> Cast<A, IT, OT> {
     pub fn new(access: A) -> Result<Self, Error> {
-        programs::elementwise::cast(IT::TYPE, OT::TYPE).map(|program| Self {
+        programs::elementwise::cast(IT::cl_cast::<OT>()).map(|program| Self {
             access,
             program,
             dtype: PhantomData,

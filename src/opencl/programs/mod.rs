@@ -83,6 +83,7 @@ impl Builder for ElementDual {
     }
 }
 
+#[derive(Clone, Eq, PartialEq, Hash, fmt::Debug)]
 pub struct ElementUnary {
     pub(super) i_type: &'static str,
     pub(super) o_type: &'static str,

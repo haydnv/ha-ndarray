@@ -6,15 +6,22 @@ use crate::Error;
 use super::{build, Builder, ElementDual, ElementUnary};
 
 #[memoize]
-pub fn cast(i_type: &'static str, o_type: &'static str) -> Result<Program, Error> {
+pub fn cast(op: ElementUnary) -> Result<Program, Error> {
+    let i_type = op.i_type;
+    let o_type = op.o_type;
+    let name = op.name;
+    let op = op.build();
+
     let src = format!(
         r#"
+        {op}
+
         __kernel void cast(
             __global const {i_type}* restrict input,
             __global {o_type}* restrict output)
         {{
             const ulong offset = get_global_id(0);
-            output[offset] = ({o_type}) input[offset];
+            output[offset] = {name}(input[offset]);
         }}
         "#,
     );

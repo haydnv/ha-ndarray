@@ -90,6 +90,8 @@ fn complex_mul<T: CLElement>() -> String {
 }
 
 pub trait CLElement: OclPrm {
+    const REAL: bool;
+
     const TYPE: &'static str;
 
     // basic arithmetic (unary)
@@ -160,6 +162,17 @@ pub trait CLElement: OclPrm {
 
     fn cl_xor() -> ElementDual {
         ElementDual::new::<Self, u8, _>("xor", real_bool_cmp("^"))
+    }
+
+    // casting
+    fn cl_cast<O: CLElement>() -> ElementUnary {
+        let op = match (Self::REAL, O::REAL) {
+            (true, true) | (false, false) => "return n;".to_string(),
+            (true, false) => format!("return ({})(n, 0.0);", O::TYPE),
+            (false, true) => format!("return ({}) n.x;", O::TYPE),
+        };
+
+        ElementUnary::new::<O, Self, _>("_cast", op)
     }
 
     // comparison
@@ -279,6 +292,7 @@ macro_rules! cl_trig_real {
 }
 
 impl CLElement for f32 {
+    const REAL: bool = true;
     const TYPE: &'static str = "float";
 
     fn cl_rem() -> Option<ElementDual> {
@@ -302,6 +316,7 @@ impl CLElementOrd for f32 {}
 cl_trig_real!(f32);
 
 impl CLElement for f64 {
+    const REAL: bool = true;
     const TYPE: &'static str = "double";
 
     fn cl_rem() -> Option<ElementDual> {
@@ -325,6 +340,7 @@ impl CLElementOrd for f64 {}
 cl_trig_real!(f64);
 
 impl CLElement for i8 {
+    const REAL: bool = true;
     const TYPE: &'static str = "char";
 }
 
@@ -333,6 +349,7 @@ impl CLElementOrd for i8 {}
 cl_trig_real!(i8);
 
 impl CLElement for i16 {
+    const REAL: bool = true;
     const TYPE: &'static str = "short";
 }
 
@@ -341,6 +358,7 @@ impl CLElementOrd for i16 {}
 cl_trig_real!(i16);
 
 impl CLElement for i32 {
+    const REAL: bool = true;
     const TYPE: &'static str = "int";
 }
 
@@ -349,6 +367,7 @@ impl CLElementOrd for i32 {}
 cl_trig_real!(i32);
 
 impl CLElement for i64 {
+    const REAL: bool = true;
     const TYPE: &'static str = "long";
 }
 
@@ -357,6 +376,7 @@ impl CLElementOrd for i64 {}
 cl_trig_real!(i64);
 
 impl CLElement for u8 {
+    const REAL: bool = true;
     const TYPE: &'static str = "uchar";
 }
 
@@ -365,6 +385,7 @@ impl CLElementOrd for u8 {}
 cl_trig_real!(u8);
 
 impl CLElement for u16 {
+    const REAL: bool = true;
     const TYPE: &'static str = "ushort";
 }
 
@@ -373,6 +394,7 @@ impl CLElementOrd for u16 {}
 cl_trig_real!(u16);
 
 impl CLElement for u32 {
+    const REAL: bool = true;
     const TYPE: &'static str = "uint";
 }
 
@@ -381,6 +403,7 @@ impl CLElementOrd for u32 {}
 cl_trig_real!(u32);
 
 impl CLElement for u64 {
+    const REAL: bool = true;
     const TYPE: &'static str = "ulong";
 }
 
@@ -392,6 +415,7 @@ cl_trig_real!(u64);
 macro_rules! cl_complex {
     ($t:ty, $ct:expr) => {
         impl CLElement for num_complex::Complex<$t> {
+            const REAL: bool = false;
             const TYPE: &'static str = $ct;
 
             // basic arithmetic (dual)
