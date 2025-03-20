@@ -12,7 +12,6 @@ use super::{CL_PLATFORM, WG_SIZE};
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::opencl::programs::ElementDual;
-use crate::ops::complex::ElementwiseUnaryComplex;
 use crate::ops::{
     Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
     ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
@@ -603,7 +602,9 @@ impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for OpenCL {
 }
 
 #[cfg(feature = "complex")]
-impl<A: Access<T>, T: crate::Complex> ElementwiseUnaryComplex<A, T> for OpenCL {
+impl<A: Access<T>, T: crate::Complex> crate::ops::complex::ElementwiseUnaryComplex<A, T>
+    for OpenCL
+{
     type Real = Unary<A, T, T::Real>;
     type Complex = Unary<A, T, T>;
 

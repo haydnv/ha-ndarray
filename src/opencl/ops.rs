@@ -166,8 +166,7 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
 
 impl<L, R, T: Real> Dual<L, R, T, T> {
     pub fn rem(left: L, right: R) -> Result<Self, Error> {
-        let op = T::cl_rem().ok_or_else(|| Error::Unsupported(format!("{}::rem", T::TYPE)))?;
-        let program = programs::elementwise::dual(op)?;
+        let program = programs::elementwise::dual(T::cl_rem())?;
         Self::new(left, right, program, T::rem)
     }
 }
@@ -1170,8 +1169,7 @@ where
     T: Real,
 {
     pub fn rem(access: A, scalar: T) -> Result<Self, Error> {
-        let cl_op = T::cl_rem().ok_or_else(|| Error::unsupported(format!("{}::rem", T::TYPE)))?;
-        Self::new(access, scalar, cl_op, T::rem)
+        Self::new(access, scalar, T::cl_rem(), T::rem)
     }
 }
 
@@ -1503,10 +1501,11 @@ impl<A, T: Number> Unary<A, T, T> {
     pub fn ln(access: A) -> Result<Self, Error> {
         Self::new(access, T::cl_ln(), |n| T::from_float(n.to_float().ln()))
     }
+}
 
+impl<A, T: Real> Unary<A, T, T> {
     pub fn round(access: A) -> Result<Self, Error> {
-        let op = T::cl_round().ok_or_else(|| Error::Unsupported(format!("{}::round", T::TYPE)))?;
-        Self::new(access, op, |n| T::from_float(n.to_float().ln()))
+        Self::new(access, T::cl_round(), |n| T::from_float(n.to_float().ln()))
     }
 }
 

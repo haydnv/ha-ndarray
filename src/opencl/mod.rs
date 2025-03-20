@@ -61,37 +61,8 @@ fn complex_cmp(cmp: &'static str, cond: &'static str) -> String {
     format!("return (lhs.x {cmp} rhs.x) {cond} (lhs.y {cmp} rhs.y);")
 }
 
-#[cfg(feature = "complex")]
-fn complex_div<T: CLElement>() -> String {
-    format!(
-        "
-        if (rhs.x == 0.0f && rhs.y == 0.0f) {{
-            return ({c_type})(0.0f, 0.0f);
-        }} else {{
-            float denom = (rhs.x * rhs.x) + (rhs.y * rhs.y);
-            float re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
-            float im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
-            return ({c_type})(re, im);
-        }}",
-        c_type = T::TYPE,
-    )
-}
-
-#[cfg(feature = "complex")]
-fn complex_mul<T: CLElement>() -> String {
-    format!(
-        "
-        float re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
-        float im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
-        return ({c_type})(re, im);
-        ",
-        c_type = T::TYPE,
-    )
-}
-
 pub trait CLElement: OclPrm {
     const REAL: bool;
-
     const TYPE: &'static str;
 
     // basic arithmetic (unary)
@@ -105,13 +76,6 @@ pub trait CLElement: OclPrm {
 
     fn cl_ln() -> ElementUnary {
         ElementUnary::new::<Self, Self, _>("ln", "return log(n);")
-    }
-
-    fn cl_round() -> Option<ElementUnary> {
-        Some(ElementUnary::new::<Self, Self, _>(
-            "_round",
-            "return round(n));",
-        ))
     }
 
     // basic arithmetic (dual)
@@ -134,16 +98,12 @@ pub trait CLElement: OclPrm {
         ElementDual::new::<Self, Self, _>("mul", "return lhs * rhs;")
     }
 
-    fn cl_sub() -> ElementDual {
-        ElementDual::new::<Self, Self, _>("sub", "return lhs - rhs;")
-    }
-
     fn cl_pow() -> ElementDual {
         ElementDual::new::<Self, Self, _>("_pow", "return pow(lhs, rhs);")
     }
 
-    fn cl_rem() -> Option<ElementDual> {
-        ElementDual::new::<Self, Self, _>("rem", "return mod(lhs, rhs);").into()
+    fn cl_sub() -> ElementDual {
+        ElementDual::new::<Self, Self, _>("sub", "return lhs - rhs;")
     }
 
     // boolean logic (unary)
@@ -212,12 +172,15 @@ pub trait CLElementComplex: CLElement {
     }
 }
 
-pub trait CLElementOrd: CLElement {
-    fn cl_round() -> Option<ElementUnary> {
-        Some(ElementUnary::new::<Self, Self, _>(
-            "_round",
-            "return round(n));",
-        ))
+pub trait CLElementReal: CLElement {
+    // basic arithmetic (dual)
+    fn cl_rem() -> ElementDual {
+        ElementDual::new::<Self, Self, _>("rem", "return mod(lhs, rhs);")
+    }
+
+    // rounding
+    fn cl_round() -> ElementUnary {
+        ElementUnary::new::<Self, Self, _>("_round", "return round(n));")
     }
 
     // comparison
@@ -313,13 +276,6 @@ impl CLElement for f32 {
     const REAL: bool = true;
     const TYPE: &'static str = "float";
 
-    fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual::new::<Self, Self, _>(
-            "rem",
-            "return fmod(lhs, rhs);",
-        ))
-    }
-
     fn cl_inf() -> ElementUnary {
         ElementUnary::new::<Self, u8, _>("_isinf", "return isinf(n);")
     }
@@ -329,7 +285,11 @@ impl CLElement for f32 {
     }
 }
 
-impl CLElementOrd for f32 {}
+impl CLElementReal for f32 {
+    fn cl_rem() -> ElementDual {
+        ElementDual::new::<Self, Self, _>("rem", "return fmod(lhs, rhs);")
+    }
+}
 
 cl_trig_real!(f32);
 
@@ -337,13 +297,6 @@ impl CLElement for f64 {
     const REAL: bool = true;
     const TYPE: &'static str = "double";
 
-    fn cl_rem() -> Option<ElementDual> {
-        Some(ElementDual::new::<Self, Self, _>(
-            "rem",
-            "return fmod(lhs, rhs);",
-        ))
-    }
-
     fn cl_inf() -> ElementUnary {
         ElementUnary::new::<Self, u8, _>("_isinf", "return isinf(n);")
     }
@@ -353,7 +306,11 @@ impl CLElement for f64 {
     }
 }
 
-impl CLElementOrd for f64 {}
+impl CLElementReal for f64 {
+    fn cl_rem() -> ElementDual {
+        ElementDual::new::<Self, Self, _>("rem", "return fmod(lhs, rhs);")
+    }
+}
 
 cl_trig_real!(f64);
 
@@ -362,7 +319,7 @@ impl CLElement for i8 {
     const TYPE: &'static str = "char";
 }
 
-impl CLElementOrd for i8 {}
+impl CLElementReal for i8 {}
 
 cl_trig_real!(i8);
 
@@ -371,7 +328,7 @@ impl CLElement for i16 {
     const TYPE: &'static str = "short";
 }
 
-impl CLElementOrd for i16 {}
+impl CLElementReal for i16 {}
 
 cl_trig_real!(i16);
 
@@ -380,7 +337,7 @@ impl CLElement for i32 {
     const TYPE: &'static str = "int";
 }
 
-impl CLElementOrd for i32 {}
+impl CLElementReal for i32 {}
 
 cl_trig_real!(i32);
 
@@ -389,7 +346,7 @@ impl CLElement for i64 {
     const TYPE: &'static str = "long";
 }
 
-impl CLElementOrd for i64 {}
+impl CLElementReal for i64 {}
 
 cl_trig_real!(i64);
 
@@ -398,7 +355,7 @@ impl CLElement for u8 {
     const TYPE: &'static str = "uchar";
 }
 
-impl CLElementOrd for u8 {}
+impl CLElementReal for u8 {}
 
 cl_trig_real!(u8);
 
@@ -407,7 +364,7 @@ impl CLElement for u16 {
     const TYPE: &'static str = "ushort";
 }
 
-impl CLElementOrd for u16 {}
+impl CLElementReal for u16 {}
 
 cl_trig_real!(u16);
 
@@ -416,7 +373,7 @@ impl CLElement for u32 {
     const TYPE: &'static str = "uint";
 }
 
-impl CLElementOrd for u32 {}
+impl CLElementReal for u32 {}
 
 cl_trig_real!(u32);
 
@@ -425,7 +382,7 @@ impl CLElement for u64 {
     const TYPE: &'static str = "ulong";
 }
 
-impl CLElementOrd for u64 {}
+impl CLElementReal for u64 {}
 
 cl_trig_real!(u64);
 
@@ -438,15 +395,107 @@ macro_rules! cl_complex {
 
             // basic arithmetic (dual)
             fn cl_div() -> ElementDual {
-                ElementDual::new::<Self, Self, _>("div", complex_div::<Self>())
+                ElementDual::new::<Self, Self, _>(
+                    "div",
+                    format!(
+                        "
+                        if (rhs.x == 0.0f && rhs.y == 0.0f) {{
+                            return ({c_type})(0.0f, 0.0f);
+                        }} else {{
+                            {r_type} denom = (rhs.x * rhs.x) + (rhs.y * rhs.y);
+                            {r_type} re = ((lhs.x * rhs.x) + (lhs.y * rhs.y)) / denom;
+                            {r_type} im = ((lhs.y * rhs.x) - (lhs.x * rhs.y)) / denom;
+                            return ({c_type})(re, im);
+                        }}
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$t>::TYPE,
+                    ),
+                )
             }
 
             fn cl_mul() -> ElementDual {
-                ElementDual::new::<Self, Self, _>("mul", complex_mul::<Self>())
+                ElementDual::new::<Self, Self, _>(
+                    "mul",
+                    format!(
+                        "
+                        {r_type} re = ((lhs.x * rhs.x) - (lhs.y * rhs.y));
+                        {r_type} im = ((lhs.x * rhs.y) + (lhs.y * rhs.x));
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$t>::TYPE,
+                    ),
+                )
             }
 
-            fn cl_rem() -> Option<ElementDual> {
-                None
+            fn cl_pow() -> ElementDual {
+                ElementDual::new::<Self, Self, _>(
+                    "_pow",
+                    format!(
+                        "
+                        // log_lhs = log(lhs)
+                        {r_type} norm = sqrt(pow(lhs.x, 2) + pow(lhs.y, 2));
+                        {r_type} angle = atan2(lhs.y, lhs.x);
+                        {c_type} log_lhs = ({c_type})(log(norm), angle);
+
+                        // product = rhs * log(lhs)
+                        {r_type} product_r = ((rhs.x * log_lhs.x) - (rhs.y * log_lhs.y));
+                        {r_type} product_i = ((rhs.x * log_lhs.y) + (rhs.y * log_lhs.x));
+
+                        // return exp(product)
+                        {r_type} r = exp(product_r);
+                        {c_type} c = ({c_type})(cos(product_i), sin(product_i));
+
+                        {r_type} re = r * c.x;
+                        {r_type} im = r * c.y;
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$t>::TYPE,
+                    ),
+                )
+            }
+
+            // basic arithmetic (unary)
+            fn cl_abs() -> ElementUnary {
+                ElementUnary::new::<Self, Self, _>(
+                    "_abs",
+                    "return sqrt(pow(n.x, 2) + pow(n.y, 2));",
+                )
+            }
+
+            fn cl_exp() -> ElementUnary {
+                ElementUnary::new::<Self, Self, _>(
+                    "_exp",
+                    format!(
+                        "
+                        {r_type} lhs = exp(n.x);
+                        {c_type} rhs = ({c_type})(cos(n.y), sin(n.y));
+
+                        {r_type} re = lhs * rhs.x;
+                        {r_type} im = lhs * rhs.y;
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$t>::TYPE,
+                    ),
+                )
+            }
+
+            fn cl_ln() -> ElementUnary {
+                ElementUnary::new::<Self, Self, _>(
+                    "ln",
+                    format!(
+                        "
+                        {r_type} norm = sqrt(pow(n.x, 2) + pow(n.y, 2));
+                        {r_type} angle = atan2(n.y, n.x);
+                        return ({c_type})(log(norm), angle);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$t>::TYPE,
+                    ),
+                )
             }
 
             // boolean logic
@@ -635,6 +684,23 @@ mod tests {
 
     #[cfg(feature = "complex")]
     #[test]
+    fn test_div_complex() -> Result<(), Error> {
+        use num_complex::Complex64 as C64;
+
+        let buf = OpenCL::copy_into_buffer(&[C64::new(0.5, 0.5)])?;
+        let lhs = ArrayBuf::new(buf, shape![1])?;
+
+        let buf = OpenCL::copy_into_buffer(&[C64::new(1., -1.)])?;
+        let rhs = ArrayBuf::new(buf, shape![1])?;
+
+        let actual = lhs.div(rhs)?;
+        let actual = actual.buffer()?.to_slice()?;
+        assert_eq!(actual.into_vec(), vec![C64::new(0., 0.5)]);
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
     fn test_mul_complex() -> Result<(), Error> {
         type C32 = num_complex::Complex<f32>;
 
@@ -652,18 +718,28 @@ mod tests {
 
     #[cfg(feature = "complex")]
     #[test]
-    fn test_div_complex() -> Result<(), Error> {
-        use num_complex::Complex64 as C64;
+    fn test_pow_complex() -> Result<(), Error> {
+        use crate::{NDArrayAbs, NDArrayCompareScalar};
 
-        let buf = OpenCL::copy_into_buffer(&[C64::new(0.5, 0.5)])?;
+        type C32 = num_complex::Complex<f32>;
+
+        let buf = OpenCL::copy_into_buffer(&[C32::new(0., 1.)])?;
         let lhs = ArrayBuf::new(buf, shape![1])?;
 
-        let buf = OpenCL::copy_into_buffer(&[C64::new(1., -1.)])?;
+        let buf = OpenCL::copy_into_buffer(&[C32::new(-1., 0.)])?;
         let rhs = ArrayBuf::new(buf, shape![1])?;
 
-        let actual = lhs.div(rhs)?;
-        let actual = actual.buffer()?.to_slice()?;
-        assert_eq!(actual.into_vec(), vec![C64::new(0., 0.5)]);
+        let actual = lhs.pow(rhs)?;
+
+        let buf = OpenCL::copy_into_buffer(&[C32::new(0., -1.)])?;
+        let expected = ArrayBuf::new(buf, shape![1])?;
+
+        assert!(expected
+            .sub(actual)?
+            .abs()?
+            .lt_scalar(f32::EPSILON)?
+            .all()?);
+
         Ok(())
     }
 }

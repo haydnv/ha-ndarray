@@ -407,7 +407,7 @@ pub trait Real: Number + PartialOrd {
 
 #[cfg(feature = "opencl")]
 /// A real-valued [`Number`]
-pub trait Real: Number + PartialOrd + opencl::CLElementOrd {
+pub trait Real: Number + PartialOrd + opencl::CLElementReal {
     /// The maximum value of this data type.
     const MAX: Self;
 
@@ -664,6 +664,7 @@ impl Error {
         Self::Bounds(msg)
     }
 
+    #[allow(dead_code)]
     fn unsupported(msg: String) -> Self {
         #[cfg(feature = "debug_crash")]
         panic!("{}", msg);
