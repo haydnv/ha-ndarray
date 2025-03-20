@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use number_general as ng;
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
@@ -7,17 +8,19 @@ use smallvec::SmallVec;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
+use crate::opencl::programs::ElementDual;
 use crate::ops::{
-    Concat, ConstructConcat, ConstructRange, ElementwiseBoolean, ElementwiseBooleanScalar,
-    ElementwiseCast, ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
-    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
-    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+    Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseTrig, ElementwiseUnary,
+    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes,
+    Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{Axes, CType, Constant, Error, Float, Range, Shape};
+use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
 use super::ops::*;
-use super::programs;
+use super::{programs, CLElementTrig};
 use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
@@ -168,7 +171,7 @@ impl OpenCL {
     }
 
     /// Copy the given `data` into a new [`Buffer`].
-    pub fn copy_into_buffer<T: CType>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
+    pub fn copy_into_buffer<T: Number>(data: &[T]) -> Result<Buffer<T>, ocl::Error> {
         let queue = Self::queue(data.len(), &[])?;
 
         ocl::builders::BufferBuilder::new()
@@ -240,7 +243,7 @@ impl PlatformInstance for OpenCL {
     }
 }
 
-impl<T: CType> Constant<T> for OpenCL {
+impl<T: Number> Constant<T> for OpenCL {
     type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -255,7 +258,7 @@ impl<T: CType> Constant<T> for OpenCL {
     }
 }
 
-impl<T: CType> Convert<T> for OpenCL {
+impl<T: Number> Convert<T> for OpenCL {
     type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
@@ -269,7 +272,7 @@ impl<T: CType> Convert<T> for OpenCL {
 impl<A, T> ConstructConcat<A, T> for OpenCL
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Concat<A, T>;
 
@@ -278,15 +281,16 @@ where
     }
 }
 
-impl<T: CType> ConstructRange<T> for OpenCL {
+impl<T: Number + PartialOrd> ConstructRange<T> for OpenCL {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = T::sub(stop, start).to_f64() / size as f64;
+            let size_t = T::cast_from(ng::Number::from(size as u64));
+            let step = T::div(T::sub(stop, start), size_t);
             Linear::new(start, step, size).map(AccessOp::from)
         } else {
-            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+            Err(Error::bounds(format!("invalid range: [{start}, {stop})")))
         }
     }
 }
@@ -296,7 +300,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Cond<A, L, R, T>;
 
@@ -305,9 +309,17 @@ where
     }
 }
 
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for OpenCL {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Unary::abs(access).map(AccessOp::from)
+    }
+}
+
 impl<T, L, R> ElementwiseBoolean<L, R, T> for OpenCL
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
 {
@@ -326,7 +338,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseBooleanScalar<A, T> for OpenCL {
     type Op = Scalar<A, T, u8>;
 
     fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -342,7 +354,7 @@ impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for OpenCL {
+impl<A: Access<IT>, IT: Number, OT: Number> ElementwiseCast<A, IT, OT> for OpenCL {
     type Op = Cast<A, IT, OT>;
 
     fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -352,7 +364,7 @@ impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for OpenCL 
 
 impl<L, R, T> ElementwiseCompare<L, R, T> for OpenCL
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
 {
@@ -362,19 +374,31 @@ where
         Dual::eq(left, right).map(AccessOp::from)
     }
 
-    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::ge(left, right).map(AccessOp::from)
     }
 
-    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::gt(left, right).map(AccessOp::from)
     }
 
-    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::le(left, right).map(AccessOp::from)
     }
 
-    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::lt(left, right).map(AccessOp::from)
     }
 
@@ -383,26 +407,38 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for OpenCL {
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Scalar::eq(left, right).map(AccessOp::from)
     }
 
-    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::ge(left, right).map(AccessOp::from)
     }
 
-    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::gt(left, right).map(AccessOp::from)
     }
 
-    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::le(left, right).map(AccessOp::from)
     }
 
-    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::lt(left, right).map(AccessOp::from)
     }
 
@@ -413,7 +449,7 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for OpenCL {
 
 impl<T, L, R> ElementwiseDual<L, R, T> for OpenCL
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
 {
@@ -439,7 +475,10 @@ where
         Dual::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Dual::rem(left, right).map(AccessOp::from)
     }
 
@@ -448,7 +487,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for OpenCL {
     type Op = Scalar<A, T, T>;
 
     fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -471,7 +510,10 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for OpenCL {
         Scalar::pow(arg, exp).map(AccessOp::from)
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Scalar::rem(left, right).map(AccessOp::from)
     }
 
@@ -492,7 +534,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for OpenCL {
+// TODO: implement this trait separately per-type and remote the CLElementTrig boundary
+impl<A: Access<T>, T: Number + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -532,12 +575,8 @@ impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for OpenCL {
     type Op = Unary<A, T, T>;
-
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Unary::abs(access).map(AccessOp::from)
-    }
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::exp(access).map(AccessOp::from)
@@ -547,12 +586,15 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for OpenCL {
         Unary::ln(access).map(AccessOp::from)
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Unary::round(access).map(AccessOp::from)
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for OpenCL {
     type Op = Unary<A, T, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -560,11 +602,35 @@ impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for OpenCL {
     }
 }
 
+#[cfg(feature = "complex")]
+impl<A: Access<T>, T: crate::Complex> crate::ops::complex::ElementwiseUnaryComplex<A, T>
+    for OpenCL
+{
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::angle(access).map(AccessOp::from)
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        Unary::conj(access).map(AccessOp::from)
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::real(access).map(AccessOp::from)
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Unary::imag(access).map(AccessOp::from)
+    }
+}
+
 impl<L, R, T> LinAlgDual<L, R, T> for OpenCL
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = MatMul<L, R, T>;
 
@@ -578,7 +644,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> LinAlgUnary<A, T> for OpenCL {
     type Op = MatDiag<A, T>;
 
     fn diag(
@@ -604,52 +670,64 @@ impl Random for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: CType> ReduceAll<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "and", T::ONE)?;
+        let result = reduce_all::<T>(&*input, T::cl_and(), T::ONE)?;
         Ok(result.into_par_iter().all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "or", T::ZERO)?;
+        let result = reduce_all::<T>(&*input, T::cl_or(), T::ZERO)?;
         Ok(result.into_par_iter().any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "max", T::MIN)?;
+        let result = reduce_all::<T>(&*input, T::cl_max(), T::MIN)?;
         Ok(result.into_par_iter().reduce(|| T::MIN, T::max))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "min", T::MAX)?;
+        let result = reduce_all::<T>(&*input, T::cl_min(), T::MAX)?;
         Ok(result.into_par_iter().reduce(|| T::MAX, T::min))
     }
 
     fn product(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "mul", T::ONE)?;
+        let result = reduce_all::<T>(&*input, T::cl_mul(), T::ONE)?;
         Ok(result.into_par_iter().reduce(|| T::ONE, T::mul))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all(&*input, "add", T::ZERO)?;
+        let result = reduce_all::<T>(&*input, T::cl_add(), T::ZERO)?;
         Ok(result.into_par_iter().reduce(|| T::ZERO, T::add))
     }
 }
 
-impl<A: Access<T>, T: CType> ReduceAxes<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> ReduceAxes<A, T> for OpenCL {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Reduce::max(access, stride).map(AccessOp::from)
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Reduce::min(access, stride).map(AccessOp::from)
     }
 
@@ -662,7 +740,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
+impl<A: Access<T>, T: Number> Transform<A, T> for OpenCL {
     type Broadcast = View<A, T>;
     type Flip = Flip<A, T>;
     type Slice = Slice<A, T>;
@@ -705,7 +783,7 @@ impl<A: Access<T>, T: CType> Transform<A, T> for OpenCL {
     }
 }
 
-fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Result<Vec<T>, Error> {
+fn reduce_all<T: Number>(input: &Buffer<T>, reduce: ElementDual, id: T) -> Result<Vec<T>, Error> {
     const MIN_SIZE: usize = 8192;
 
     let min_size = MIN_SIZE * num_cpus::get();
@@ -718,10 +796,10 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
 
     let queue = OpenCL::queue(input.len(), &[input.default_queue()])?;
 
-    let program = programs::reduce::reduce(T::TYPE, reduce)?;
+    let program = programs::reduce::reduce(reduce)?;
 
     let mut buffer = {
-        let output = Buffer::builder()
+        let output = Buffer::<T>::builder()
             .queue(queue.clone())
             .len(input.len().div_ceil(WG_SIZE))
             .fill_val(id)
@@ -747,7 +825,7 @@ fn reduce_all<T: CType>(input: &Buffer<T>, reduce: &'static str, id: T) -> Resul
     while buffer.len() >= min_size {
         let input = buffer;
 
-        let output = Buffer::builder()
+        let output = Buffer::<T>::builder()
             .queue(queue.clone())
             .len(input.len().div_ceil(WG_SIZE))
             .fill_val(id)

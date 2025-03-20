@@ -3,7 +3,7 @@ use ocl::Program;
 
 use crate::Error;
 
-use super::{build, TILE_SIZE, WG_SIZE};
+use super::{build, Builder, ElementDual, TILE_SIZE, WG_SIZE};
 
 #[memoize]
 pub fn diagonal(c_type: &'static str) -> Result<Program, Error> {
@@ -50,17 +50,24 @@ pub fn pad_matrices(c_type: &'static str) -> Result<Program, Error> {
 }
 
 #[memoize]
-pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
+pub fn matmul(mul: ElementDual) -> Result<Program, Error> {
     debug_assert_eq!(TILE_SIZE * TILE_SIZE, WG_SIZE);
+
+    let i_type = mul.i_type;
+    let o_type = mul.o_type;
+    let name = mul.name;
+    let op = mul.build();
 
     let src = format!(
         r#"
+        {op}
+
         __kernel void matmul(
                 ulong4 const dims,
                 ulong const reduce_tiles,
-                __global const {c_type}* restrict left,
-                __global const {c_type}* restrict right,
-                __global {c_type}* restrict output)
+                __global const {i_type}* restrict left,
+                __global const {i_type}* restrict right,
+                __global {o_type}* restrict output)
         {{
             // x := output axis 0
             // y := reduce axis
@@ -76,11 +83,11 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
             const ulong left_offset = w * dims.x * dims.y;
             const ulong right_offset = w * dims.y * dims.z;
 
-            {c_type} tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
+            {o_type} tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
 
             // initialize the local cache for the left and right tiles to zero
-            {c_type} left_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
-            {c_type} right_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
+            {o_type} left_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
+            {o_type} right_tile[{TILE_SIZE}][{TILE_SIZE}] = {{ 0 }};
 
             // for each tile on the y axis
             for (ulong y_tile = 0; y_tile < reduce_tiles; y_tile++) {{
@@ -106,7 +113,7 @@ pub fn matmul(c_type: &'static str) -> Result<Program, Error> {
                     for (uint j = 0; j < {TILE_SIZE}; j++) {{
                         #pragma unroll
                         for (uint k = 0; k < {TILE_SIZE}; k++) {{
-                            tile[i][k] += left_tile[i][j] * right_tile[j][k];
+                            tile[i][k] += {name}(left_tile[i][j], right_tile[j][k]);
                         }}
                     }}
                 }}

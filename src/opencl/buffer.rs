@@ -4,9 +4,9 @@ use ocl::Buffer;
 
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::opencl::OpenCL;
-use crate::{CType, Error};
+use crate::{Error, Number};
 
-impl<T: CType> BufferInstance<T> for Buffer<T> {
+impl<T: Number> BufferInstance<T> for Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL(self.into())
     }
@@ -15,9 +15,10 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
         if offset < self.len() {
             let slice = self.map().offset(offset).len(1).read();
             let value = unsafe { slice.enq()? };
-            Ok(value.get(0).copied().expect("value"))
+            let value = value.get(0).copied().expect("value");
+            Ok(value)
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
                 self.len()
             )))
@@ -29,19 +30,19 @@ impl<T: CType> BufferInstance<T> for Buffer<T> {
     }
 }
 
-impl<T: CType> BufferMut<T> for Buffer<T> {
+impl<T: Number> BufferMut<T> for Buffer<T> {
     fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
         Ok(self)
     }
 
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
-        if data.len() == self.len() {
+        if data.len() == Buffer::len(self) {
             let data = data.to_cl()?;
             data.copy(self, None, None).enq().map_err(Error::from)
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot overwrite a buffer of size {} with one of size {}",
-                self.len(),
+                Buffer::len(self),
                 data.len()
             )))
         }
@@ -50,7 +51,7 @@ impl<T: CType> BufferMut<T> for Buffer<T> {
     fn write_value(&mut self, value: T) -> Result<(), Error> {
         let buf = Buffer::builder()
             .context(OpenCL::context())
-            .len(self.len())
+            .len(Buffer::len(self))
             .fill_val(value)
             .build()?;
 
@@ -59,21 +60,21 @@ impl<T: CType> BufferMut<T> for Buffer<T> {
     }
 
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
-        if offset < self.len() {
+        if offset < Buffer::len(self) {
             let slice = self.map().offset(offset).len(1).read();
             let mut slice = unsafe { slice.enq()? };
             slice.as_mut()[0] = value;
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
-                self.len()
+                Buffer::len(self)
             )))
         }
     }
 }
 
-impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
+impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL((*self).into())
     }
@@ -87,7 +88,7 @@ impl<'a, T: CType> BufferInstance<T> for &'a Buffer<T> {
     }
 }
 
-impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
+impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
     fn read(&self) -> BufferConverter<T> {
         BufferConverter::CL((&**self).into())
     }
@@ -97,11 +98,11 @@ impl<'a, T: CType> BufferInstance<T> for &'a mut Buffer<T> {
     }
 
     fn len(&self) -> usize {
-        Buffer::len(self)
+        Buffer::<T>::len(self)
     }
 }
 
-impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
+impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
     fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
         Ok(*self)
     }
@@ -121,13 +122,13 @@ impl<'a, T: CType> BufferMut<T> for &'a mut Buffer<T> {
 
 /// A buffer in OpenCL memory
 #[derive(Clone)]
-pub enum CLConverter<'a, T: CType> {
+pub enum CLConverter<'a, T: Number> {
     Owned(Buffer<T>),
     Borrowed(&'a Buffer<T>),
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CType> CLConverter<'a, T> {
+impl<'a, T: Number> CLConverter<'a, T> {
     /// Return this buffer as an owned [`Buffer`].
     /// This will allocate a new [`Buffer`] only if this buffer is borrowed.
     pub fn into_buffer(self) -> Result<Buffer<T>, Error> {
@@ -150,14 +151,14 @@ impl<'a, T: CType> CLConverter<'a, T> {
     /// Return the number of elements in this buffer.
     pub fn len(&self) -> usize {
         match self {
-            Self::Owned(buffer) => buffer.len(),
-            Self::Borrowed(buffer) => buffer.len(),
+            Self::Owned(buffer) => Buffer::len(buffer),
+            Self::Borrowed(buffer) => Buffer::len(buffer),
         }
     }
 }
 
 #[cfg(feature = "opencl")]
-impl<'a, T: CType> Deref for CLConverter<'a, T> {
+impl<'a, T: Number> Deref for CLConverter<'a, T> {
     type Target = Buffer<T>;
 
     fn deref(&self) -> &Buffer<T> {
@@ -168,13 +169,13 @@ impl<'a, T: CType> Deref for CLConverter<'a, T> {
     }
 }
 
-impl<T: CType> From<Buffer<T>> for CLConverter<'static, T> {
+impl<T: Number> From<Buffer<T>> for CLConverter<'static, T> {
     fn from(buf: Buffer<T>) -> Self {
         Self::Owned(buf)
     }
 }
 
-impl<'a, T: CType> From<&'a Buffer<T>> for CLConverter<'a, T> {
+impl<'a, T: Number> From<&'a Buffer<T>> for CLConverter<'a, T> {
     fn from(buf: &'a Buffer<T>) -> Self {
         Self::Borrowed(buf)
     }

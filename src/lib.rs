@@ -2,6 +2,11 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
+#[cfg(feature = "complex")]
+use num_complex::{Complex32, Complex64};
+use number_general as ng;
+use safecast::CastFrom;
+
 pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as coord;
 pub use smallvec::smallvec as range;
@@ -12,11 +17,13 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixDual, MatrixUnary, NDArray, NDArrayBoolean, NDArrayBooleanScalar, NDArrayCast,
-    NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar, NDArrayNumeric,
-    NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean, NDArrayTransform,
-    NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
+    MatrixDual, MatrixUnary, NDArray, NDArrayAbs, NDArrayBoolean, NDArrayBooleanScalar,
+    NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar,
+    NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean,
+    NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
 };
+#[cfg(feature = "complex")]
+pub use array::{NDArrayComplex, NDArrayFourier};
 pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
 pub use host::StackVec;
 pub use platform::*;
@@ -24,109 +31,44 @@ pub use platform::*;
 mod access;
 mod array;
 mod buffer;
+#[cfg(feature = "complex")]
+pub mod fft;
 pub mod host;
 #[cfg(feature = "opencl")]
 pub mod opencl;
 pub mod ops;
 mod platform;
 
-/// A numeric type supported by ha-ndarray
+fn id<T>(this: T) -> T {
+    this
+}
+
 #[cfg(feature = "opencl")]
-pub trait CType:
-    ocl::OclPrm + PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
+pub trait CLType:
+    opencl::CLElement + PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
 {
-    // type information
-
-    /// The C-language type name of this data type.
-    const TYPE: &'static str;
-
-    /// The maximum value of this data type.
-    const MAX: Self;
-
-    /// The minimum value of this data type.
-    const MIN: Self;
-
-    /// The zero value of this data type.
-    const ZERO: Self;
-
-    /// The one value of this data type.
-    const ONE: Self;
-
-    /// Whether this is a floating-point data type.
-    const IS_FLOAT: bool;
-
-    /// The floating-point type used to represent this type in floating-point-only operations.
-    type Float: Float;
-
-    // constructors
-
-    /// Construct an instance of this type from a [`f64`].
-    fn from_f64(float: f64) -> Self;
-
-    /// Construct an instance of this type from an instance of its floating-point type.
-    fn from_float(float: Self::Float) -> Self;
-
-    // arithmetic
-
-    /// Construct an instance of this type from a [`f64`].
-    fn abs(self) -> Self;
-
-    /// Add two instances of this type.
-    fn add(self, other: Self) -> Self;
-
-    /// Divide two instances of this type.
-    fn div(self, other: Self) -> Self;
-
-    /// Multiply two instances of this type.
-    fn mul(self, other: Self) -> Self;
-
-    /// Subtract two instances of this type.
-    fn sub(self, other: Self) -> Self;
-
-    /// Compute the remainder of `self.div(other)`.
-    fn rem(self, other: Self) -> Self;
-
-    // comparisons
-
-    /// Return the minimum of two values of this type.
-    fn min(l: Self, r: Self) -> Self;
-
-    /// Return the maximum of two values of this type.
-    fn max(l: Self, r: Self) -> Self;
-
-    // logarithms
-
-    /// Raise this value to the power of the given `exp`onent.
-    fn pow(self, exp: Self) -> Self;
-
-    // conversions
-
-    /// Round this value to the nearest integer.
-    fn round(self) -> Self;
-
-    /// Return the minimum of two values of this type.
-    fn to_f64(self) -> f64;
-
-    /// Convert this value to a floating-point value.
-    fn to_float(self) -> Self::Float;
 }
+
+#[cfg(not(feature = "opencl"))]
+pub trait CLType: PartialEq + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static {}
+
+impl CLType for f32 {}
+impl CLType for f64 {}
+impl CLType for i8 {}
+impl CLType for i16 {}
+impl CLType for i32 {}
+impl CLType for i64 {}
+impl CLType for u8 {}
+impl CLType for u16 {}
+impl CLType for u32 {}
+impl CLType for u64 {}
+#[cfg(feature = "complex")]
+impl CLType for num_complex::Complex<f32> {}
+#[cfg(feature = "complex")]
+impl CLType for num_complex::Complex<f64> {}
 
 /// A numeric type supported by ha-ndarray
-#[cfg(not(feature = "opencl"))]
-pub trait CType:
-    PartialEq + PartialOrd + Copy + Send + Sync + fmt::Display + fmt::Debug + 'static
-{
-    // type information
-
-    /// The C-language type name of this data type.
-    const TYPE: &'static str;
-
-    /// The maximum value of this data type.
-    const MAX: Self;
-
-    /// The minimum value of this data type.
-    const MIN: Self;
-
+pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
     /// The zero value of this data type.
     const ZERO: Self;
 
@@ -136,13 +78,16 @@ pub trait CType:
     /// Whether this is a floating-point data type.
     const IS_FLOAT: bool;
 
+    /// Whether this is a read-valued data type.
+    const IS_REAL: bool;
+
+    /// The absolute value type of this [`Number`].
+    type Abs: Number;
+
     /// The floating-point type used to represent this type in floating-point-only operations.
     type Float: Float;
 
     // constructors
-
-    /// Construct an instance of this type from a [`f64`].
-    fn from_f64(float: f64) -> Self;
 
     /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
@@ -150,7 +95,7 @@ pub trait CType:
     // arithmetic
 
     /// Construct an instance of this type from a [`f64`].
-    fn abs(self) -> Self;
+    fn abs(self) -> Self::Abs;
 
     /// Add two instances of this type.
     fn add(self, other: Self) -> Self;
@@ -164,60 +109,35 @@ pub trait CType:
     /// Subtract two instances of this type.
     fn sub(self, other: Self) -> Self;
 
-    /// Compute the remainder of `self.div(other)`.
-    fn rem(self, other: Self) -> Self;
-
-    // comparisons
-
-    /// Return the minimum of two values of this type.
-    fn min(l: Self, r: Self) -> Self;
-
-    /// Return the maximum of two values of this type.
-    fn max(l: Self, r: Self) -> Self;
-
-    // logarithms
-
     /// Raise this value to the power of the given `exp`onent.
     fn pow(self, exp: Self) -> Self;
 
     // conversions
 
-    /// Round this value to the nearest integer.
-    fn round(self) -> Self;
-
-    /// Return the minimum of two values of this type.
-    fn to_f64(self) -> f64;
-
     /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
 }
 
-macro_rules! c_type {
-    ($t:ty, $str:expr, $is_float:expr, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $rem:expr, $round:expr, $pow:expr, $cmp_max:expr, $cmp_min:expr) => {
-        impl CType for $t {
-            const TYPE: &'static str = $str;
-
-            const MAX: Self = <$t>::MAX;
-
-            const MIN: Self = <$t>::MIN;
+macro_rules! number {
+    ($t:ty, $is_float:expr, $is_real:expr, $abs_t:ty, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
+        impl Number for $t {
+            const ONE: Self = $one;
 
             const ZERO: Self = $zero;
 
-            const ONE: Self = $one;
-
             const IS_FLOAT: bool = $is_float;
 
-            type Float = $float;
+            const IS_REAL: bool = $is_float;
 
-            fn from_f64(float: f64) -> Self {
-                float as $t
-            }
+            type Abs = $abs_t;
+
+            type Float = $float;
 
             fn from_float(float: $float) -> Self {
                 float as $t
             }
 
-            fn abs(self) -> Self {
+            fn abs(self) -> Self::Abs {
                 $abs(self)
             }
 
@@ -237,28 +157,8 @@ macro_rules! c_type {
                 $sub(self, other)
             }
 
-            fn rem(self, other: Self) -> Self {
-                $rem(self, other)
-            }
-
-            fn min(l: Self, r: Self) -> Self {
-                $cmp_min(l, r)
-            }
-
-            fn max(l: Self, r: Self) -> Self {
-                $cmp_max(l, r)
-            }
-
             fn pow(self, exp: Self) -> Self {
                 ($pow)(self, exp)
-            }
-
-            fn round(self) -> Self {
-                $round(self)
-            }
-
-            fn to_f64(self) -> f64 {
-                self as f64
             }
 
             fn to_float(self) -> $float {
@@ -268,10 +168,45 @@ macro_rules! c_type {
     };
 }
 
-c_type!(
-    f32,
-    "float",
+#[cfg(feature = "complex")]
+number!(
+    Complex32,
     true,
+    false,
+    f32,
+    Complex32::new(1., 0.),
+    Complex32::new(0., 0.),
+    Self,
+    Complex32::norm,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Complex32::powc
+);
+
+#[cfg(feature = "complex")]
+number!(
+    Complex64,
+    true,
+    false,
+    f64,
+    Complex64::new(1., 0.),
+    Complex64::new(0., 0.),
+    Self,
+    Complex64::norm,
+    Add::add,
+    Div::div,
+    Mul::mul,
+    Sub::sub,
+    Complex64::powc
+);
+
+number!(
+    f32,
+    true,
+    true,
+    Self,
     1.,
     0.,
     Self,
@@ -280,17 +215,14 @@ c_type!(
     Div::div,
     Mul::mul,
     Sub::sub,
-    Rem::rem,
-    f32::round,
-    f32::powf,
-    max_f32,
-    min_f32
+    f32::powf
 );
 
-c_type!(
+number!(
     f64,
-    "double",
     true,
+    true,
+    Self,
     1.,
     0.,
     Self,
@@ -299,17 +231,14 @@ c_type!(
     Div::div,
     Mul::mul,
     Sub::sub,
-    Rem::rem,
-    f64::round,
-    f64::powf,
-    max_f64,
-    min_f64
+    f64::powf
 );
 
-c_type!(
+number!(
     i8,
-    "char",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -318,17 +247,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e as i32) as i8,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e as i32) as i8
 );
 
-c_type!(
+number!(
     i16,
-    "short",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -337,17 +263,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e as i32) as i16,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e as i32) as i16
 );
 
-c_type!(
+number!(
     i32,
-    "int",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -356,17 +279,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| f32::powi(a as f32, e) as i32,
-    Ord::max,
-    Ord::min
+    |a, e| f32::powi(a as f32, e) as i32
 );
 
-c_type!(
+number!(
     i64,
-    "long",
     false,
+    true,
+    Self,
     1,
     0,
     f64,
@@ -375,20 +295,17 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
     |a, e| f64::powi(
         a as f64,
         i32::try_from(e).unwrap_or_else(|_| if e >= 0 { i32::MAX } else { i32::MIN })
-    ) as i64,
-    Ord::max,
-    Ord::min
+    ) as i64
 );
 
-c_type!(
+number!(
     u8,
-    "uchar",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -397,17 +314,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u8::pow(a, e as u32),
-    Ord::max,
-    Ord::min
+    |a, e| u8::pow(a, e as u32)
 );
 
-c_type!(
+number!(
     u16,
-    "ushort",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -416,17 +330,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u16::pow(a, e as u32),
-    Ord::max,
-    Ord::min
+    |a, e| u16::pow(a, e as u32)
 );
 
-c_type!(
+number!(
     u32,
-    "uint",
     false,
+    true,
+    Self,
     1,
     0,
     f32,
@@ -435,17 +346,14 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u32::pow(a, e),
-    Ord::max,
-    Ord::min
+    |a, e| u32::pow(a, e)
 );
 
-c_type!(
+number!(
     u64,
-    "ulong",
     false,
+    true,
+    Self,
     1,
     0,
     f64,
@@ -454,51 +362,98 @@ c_type!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    Self::wrapping_rem,
-    id,
-    |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX)),
-    Ord::max,
-    Ord::min
+    |a, e| u64::pow(a, u32::try_from(e).unwrap_or(u32::MAX))
 );
 
-fn id<T>(this: T) -> T {
-    this
+#[cfg(not(feature = "opencl"))]
+/// A real-valued [`Number`]
+pub trait Real: Number + PartialOrd {
+    /// The maximum value of this data type.
+    const MAX: Self;
+
+    /// The minimum value of this data type.
+    const MIN: Self;
+
+    /// Return the maximum of the given values.
+    fn max(l: Self, r: Self) -> Self;
+
+    /// Return the maximum of the given values.
+    fn min(l: Self, r: Self) -> Self;
+
+    /// Compute the remainder of `self.div(other)`.
+    fn rem(self, other: Self) -> Self;
+
+    /// Round this value to the nearest integer.
+    fn round(self) -> Self;
 }
 
-fn max_f32(l: f32, r: f32) -> f32 {
-    match l.total_cmp(&r) {
-        Ordering::Less => r,
-        Ordering::Equal => l,
-        Ordering::Greater => l,
-    }
+#[cfg(feature = "opencl")]
+/// A real-valued [`Number`]
+pub trait Real: Number + PartialOrd + opencl::CLElementReal {
+    /// The maximum value of this data type.
+    const MAX: Self;
+
+    /// The minimum value of this data type.
+    const MIN: Self;
+
+    /// Return the maximum of the given values.
+    fn max(l: Self, r: Self) -> Self;
+
+    /// Return the maximum of the given values.
+    fn min(l: Self, r: Self) -> Self;
+
+    /// Compute the remainder of `self.div(other)`.
+    fn rem(self, other: Self) -> Self;
+
+    /// Round this value to the nearest integer.
+    fn round(self) -> Self;
 }
 
-fn min_f32(l: f32, r: f32) -> f32 {
-    match l.total_cmp(&r) {
-        Ordering::Less => l,
-        Ordering::Equal => l,
-        Ordering::Greater => r,
-    }
+macro_rules! real {
+    ($t:ty, $rem:expr, $ord:expr, $round:expr) => {
+        impl Real for $t {
+            const MAX: Self = <$t>::MAX;
+
+            const MIN: Self = <$t>::MIN;
+
+            fn max(l: Self, r: Self) -> $t {
+                match $ord(&l, &r) {
+                    Ordering::Greater | Ordering::Equal => l,
+                    Ordering::Less => r,
+                }
+            }
+
+            fn min(l: Self, r: Self) -> $t {
+                match $ord(&l, &r) {
+                    Ordering::Less | Ordering::Equal => l,
+                    Ordering::Greater => r,
+                }
+            }
+
+            fn rem(self, other: Self) -> Self {
+                $rem(self, other)
+            }
+
+            fn round(self) -> Self {
+                $round(self)
+            }
+        }
+    };
 }
 
-fn max_f64(l: f64, r: f64) -> f64 {
-    match l.total_cmp(&r) {
-        Ordering::Less => r,
-        Ordering::Equal => l,
-        Ordering::Greater => l,
-    }
-}
+real!(f32, Rem::rem, f32::total_cmp, f32::round);
+real!(f64, Rem::rem, f64::total_cmp, f64::round);
+real!(i8, Self::wrapping_rem, Ord::cmp, id);
+real!(i16, Self::wrapping_rem, Ord::cmp, id);
+real!(i32, Self::wrapping_rem, Ord::cmp, id);
+real!(i64, Self::wrapping_rem, Ord::cmp, id);
+real!(u8, Self::wrapping_rem, Ord::cmp, id);
+real!(u16, Self::wrapping_rem, Ord::cmp, id);
+real!(u32, Self::wrapping_rem, Ord::cmp, id);
+real!(u64, Self::wrapping_rem, Ord::cmp, id);
 
-fn min_f64(l: f64, r: f64) -> f64 {
-    match l.total_cmp(&r) {
-        Ordering::Less => l,
-        Ordering::Equal => l,
-        Ordering::Greater => r,
-    }
-}
-
-/// A floating-point [`CType`]
-pub trait Float: CType<Float = Self> {
+/// A floating-point [`Number`]
+pub trait Float: Number<Float = Self> {
     // numeric methods
     /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
     fn is_inf(self) -> bool;
@@ -543,21 +498,17 @@ pub trait Float: CType<Float = Self> {
 
     /// Return the hyperbolic tangent of this [`Float`] (in radians).
     fn tanh(self) -> Self;
-
-    // utility
-    /// Cast this [`Float`] to an [`f64`].
-    fn to_f64(self) -> f64;
 }
 
 macro_rules! float_type {
-    ($t:ty) => {
+    ($t:ty, $inf:expr, $nan:expr) => {
         impl Float for $t {
             fn is_inf(self) -> bool {
-                <$t>::is_infinite(self)
+                $inf(self)
             }
 
             fn is_nan(self) -> bool {
-                <$t>::is_nan(self)
+                $nan(self)
             }
 
             fn exp(self) -> Self {
@@ -569,7 +520,7 @@ macro_rules! float_type {
             }
 
             fn log(self, base: Self) -> Self {
-                <$t>::log(self, base)
+                self.ln() / base.ln()
             }
 
             fn sin(self) -> Self {
@@ -607,24 +558,102 @@ macro_rules! float_type {
             fn tanh(self) -> Self {
                 <$t>::tanh(self)
             }
+        }
+    };
+}
 
-            fn to_f64(self) -> f64 {
-                self as f64
+#[cfg(feature = "complex")]
+float_type!(Complex32, |_| false, |_| false);
+#[cfg(feature = "complex")]
+float_type!(Complex64, |_| false, |_| false);
+float_type!(f32, f32::is_infinite, f32::is_nan);
+float_type!(f64, f64::is_infinite, f64::is_nan);
+
+#[cfg(all(feature = "complex", not(feature = "opencl")))]
+/// A complex [`Number`]
+pub trait Complex: Float<Abs = Self::Real> {
+    type Real: Float + Real;
+
+    fn angle(self) -> Self::Real;
+
+    fn conj(self) -> Self;
+
+    fn im(self) -> Self::Real;
+
+    fn re(self) -> Self::Real;
+}
+
+#[cfg(all(feature = "complex", feature = "opencl"))]
+/// A complex [`Number`]
+pub trait Complex: Float<Abs = Self::Real> + opencl::CLElementComplex {
+    type Real: Float + Real;
+
+    fn angle(self) -> Self::Real;
+
+    fn conj(self) -> Self;
+
+    fn im(self) -> Self::Real;
+
+    fn re(self) -> Self::Real;
+}
+
+#[cfg(feature = "complex")]
+macro_rules! complex_type {
+    ($t:ty, $r:ty) => {
+        impl Complex for $t {
+            type Real = $r;
+
+            fn angle(self) -> $r {
+                Self::arg(self)
+            }
+
+            fn conj(self) -> Self {
+                num_complex::Complex::<$r>::conj(&self)
+            }
+
+            fn im(self) -> $r {
+                self.im
+            }
+
+            fn re(self) -> $r {
+                self.re
             }
         }
     };
 }
 
-float_type!(f32);
-float_type!(f64);
+#[cfg(feature = "complex")]
+complex_type!(Complex32, f32);
+#[cfg(feature = "complex")]
+complex_type!(Complex64, f64);
 
 /// An array math error
 pub enum Error {
     Bounds(String),
-    Interface(String),
+    #[cfg(feature = "opencl")]
+    Format(String),
     Unsupported(String),
     #[cfg(feature = "opencl")]
     OCL(std::sync::Arc<ocl::Error>),
+}
+
+impl Error {
+    fn bounds(msg: String) -> Self {
+        #[cfg(feature = "debug_crash")]
+        panic!("{}", msg);
+
+        #[cfg(not(feature = "debug_crash"))]
+        Self::Bounds(msg)
+    }
+
+    #[allow(dead_code)]
+    fn unsupported(msg: String) -> Self {
+        #[cfg(feature = "debug_crash")]
+        panic!("{}", msg);
+
+        #[cfg(not(feature = "debug_crash"))]
+        Self::Unsupported(msg)
+    }
 }
 
 // Clone is required to support memoizing OpenCL programs
@@ -633,7 +662,8 @@ impl Clone for Error {
     fn clone(&self) -> Self {
         match self {
             Self::Bounds(msg) => Self::Bounds(msg.clone()),
-            Self::Interface(msg) => Self::Interface(msg.clone()),
+            #[cfg(feature = "opencl")]
+            Self::Format(msg) => Self::Format(msg.clone()),
             Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => Self::OCL(cause.clone()),
@@ -644,10 +674,10 @@ impl Clone for Error {
 #[cfg(feature = "opencl")]
 impl From<ocl::Error> for Error {
     fn from(cause: ocl::Error) -> Self {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug_crash")]
         panic!("OpenCL error: {:?}", cause);
 
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(feature = "debug_crash"))]
         Self::OCL(std::sync::Arc::new(cause))
     }
 }
@@ -656,7 +686,8 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Interface(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -668,7 +699,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            Self::Interface(cause) => f.write_str(cause),
+            #[cfg(feature = "opencl")]
+            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -765,32 +797,79 @@ impl fmt::Debug for AxisRange {
 /// Compute the shape which results from broadcasting the `left` and `right` shapes, if possible.
 #[inline]
 pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> {
-    if left.is_empty() || right.is_empty() {
-        return Err(Error::Bounds("cannot broadcast empty shape".to_string()));
-    } else if left.len() < right.len() {
-        return broadcast_shape(right, left);
-    }
+    let ndim = usize::max(left.len(), right.len());
+    let mut shape = Shape::with_capacity(ndim);
 
-    let offset = left.len() - right.len();
+    let mut left = left.into_iter().rev().copied();
+    let mut right = right.into_iter().rev().copied();
 
-    let mut shape = Shape::with_capacity(left.len());
-    shape.extend_from_slice(&left[..offset]);
-
-    for (l, r) in left.into_iter().copied().zip(right.into_iter().copied()) {
-        if r == 1 || r == l {
-            shape.push(l);
-        } else if l == 1 {
-            shape.push(r);
+    loop {
+        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
+            shape.push(dim)
         } else {
-            return Err(Error::Bounds(format!(
-                "cannot broadcast dimensions {l} and {r}"
-            )));
+            break;
         }
     }
 
-    debug_assert!(!shape.iter().any(|dim| *dim == 0));
+    shape.reverse();
 
     Ok(shape)
+}
+
+/// Compute the shapes needed to multiply the `left` and `right` matrices, if possible.
+#[inline]
+pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape, Shape), Error> {
+    let (left_ndim, right_ndim) = (left.len(), right.len());
+    let ndim = usize::max(left_ndim, right_ndim);
+
+    let mut left = left.into_iter().rev().copied();
+    let mut right = right.into_iter().rev().copied();
+
+    let k = right.next().unwrap_or(1);
+    let j = match (left.next(), right.next()) {
+        (Some(jl), Some(jr)) => match (jl, jr) {
+            (jl, jr) if jl == jr => Ok(jl),
+            (jl, jr) if jl == 1 => Ok(jr),
+            (jl, jr) if jr == 1 => Ok(jl),
+            _ => Err(Error::bounds(format!(
+                "cannot matrix-multiply shapes {left:?} and {right:?}"
+            ))),
+        },
+        (Some(jl), None) => Ok(jl),
+        (None, Some(jr)) => Ok(jr),
+        (None, None) => Ok(1),
+    }?;
+    let i = left.next().unwrap_or(1);
+
+    let mut broadcast_shape = Shape::with_capacity(ndim);
+    loop {
+        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
+            broadcast_shape.push(dim);
+        } else {
+            break;
+        }
+    }
+
+    broadcast_shape.reverse();
+
+    let left = broadcast_shape.iter().copied().chain([i, j]).collect();
+    let right = broadcast_shape.into_iter().chain([j, k]).collect();
+    Ok((left, right))
+}
+
+#[inline]
+fn broadcast_dim(left: Option<usize>, right: Option<usize>) -> Result<Option<usize>, Error> {
+    match (left, right) {
+        (Some(l), Some(r)) if l == r => Ok(Some(l)),
+        (Some(1), Some(r)) => Ok(Some(r)),
+        (Some(l), Some(1)) => Ok(Some(l)),
+        (None, Some(r)) => Ok(Some(r)),
+        (Some(l), None) => Ok(Some(l)),
+        (None, None) => Ok(None),
+        (l, r) => Err(Error::bounds(format!(
+            "cannot broadcast dimensions {l:?} and {r:?}"
+        ))),
+    }
 }
 
 #[inline]

@@ -3,19 +3,25 @@ use std::iter;
 use std::marker::PhantomData;
 
 use frand::Rand;
+use number_general as ng;
 use rayon::join;
 use rayon::prelude::*;
 
 use crate::access::Access;
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, SliceSpec, ViewSpec};
+#[cfg(feature = "complex")]
+use crate::Complex;
 use crate::{
-    strides_for, AccessMut, Axes, BufferConverter, CType, Error, Float, Platform, Range, Shape,
-    Strides,
+    strides_for, AccessMut, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real,
+    Shape, Strides,
 };
 
 use super::buffer::Buffer;
 use super::platform::{Heap, Host, Stack};
 use super::{SliceConverter, StackVec, VEC_MIN_SIZE};
+
+#[cfg(feature = "complex")]
+pub mod complex;
 
 macro_rules! host_enqueue {
     ($this:expr, $cond:expr, $t:ty) => {
@@ -41,13 +47,13 @@ impl<A, IT, OT> Cast<A, IT, OT> {
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Op for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Op for Cast<A, IT, OT> {
     fn size(&self) -> usize {
         self.access.size()
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Heap, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Heap, OT> for Cast<A, IT, OT> {
     type Buffer = Vec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -57,14 +63,15 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Heap, OT> for Cast<A, IT, OT> 
             .map(|slice| {
                 slice
                     .into_par_iter()
-                    .map(|n| n.to_f64())
-                    .map(OT::from_f64)
+                    .copied()
+                    .map(|n| n.into())
+                    .map(OT::cast_from)
                     .collect()
             })
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Stack, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Stack, OT> for Cast<A, IT, OT> {
     type Buffer = StackVec<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -74,14 +81,15 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Stack, OT> for Cast<A, IT, OT>
             .map(|slice| {
                 slice
                     .into_iter()
-                    .map(|n| n.to_f64())
-                    .map(OT::from_f64)
+                    .copied()
+                    .map(|n| n.into())
+                    .map(OT::cast_from)
                     .collect()
             })
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Host, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Host, OT> for Cast<A, IT, OT> {
     type Buffer = Buffer<OT>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -89,12 +97,12 @@ impl<A: Access<IT>, IT: CType, OT: CType> Enqueue<Host, OT> for Cast<A, IT, OT> 
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ReadValue<Host, OT> for Cast<A, IT, OT> {
+impl<A: Access<IT>, IT: Number, OT: Number> ReadValue<Host, OT> for Cast<A, IT, OT> {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
             .read_value(offset)
-            .map(|n| n.to_f64())
-            .map(OT::from_f64)
+            .map(|n| n.into())
+            .map(OT::cast_from)
     }
 }
 
@@ -121,7 +129,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
         debug_assert_eq!(self.cond.size(), self.then.size());
@@ -135,7 +143,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = StackVec<T>;
 
@@ -169,7 +177,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Vec<T>;
 
@@ -211,7 +219,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -225,7 +233,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let (cond, (then, or_else)) = join(
@@ -251,7 +259,7 @@ where
 impl<A, T> Enqueue<Host, T> for Concat<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -270,7 +278,7 @@ where
 impl<A, T> ReadValue<Host, T> for Concat<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         ReadValue::<Platform, T>::read_value(self, offset)
@@ -284,7 +292,7 @@ pub struct Dual<L, R, IT, OT> {
 }
 
 // arithmetic
-impl<L, R, T: CType> Dual<L, R, T, T> {
+impl<L, R, T: Number> Dual<L, R, T, T> {
     pub fn add(left: L, right: R) -> Self {
         Self {
             left,
@@ -325,11 +333,14 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
         }
     }
 
-    pub fn rem(left: L, right: R) -> Self {
+    pub fn rem(left: L, right: R) -> Self
+    where
+        T: Real,
+    {
         Self {
             left,
             right,
-            zip: T::rem,
+            zip: T::pow,
         }
     }
 
@@ -343,7 +354,7 @@ impl<L, R, T: CType> Dual<L, R, T, T> {
 }
 
 // boolean operations
-impl<L, R, T: CType> Dual<L, R, T, u8> {
+impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn and(left: L, right: R) -> Self {
         Self {
             left,
@@ -376,7 +387,7 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
 }
 
 // comparison
-impl<L, R, T: CType> Dual<L, R, T, u8> {
+impl<L, R, T: Number> Dual<L, R, T, u8> {
     pub fn eq(left: L, right: R) -> Self {
         Self {
             left,
@@ -385,6 +396,16 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
         }
     }
 
+    pub fn ne(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: |l, r| if l != r { 1 } else { 0 },
+        }
+    }
+}
+
+impl<L, R, T: Number + PartialOrd> Dual<L, R, T, u8> {
     pub fn ge(left: L, right: R) -> Self {
         Self {
             left,
@@ -416,22 +437,14 @@ impl<L, R, T: CType> Dual<L, R, T, u8> {
             zip: |l, r| if l < r { 1 } else { 0 },
         }
     }
-
-    pub fn ne(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |l, r| if l != r { 1 } else { 0 },
-        }
-    }
 }
 
 impl<L, R, IT, OT> Op for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.left.size()
@@ -442,8 +455,8 @@ impl<L, R, IT, OT> Enqueue<Stack, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = StackVec<OT>;
 
@@ -458,8 +471,8 @@ impl<L, R, IT, OT> Enqueue<Heap, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Vec<OT>;
 
@@ -473,8 +486,8 @@ impl<L, R, IT, OT> Enqueue<Host, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -487,8 +500,8 @@ impl<L, R, IT, OT> ReadValue<Host, OT> for Dual<L, R, IT, OT>
 where
     L: Access<IT>,
     R: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         try_join_value(&self.left, &self.right, offset).map(|(l, r)| (self.zip)(l, r))
@@ -496,15 +509,15 @@ where
 }
 
 pub struct Flip<A, T> {
-    source: A,
+    access: A,
     spec: FlipSpec,
     dtype: PhantomData<T>,
 }
 
 impl<A, T> Flip<A, T> {
-    pub fn new(source: A, shape: Shape, axis: usize) -> Result<Self, Error> {
+    pub fn new(access: A, shape: Shape, axis: usize) -> Result<Self, Error> {
         FlipSpec::new(shape, axis).map(|spec| Self {
-            source,
+            access,
             spec,
             dtype: PhantomData,
         })
@@ -514,17 +527,17 @@ impl<A, T> Flip<A, T> {
 impl<A, T> Op for Flip<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn size(&self) -> usize {
-        self.source.size()
+        self.access.size()
     }
 }
 
 impl<A, T> Enqueue<Heap, T> for Flip<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Vec<T>;
 
@@ -539,7 +552,7 @@ where
 impl<A, T> Enqueue<Stack, T> for Flip<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = StackVec<T>;
 
@@ -554,7 +567,7 @@ where
 impl<A, T> Enqueue<Host, T> for Flip<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -566,32 +579,33 @@ where
 impl<A, T> ReadValue<Host, T> for Flip<A, T>
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         debug_assert!(offset < self.size());
         let offset = self.spec.source_offset(offset);
-        self.source.read_value(offset)
+        self.access.read_value(offset)
     }
 }
 
 pub struct Linear<T> {
     start: T,
-    step: f64,
+    step: T,
     size: usize,
 }
 
 impl<T> Linear<T> {
-    pub fn new(start: T, step: f64, size: usize) -> Self {
+    pub fn new(start: T, step: T, size: usize) -> Self {
         Self { start, step, size }
     }
 
     #[inline]
     fn value_at(&self, offset: usize) -> T
     where
-        T: CType,
+        T: Number,
     {
-        T::add(self.start, T::from_f64((offset as f64) * self.step))
+        let offset = T::cast_from(ng::Number::from(offset as u64));
+        T::add(self.start, T::mul(offset, self.step))
     }
 }
 
@@ -601,25 +615,20 @@ impl<T: Send + Sync> Op for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<Stack, T> for Linear<T> {
+impl<T: Number> Enqueue<Stack, T> for Linear<T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let start = self.start.to_f64();
-
         let buffer = (0..self.size)
             .into_iter()
-            .map(|i| i as f64)
-            .map(|i| i * self.step)
-            .map(|o| start + o)
-            .map(T::from_f64)
+            .map(|offset| self.value_at(offset))
             .collect();
 
         Ok(buffer)
     }
 }
 
-impl<T: CType> Enqueue<Heap, T> for Linear<T> {
+impl<T: Number> Enqueue<Heap, T> for Linear<T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -632,7 +641,7 @@ impl<T: CType> Enqueue<Heap, T> for Linear<T> {
     }
 }
 
-impl<T: CType> Enqueue<Host, T> for Linear<T> {
+impl<T: Number> Enqueue<Host, T> for Linear<T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -640,7 +649,7 @@ impl<T: CType> Enqueue<Host, T> for Linear<T> {
     }
 }
 
-impl<T: CType> ReadValue<Host, T> for Linear<T> {
+impl<T: Number> ReadValue<Host, T> for Linear<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         Ok(self.value_at(offset))
     }
@@ -664,14 +673,14 @@ impl<A, T> MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Op for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Op for MatDiag<A, T> {
     fn size(&self) -> usize {
         debug_assert_eq!(self.access.size(), self.batch_size * self.dim * self.dim);
         self.batch_size * self.dim
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Heap, T> for MatDiag<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -692,7 +701,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Stack, T> for MatDiag<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -713,7 +722,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Host, T> for MatDiag<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -721,7 +730,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for MatDiag<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Host, T> for MatDiag<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Host, T> for MatDiag<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let batch = offset / self.batch_size;
         let i = offset % self.batch_size;
@@ -767,7 +776,7 @@ impl<L, R, T> Enqueue<Stack, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = StackVec<T>;
 
@@ -805,7 +814,7 @@ impl<L, R, T> Enqueue<Heap, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Vec<T>;
 
@@ -871,7 +880,7 @@ impl<L, R, T> Enqueue<Host, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Buffer = Buffer<T>;
 
@@ -888,10 +897,10 @@ impl<L, R, T> ReadValue<Host, T> for MatMul<L, R, T>
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn read_value(&self, _offset: usize) -> Result<T, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "reading an individual value from a matrix multiplication is not implemented"
                 .to_string(),
         ))
@@ -910,7 +919,7 @@ impl<A, IT, OT> Scalar<A, IT, OT> {
     }
 }
 
-impl<A, T: CType> Scalar<A, T, T> {
+impl<A, T: Number> Scalar<A, T, T> {
     pub fn add(access: A, scalar: T) -> Self {
         Self::new(access, scalar, T::add)
     }
@@ -933,7 +942,10 @@ impl<A, T: CType> Scalar<A, T, T> {
         Self::new(access, scalar, T::pow)
     }
 
-    pub fn rem(access: A, scalar: T) -> Self {
+    pub fn rem(access: A, scalar: T) -> Self
+    where
+        T: Real,
+    {
         Self::new(access, scalar, T::rem)
     }
 
@@ -942,11 +954,11 @@ impl<A, T: CType> Scalar<A, T, T> {
     }
 }
 
-impl<A, T> Scalar<A, T, u8> {
-    pub fn and(access: A, scalar: T) -> Self
-    where
-        T: CType,
-    {
+impl<A, T> Scalar<A, T, u8>
+where
+    T: Number,
+{
+    pub fn and(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) && (r != T::ZERO) {
                 1
@@ -956,10 +968,7 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn or(access: A, scalar: T) -> Self
-    where
-        T: CType,
-    {
+    pub fn or(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) || (r != T::ZERO) {
                 1
@@ -969,10 +978,7 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn xor(access: A, scalar: T) -> Self
-    where
-        T: CType,
-    {
+    pub fn xor(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| {
             if (l != T::ZERO) ^ (r != T::ZERO) {
                 1
@@ -982,45 +988,39 @@ impl<A, T> Scalar<A, T, u8> {
         })
     }
 
-    pub fn eq(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
+    pub fn eq(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| if l == r { 1 } else { 0 })
     }
 
     pub fn ge(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l >= r { 1 } else { 0 })
     }
 
     pub fn gt(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l > r { 1 } else { 0 })
     }
 
     pub fn le(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l <= r { 1 } else { 0 })
     }
 
     pub fn lt(access: A, scalar: T) -> Self
     where
-        T: PartialOrd,
+        T: Real,
     {
         Self::new(access, scalar, |l, r| if l < r { 1 } else { 0 })
     }
 
-    pub fn ne(access: A, scalar: T) -> Self
-    where
-        T: PartialEq,
-    {
+    pub fn ne(access: A, scalar: T) -> Self {
         Self::new(access, scalar, |l, r| if l != r { 1 } else { 0 })
     }
 }
@@ -1028,8 +1028,8 @@ impl<A, T> Scalar<A, T, u8> {
 impl<A, IT, OT> Op for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.access.size()
@@ -1039,8 +1039,8 @@ where
 impl<A, IT, OT> Enqueue<Heap, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Vec<OT>;
 
@@ -1062,8 +1062,8 @@ where
 impl<A, IT, OT> Enqueue<Stack, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = StackVec<OT>;
 
@@ -1085,8 +1085,8 @@ where
 impl<A, IT, OT> Enqueue<Host, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -1098,8 +1098,8 @@ where
 impl<A, IT, OT> ReadValue<Host, OT> for Scalar<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access
@@ -1185,7 +1185,7 @@ impl Enqueue<Host, f32> for RandomNormal {
 
 impl ReadValue<Host, f32> for RandomNormal {
     fn read_value(&self, _offset: usize) -> Result<f32, Error> {
-        Err(Error::Bounds(
+        Err(Error::bounds(
             "cannot calculate an individual value of a random normal distribution".to_string(),
         ))
     }
@@ -1248,26 +1248,8 @@ pub struct Reduce<A, T> {
 
 impl<A, T> Reduce<A, T>
 where
-    T: CType,
+    T: Number,
 {
-    pub fn max(access: A, stride: usize) -> Self {
-        Self {
-            access,
-            stride,
-            reduce: CType::max,
-            id: T::MIN,
-        }
-    }
-
-    pub fn min(access: A, stride: usize) -> Self {
-        Self {
-            access,
-            stride,
-            reduce: CType::min,
-            id: T::MAX,
-        }
-    }
-
     pub fn product(access: A, stride: usize) -> Self {
         Self {
             access,
@@ -1287,14 +1269,37 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> Op for Reduce<A, T> {
+impl<A, T> Reduce<A, T>
+where
+    T: Real,
+{
+    pub fn max(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Real::max,
+            id: T::MIN,
+        }
+    }
+
+    pub fn min(access: A, stride: usize) -> Self {
+        Self {
+            access,
+            stride,
+            reduce: Real::min,
+            id: T::MAX,
+        }
+    }
+}
+
+impl<A: Access<T>, T: Number> Op for Reduce<A, T> {
     fn size(&self) -> usize {
         debug_assert_eq!(self.access.size() % self.stride, 0);
         self.access.size() / self.stride
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Reduce<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Heap, T> for Reduce<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1318,7 +1323,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Reduce<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Reduce<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Stack, T> for Reduce<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1334,7 +1339,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Reduce<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, T> for Reduce<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Host, T> for Reduce<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1346,7 +1351,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for Reduce<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Host, T> for Reduce<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Host, T> for Reduce<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let offset = offset * self.stride;
 
@@ -1356,7 +1361,7 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for Reduce<A, T> {
                 .map(|offset| self.access.read_value(offset))
                 .try_reduce(|| self.id, |r, v| Ok((self.reduce)(r, v)))
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid offset {offset} for a reduce op with size {}",
                 self.size()
             )))
@@ -1406,7 +1411,7 @@ impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
 
 impl<A, T> Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
 {
     fn overwrite<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -1420,7 +1425,7 @@ where
 
             Ok(())
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot overwrite a slice of size {} with a buffer of size {}",
                 self.size(),
                 data.len(),
@@ -1449,7 +1454,7 @@ impl<A: Send + Sync, T: Send + Sync> Op for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Slice<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Heap, T> for Slice<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1460,7 +1465,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Slice<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Stack, T> for Slice<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1471,7 +1476,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, T> for Slice<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Host, T> for Slice<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1479,7 +1484,7 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for Slice<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Host, T> for Slice<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         let offset = self.spec.source_offset(offset);
         self.access.read_value(offset)
@@ -1488,7 +1493,7 @@ impl<A: Access<T>, T: CType> ReadValue<Host, T> for Slice<A, T> {
 
 impl<A, T> crate::ops::Write<Heap, T> for Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -1506,7 +1511,7 @@ where
 
 impl<A, T> crate::ops::Write<Stack, T> for Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -1524,7 +1529,7 @@ where
 
 impl<A, T> crate::ops::Write<Host, T> for Slice<A, T>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
 {
     fn write<'a>(&mut self, data: BufferConverter<'a, T>) -> Result<(), Error> {
@@ -1545,14 +1550,7 @@ pub struct Unary<A, IT, OT> {
     op: fn(IT) -> OT,
 }
 
-impl<A: Access<T>, T: CType> Unary<A, T, T> {
-    pub fn abs(access: A) -> Self {
-        Self {
-            access,
-            op: CType::abs,
-        }
-    }
-
+impl<A: Access<T>, T: Number> Unary<A, T, T> {
     pub fn exp(access: A) -> Self {
         Self {
             access,
@@ -1566,16 +1564,27 @@ impl<A: Access<T>, T: CType> Unary<A, T, T> {
             op: |n| T::from_float(n.to_float().ln()),
         }
     }
+}
 
-    pub fn round(access: A) -> Self {
+impl<A: Access<T>, T: Number> Unary<A, T, T::Abs> {
+    pub fn abs(access: A) -> Self {
         Self {
             access,
-            op: CType::round,
+            op: Number::abs,
         }
     }
 }
 
-impl<A: Access<T>, T: CType> Unary<A, T, T::Float> {
+impl<A: Access<T>, T: Real> Unary<A, T, T> {
+    pub fn round(access: A) -> Self {
+        Self {
+            access,
+            op: Real::round,
+        }
+    }
+}
+
+impl<A: Access<T>, T: Number> Unary<A, T, T::Float> {
     pub fn sin(access: A) -> Self {
         Self {
             access,
@@ -1640,7 +1649,7 @@ impl<A: Access<T>, T: CType> Unary<A, T, T::Float> {
     }
 }
 
-impl<A: Access<T>, T: CType> Unary<A, T, u8> {
+impl<A: Access<T>, T: Number> Unary<A, T, u8> {
     pub fn not(access: A) -> Self {
         Self {
             access,
@@ -1665,11 +1674,53 @@ impl<A: Access<T>, T: Float> Unary<A, T, u8> {
     }
 }
 
+#[cfg(feature = "complex")]
+impl<A, T> Unary<A, T, T>
+where
+    A: Access<T>,
+    T: Complex,
+{
+    pub fn conj(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.conj(),
+        }
+    }
+}
+
+#[cfg(feature = "complex")]
+impl<A, T> Unary<A, T, T::Real>
+where
+    A: Access<T>,
+    T: Complex,
+{
+    pub fn angle(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.angle(),
+        }
+    }
+
+    pub fn re(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.re(),
+        }
+    }
+
+    pub fn im(access: A) -> Self {
+        Self {
+            access,
+            op: |n| n.im(),
+        }
+    }
+}
+
 impl<A, IT, OT> Op for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn size(&self) -> usize {
         self.access.size()
@@ -1679,8 +1730,8 @@ where
 impl<A, IT, OT> Enqueue<Heap, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Vec<OT>;
 
@@ -1695,8 +1746,8 @@ where
 impl<A, IT, OT> Enqueue<Stack, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = StackVec<OT>;
 
@@ -1711,8 +1762,8 @@ where
 impl<A, IT, OT> Enqueue<Host, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     type Buffer = Buffer<OT>;
 
@@ -1724,8 +1775,8 @@ where
 impl<A, IT, OT> ReadValue<Host, OT> for Unary<A, IT, OT>
 where
     A: Access<IT>,
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
 {
     fn read_value(&self, offset: usize) -> Result<OT, Error> {
         self.access.read_value(offset).map(|n| (self.op)(n))
@@ -1738,7 +1789,7 @@ pub struct View<A, T> {
     dtype: PhantomData<T>,
 }
 
-impl<A: Access<T>, T: CType> View<A, T> {
+impl<A: Access<T>, T: Number> View<A, T> {
     pub fn broadcast(access: A, shape: Shape, broadcast: Shape) -> Self {
         let source_strides = strides_for(&shape, shape.len()).collect();
 
@@ -1762,13 +1813,13 @@ impl<A: Access<T>, T: CType> View<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Op for View<A, T> {
+impl<A: Access<T>, T: Number> Op for View<A, T> {
     fn size(&self) -> usize {
         self.spec.size()
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Stack, T> for View<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Stack, T> for View<A, T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1784,7 +1835,7 @@ impl<A: Access<T>, T: CType> Enqueue<Stack, T> for View<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Heap, T> for View<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Heap, T> for View<A, T> {
     type Buffer = Vec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1800,7 +1851,7 @@ impl<A: Access<T>, T: CType> Enqueue<Heap, T> for View<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> Enqueue<Host, T> for View<A, T> {
+impl<A: Access<T>, T: Number> Enqueue<Host, T> for View<A, T> {
     type Buffer = Buffer<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
@@ -1808,13 +1859,13 @@ impl<A: Access<T>, T: CType> Enqueue<Host, T> for View<A, T> {
     }
 }
 
-impl<A: Access<T>, T: CType> ReadValue<Host, T> for View<A, T> {
+impl<A: Access<T>, T: Number> ReadValue<Host, T> for View<A, T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         self.access.read_value(self.spec.source_offset(offset))
     }
 }
 
-fn exec_dual<IT: CType, OT: CType>(
+fn exec_dual<IT: Number, OT: Number>(
     zip: fn(IT, IT) -> OT,
     left: SliceConverter<IT>,
     right: SliceConverter<IT>,
@@ -1829,7 +1880,7 @@ fn exec_dual<IT: CType, OT: CType>(
     Ok(output)
 }
 
-fn exec_dual_parallel<IT: CType, OT: CType>(
+fn exec_dual_parallel<IT: Number, OT: Number>(
     zip: fn(IT, IT) -> OT,
     left: SliceConverter<IT>,
     right: SliceConverter<IT>,
@@ -1852,7 +1903,7 @@ fn try_join_read<'a, L, R, T>(
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     let (l, r) = join(
         || left.read().and_then(|buf| buf.to_slice()),
@@ -1867,7 +1918,7 @@ fn try_join_value<'a, L, R, T>(left: &'a L, right: &'a R, offset: usize) -> Resu
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     let (l, r) = join(|| left.read_value(offset), || right.read_value(offset));
 

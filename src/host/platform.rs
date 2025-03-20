@@ -1,16 +1,19 @@
+use number_general as ng;
 use rayon::prelude::*;
+use safecast::CastInto;
 
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::host::StackVec;
 use crate::ops::{
-    Concat, ConstructConcat, ConstructRange, ElementwiseBoolean, ElementwiseBooleanScalar,
-    ElementwiseCast, ElementwiseCompare, ElementwiseDual, ElementwiseNumeric, ElementwiseScalar,
-    ElementwiseScalarCompare, ElementwiseTrig, ElementwiseUnary, ElementwiseUnaryBoolean,
-    GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes, Transform,
+    Concat, ConstructConcat, ConstructRange, ElementwiseAbs, ElementwiseBoolean,
+    ElementwiseBooleanScalar, ElementwiseCast, ElementwiseCompare, ElementwiseCompareScalar,
+    ElementwiseDual, ElementwiseNumeric, ElementwiseScalar, ElementwiseTrig, ElementwiseUnary,
+    ElementwiseUnaryBoolean, GatherCond, LinAlgDual, LinAlgUnary, Random, ReduceAll, ReduceAxes,
+    Transform,
 };
 use crate::platform::{Convert, PlatformInstance};
-use crate::{stackvec, Axes, CType, Constant, Error, Float, Range, Shape};
+use crate::{stackvec, Axes, Constant, Error, Float, Number, Range, Real, Shape};
 
 use super::buffer::Buffer;
 use super::ops::*;
@@ -26,7 +29,7 @@ impl PlatformInstance for Stack {
     }
 }
 
-impl<T: CType> Constant<T> for Stack {
+impl<T: Number> Constant<T> for Stack {
     type Buffer = StackVec<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -34,7 +37,7 @@ impl<T: CType> Constant<T> for Stack {
     }
 }
 
-impl<T: CType> Convert<T> for Stack {
+impl<T: Number> Convert<T> for Stack {
     type Buffer = StackVec<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
@@ -45,7 +48,7 @@ impl<T: CType> Convert<T> for Stack {
 impl<A, T> ReduceAll<A, T> for Stack
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn all(self, access: A) -> Result<bool, Error> {
         access
@@ -61,14 +64,20 @@ where
             .map(|slice| slice.iter().copied().any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.iter().copied().reduce(T::max).expect("max"))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
@@ -99,7 +108,7 @@ impl PlatformInstance for Heap {
     }
 }
 
-impl<T: CType> Constant<T> for Heap {
+impl<T: Number> Constant<T> for Heap {
     type Buffer = Vec<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -107,7 +116,7 @@ impl<T: CType> Constant<T> for Heap {
     }
 }
 
-impl<T: CType> Convert<T> for Heap {
+impl<T: Number> Convert<T> for Heap {
     type Buffer = Vec<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
@@ -118,7 +127,7 @@ impl<T: CType> Convert<T> for Heap {
 impl<A, T> ReduceAll<A, T> for Heap
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     fn all(self, access: A) -> Result<bool, Error> {
         access
@@ -134,14 +143,20 @@ where
             .map(|slice| slice.into_par_iter().copied().any(|n| n != T::ZERO))
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
             .map(|slice| slice.into_par_iter().copied().reduce(|| T::MIN, T::max))
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         access
             .read()
             .and_then(|buf| buf.to_slice())
@@ -179,7 +194,7 @@ impl PlatformInstance for Host {
     }
 }
 
-impl<T: CType> Constant<T> for Host {
+impl<T: Number> Constant<T> for Host {
     type Buffer = Buffer<T>;
 
     fn constant(&self, value: T, size: usize) -> Result<Self::Buffer, Error> {
@@ -190,7 +205,7 @@ impl<T: CType> Constant<T> for Host {
     }
 }
 
-impl<T: CType> Convert<T> for Host {
+impl<T: Number> Convert<T> for Host {
     type Buffer = Buffer<T>;
 
     fn convert(&self, buffer: BufferConverter<T>) -> Result<Self::Buffer, Error> {
@@ -216,7 +231,7 @@ impl From<Stack> for Host {
 impl<A, T> ConstructConcat<A, T> for Host
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Concat<A, T>;
 
@@ -225,20 +240,21 @@ where
     }
 }
 
-impl<T: CType> ConstructRange<T> for Host {
+impl<T: Number + PartialOrd> ConstructRange<T> for Host {
     type Range = Linear<T>;
 
     fn range(self, start: T, stop: T, size: usize) -> Result<AccessOp<Self::Range, Self>, Error> {
         if start <= stop {
-            let step = T::sub(stop, start).to_f64() / size as f64;
+            let size_t = ng::Number::from(size as u64).cast_into();
+            let step = T::div(T::sub(stop, start), size_t);
             Ok(Linear::new(start, step, size).into())
         } else {
-            Err(Error::Bounds(format!("invalid range: [{start}, {stop})")))
+            Err(Error::bounds(format!("invalid range: [{start}, {stop})")))
         }
     }
 }
 
-impl<A: Access<IT>, IT: CType, OT: CType> ElementwiseCast<A, IT, OT> for Host {
+impl<A: Access<IT>, IT: Number, OT: Number> ElementwiseCast<A, IT, OT> for Host {
     type Op = Cast<A, IT, OT>;
 
     fn cast(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -251,7 +267,7 @@ where
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Cond<A, L, R, T>;
 
@@ -260,11 +276,19 @@ where
     }
 }
 
+impl<A: Access<T>, T: Number> ElementwiseAbs<A, T> for Host {
+    type Op = Unary<A, T, T::Abs>;
+
+    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+        Ok(Unary::abs(access).into())
+    }
+}
+
 impl<L, R, T> ElementwiseBoolean<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
@@ -281,7 +305,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseBooleanScalar<A, T> for Host {
+impl<A: Access<T>, T: Number> ElementwiseBooleanScalar<A, T> for Host {
     type Op = Scalar<A, T, u8>;
 
     fn and_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -301,55 +325,89 @@ impl<L, R, T> ElementwiseCompare<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, u8>;
 
-    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn eq(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialEq,
+    {
         Ok(Dual::eq(left, right).into())
     }
 
-    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         Ok(Dual::ge(left, right).into())
     }
 
-    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         Ok(Dual::gt(left, right).into())
     }
 
-    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         Ok(Dual::le(left, right).into())
     }
 
-    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialOrd,
+    {
         Ok(Dual::lt(left, right).into())
     }
 
-    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ne(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: PartialEq,
+    {
         Ok(Dual::ne(left, right).into())
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Host {
+impl<A, T> ElementwiseCompareScalar<A, T> for Host
+where
+    A: Access<T>,
+    T: Number,
+{
     type Op = Scalar<A, T, u8>;
 
     fn eq_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Scalar::eq(left, right).into())
     }
 
-    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn ge_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::ge(left, right).into())
     }
 
-    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn gt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::gt(left, right).into())
     }
 
-    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn le_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::le(left, right).into())
     }
 
-    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn lt_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::lt(left, right).into())
     }
 
@@ -358,11 +416,37 @@ impl<A: Access<T>, T: CType> ElementwiseScalarCompare<A, T> for Host {
     }
 }
 
+#[cfg(feature = "complex")]
+impl<A, T> crate::ops::complex::ElementwiseUnaryComplex<A, T> for Host
+where
+    A: Access<T>,
+    T: crate::Complex,
+{
+    type Real = Unary<A, T, T::Real>;
+    type Complex = Unary<A, T, T>;
+
+    fn angle(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::angle(access).into())
+    }
+
+    fn conj(self, access: A) -> Result<AccessOp<Self::Complex, Self>, Error> {
+        Ok(Unary::conj(access).into())
+    }
+
+    fn re(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::re(access).into())
+    }
+
+    fn im(self, access: A) -> Result<AccessOp<Self::Real, Self>, Error> {
+        Ok(Unary::im(access).into())
+    }
+}
+
 impl<L, R, T> ElementwiseDual<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = Dual<L, R, T, T>;
 
@@ -386,7 +470,10 @@ where
         Ok(Dual::pow(arg, exp).into())
     }
 
-    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Dual::rem(left, right).into())
     }
 
@@ -395,7 +482,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Host {
+impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Host {
     type Op = Scalar<A, T, T>;
 
     fn add_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -418,7 +505,10 @@ impl<A: Access<T>, T: CType> ElementwiseScalar<A, T> for Host {
         Ok(Scalar::pow(arg, exp).into())
     }
 
-    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn rem_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Scalar::rem(left, right).into())
     }
 
@@ -439,7 +529,7 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Host {
+impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Host {
     type Op = Unary<A, T, T::Float>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -479,12 +569,8 @@ impl<A: Access<T>, T: CType> ElementwiseTrig<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
+impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Host {
     type Op = Unary<A, T, T>;
-
-    fn abs(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
-        Ok(Unary::abs(access).into())
-    }
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::exp(access).into())
@@ -494,12 +580,15 @@ impl<A: Access<T>, T: CType> ElementwiseUnary<A, T> for Host {
         Ok(Unary::ln(access).into())
     }
 
-    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn round(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Unary::round(access).into())
     }
 }
 
-impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Host {
+impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Host {
     type Op = Unary<A, T, u8>;
 
     fn not(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
@@ -507,11 +596,29 @@ impl<A: Access<T>, T: CType> ElementwiseUnaryBoolean<A, T> for Host {
     }
 }
 
+#[cfg(feature = "complex")]
+impl<A, T> crate::ops::complex::Fourier<A, num_complex::Complex<T>> for Host
+where
+    A: Access<num_complex::Complex<T>>,
+    T: rustfft::FftNum,
+    num_complex::Complex<T>: crate::Complex,
+{
+    type Op = complex::FFT<A, num_complex::Complex<T>>;
+
+    fn fft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        complex::FFT::fft(access, dim).map(AccessOp::from)
+    }
+
+    fn ifft(self, access: A, dim: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+        complex::FFT::ifft(access, dim).map(AccessOp::from)
+    }
+}
+
 impl<L, R, T> LinAlgDual<L, R, T> for Host
 where
     L: Access<T>,
     R: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Op = MatMul<L, R, T>;
 
@@ -525,7 +632,7 @@ where
     }
 }
 
-impl<A: Access<T>, T: CType> LinAlgUnary<A, T> for Host {
+impl<A: Access<T>, T: Number> LinAlgUnary<A, T> for Host {
     type Op = MatDiag<A, T>;
 
     fn diag(
@@ -551,7 +658,7 @@ impl Random for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> ReduceAll<A, T> for Host {
+impl<A: Access<T>, T: Number> ReduceAll<A, T> for Host {
     fn all(self, access: A) -> Result<bool, Error> {
         match self {
             Self::Heap(heap) => heap.all(access),
@@ -566,14 +673,20 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for Host {
         }
     }
 
-    fn max(self, access: A) -> Result<T, Error> {
+    fn max(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::Heap(heap) => heap.max(access),
             Self::Stack(stack) => stack.max(access),
         }
     }
 
-    fn min(self, access: A) -> Result<T, Error> {
+    fn min(self, access: A) -> Result<T, Error>
+    where
+        T: Real,
+    {
         match self {
             Self::Heap(heap) => heap.min(access),
             Self::Stack(stack) => stack.min(access),
@@ -595,14 +708,20 @@ impl<A: Access<T>, T: CType> ReduceAll<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Host {
+impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Host {
     type Op = Reduce<A, T>;
 
-    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn max(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Reduce::max(access, stride).into())
     }
 
-    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn min(self, access: A, stride: usize) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Real,
+    {
         Ok(Reduce::min(access, stride).into())
     }
 
@@ -618,7 +737,7 @@ impl<A: Access<T>, T: CType> ReduceAxes<A, T> for Host {
 impl<'a, A, T> Transform<A, T> for Host
 where
     A: Access<T>,
-    T: CType,
+    T: Number,
 {
     type Broadcast = View<A, T>;
     type Flip = Flip<A, T>;

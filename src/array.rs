@@ -5,9 +5,11 @@ use crate::access::*;
 use crate::buffer::BufferInstance;
 use crate::ops::*;
 use crate::platform::PlatformInstance;
+#[cfg(feature = "complex")]
+use crate::Complex;
 use crate::{
-    range_shape, shape, strides_for, Axes, AxisRange, BufferConverter, CType, Constant, Convert,
-    Error, Float, Platform, Range, Shape,
+    axes, range_shape, shape, strides_for, ArrayAccess, Axes, AxisRange, BufferConverter, Constant,
+    Convert, Error, Float, Number, Platform, Range, Real, Shape,
 };
 
 pub struct Array<T, A, P> {
@@ -51,7 +53,7 @@ impl<T, A, P> Array<T, A, P> {
         op: Op,
     ) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error>
     where
-        T: CType,
+        T: Number,
         A: Access<T>,
         P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
         Op: Fn(P, Accessor<T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
@@ -60,10 +62,9 @@ impl<T, A, P> Array<T, A, P> {
         axes.sort();
         axes.dedup();
 
-        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
-        let size = shape.iter().product::<usize>();
+        let platform = P::select(self.size());
         let stride = axes.iter().copied().map(|x| self.shape[x]).product();
-        let platform = P::select(size);
+        let shape = reduce_axes(&self.shape, &axes, keepdims)?;
 
         let access = permute_for_reduce(self.platform, self.access, self.shape, axes)?;
         let access = (op)(self.platform, access, stride)?;
@@ -107,10 +108,10 @@ impl<T, L, P> Array<T, L, P> {
 }
 
 // constructors
-impl<T: CType> Array<T, Accessor<T>, Platform> {
+impl<T: Number> Array<T, Accessor<T>, Platform> {
     pub fn from<A, P>(array: Array<T, A, P>) -> Self
     where
-        Accessor<T>: From<A>,
+        A: Into<Accessor<T>>,
         Platform: From<P>,
     {
         Self {
@@ -124,7 +125,7 @@ impl<T: CType> Array<T, Accessor<T>, Platform> {
 
 impl<T, B, P> Array<T, AccessBuf<B>, P>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T>,
     P: PlatformInstance,
 {
@@ -139,7 +140,7 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot construct an array with shape {shape:?} from a buffer of size {}",
                 buffer.len(),
             )))
@@ -165,7 +166,7 @@ where
 
 impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
 where
-    T: CType,
+    T: Number,
     P: Constant<T>,
 {
     pub fn constant(value: T, shape: Shape) -> Result<Self, Error> {
@@ -182,28 +183,28 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot construct an array with an empty shape".to_string(),
             ))
         }
     }
 }
 
-impl<T, P> Array<T, AccessBuf<P::Buffer>, P>
+// copy constructors
+impl<T, A, P> Array<T, A, P>
 where
-    T: CType,
+    T: Number,
+    A: Access<T>,
     P: Convert<T>,
 {
-    pub fn copy<A: Access<T>>(source: &Array<T, A, P>) -> Result<Self, Error> {
-        let buffer = source
-            .buffer()
-            .and_then(|buf| source.platform.convert(buf))?;
+    pub fn copy(&self) -> Result<Array<T, AccessBuf<P::Buffer>, P>, Error> {
+        let buffer = self.buffer().and_then(|buf| self.platform.convert(buf))?;
 
-        Ok(Self {
-            shape: source.shape.clone(),
+        Ok(Array {
+            shape: self.shape.clone(),
             access: buffer.into(),
-            platform: source.platform,
-            dtype: source.dtype,
+            platform: self.platform,
+            dtype: self.dtype,
         })
     }
 }
@@ -211,7 +212,7 @@ where
 // op constructors
 impl<T, A, P> Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T>,
     P: ConstructConcat<AccessOp<<P as Transform<A, T>>::Transpose, P>, T>,
@@ -220,6 +221,18 @@ where
         T,
     >,
 {
+    pub fn stack<AS>(arrays: AS, axis: usize) -> Result<Array<T, impl Access<T>, P>, Error>
+    where
+        AS: IntoIterator<Item = Self>,
+    {
+        let arrays = arrays
+            .into_iter()
+            .map(|arr| arr.unsqueeze(axes![axis]))
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        Array::transpose_concat(arrays, axis)
+    }
+
     pub fn transpose_concat(
         arrays: Vec<Self>,
         axis: usize,
@@ -230,10 +243,10 @@ where
                 permutation.swap(0, axis);
                 Ok(permutation)
             } else {
-                Err(Error::Bounds(format!("{array:?} has no axis {axis}")))
+                Err(Error::bounds(format!("{array:?} has no axis {axis}")))
             }
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot concatenate an empty list of arrays".into(),
             ))
         }?;
@@ -249,7 +262,7 @@ where
 
 impl<T, A, P> Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ConstructConcat<A, T>,
 {
@@ -261,7 +274,7 @@ where
             let mut shape = Shape::from_slice(first.shape());
             while let Some(next) = array_iter.next() {
                 if next.ndim() != shape.len() {
-                    return Err(Error::Bounds(format!(
+                    return Err(Error::bounds(format!(
                         "cannot concatenate shapes {:?} and {:?}",
                         shape,
                         next.shape()
@@ -273,7 +286,7 @@ where
 
             Self::concat_inner(arrays, shape)
         } else {
-            Err(Error::Bounds(
+            Err(Error::bounds(
                 "cannot concatenate an empty list of arrays".into(),
             ))
         }
@@ -299,7 +312,7 @@ where
     }
 }
 
-impl<T: CType, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
+impl<T: Number, P: PlatformInstance> Array<T, AccessOp<P::Range, P>, P>
 where
     P: ConstructRange<T>,
 {
@@ -353,7 +366,7 @@ where
 // references
 impl<T, A, P> Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: PlatformInstance,
 {
@@ -384,12 +397,45 @@ where
     }
 }
 
+// helper methods
+
+impl<T: Number> ArrayAccess<T> {
+    pub fn unstack(self, axis: usize) -> Result<Vec<Array<T, impl Access<T>, Platform>>, Error> {
+        let dim = self
+            .shape()
+            .get(axis)
+            .copied()
+            .ok_or_else(|| Error::bounds(format!("{self:?} has no axis {axis}")))?;
+
+        let prefix = if axis == 0 {
+            Range::with_capacity(1)
+        } else {
+            self.shape
+                .iter()
+                .take(axis)
+                .copied()
+                .map(|dim| AxisRange::In(0, dim, 1))
+                .collect()
+        };
+
+        (0..dim)
+            .into_iter()
+            .map(|r| {
+                let mut range = prefix.clone();
+                range.push(AxisRange::At(r));
+                range
+            })
+            .map(|r| self.clone().slice(r))
+            .collect()
+    }
+}
+
 // traits
 
 /// An n-dimensional array
 pub trait NDArray: Send + Sync {
     /// The data type of the elements in this array
-    type DType: CType;
+    type DType: Number;
 
     /// The platform used to construct operations on this array.
     type Platform: PlatformInstance;
@@ -410,7 +456,7 @@ pub trait NDArray: Send + Sync {
 
 impl<T, A, P> NDArray for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: PlatformInstance,
 {
@@ -419,6 +465,30 @@ where
 
     fn shape(&self) -> &[usize] {
         &self.shape
+    }
+}
+
+/// Array absolute value
+pub trait NDArrayAbs: NDArray + Sized {
+    /// The return type of the absolute value operation
+    type Output: Access<<Self::DType as Number>::Abs>;
+
+    /// Construct an absolute value operation.
+    fn abs(
+        self,
+    ) -> Result<Array<<Self::DType as Number>::Abs, Self::Output, Self::Platform>, Error>;
+}
+
+impl<T, A, P> NDArrayAbs for Array<T, A, P>
+where
+    T: Number,
+    A: Access<T>,
+    P: ElementwiseAbs<A, T>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn abs(self) -> Result<Array<T::Abs, Self::Output, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.abs(access))
     }
 }
 
@@ -447,7 +517,7 @@ pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
 
 impl<T, A, P> NDArrayRead for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: PlatformInstance,
 {
@@ -500,7 +570,7 @@ pub trait NDArrayWrite: NDArray + fmt::Debug + Sized {
 // write ops
 impl<T, A, P> NDArrayWrite for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: AccessMut<T>,
     P: PlatformInstance,
 {
@@ -532,7 +602,7 @@ where
 // op traits
 
 /// Array cast operations
-pub trait NDArrayCast<OT: CType>: NDArray + Sized {
+pub trait NDArrayCast<OT: Number>: NDArray + Sized {
     type Output: Access<OT>;
 
     /// Construct a new array cast operation.
@@ -541,8 +611,8 @@ pub trait NDArrayCast<OT: CType>: NDArray + Sized {
 
 impl<IT, OT, A, P> NDArrayCast<OT> for Array<IT, A, P>
 where
-    IT: CType,
-    OT: CType,
+    IT: Number,
+    OT: Number,
     A: Access<IT>,
     P: ElementwiseCast<A, IT, OT>,
 {
@@ -567,14 +637,18 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a min-reduce operation over the given `axes`.
     fn min(
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a product-reduce operation over the given `axes`.
     fn product(
@@ -593,7 +667,7 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
 
 impl<T, A, P> NDArrayReduce for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
     Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
@@ -604,7 +678,10 @@ where
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxes::max(platform, access, stride)
         })
@@ -614,7 +691,10 @@ where
         self,
         axes: Axes,
         keepdims: bool,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.reduce_axes(axes, keepdims, |platform, access, stride| {
             ReduceAxes::min(platform, access, stride)
         })
@@ -686,7 +766,7 @@ pub trait NDArrayTransform: NDArray + Sized + fmt::Debug {
 
 impl<T, A, P> NDArrayTransform for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T>,
 {
@@ -697,7 +777,7 @@ where
 
     fn broadcast(self, shape: Shape) -> Result<Array<T, AccessOp<P::Broadcast, P>, P>, Error> {
         if !can_broadcast(self.shape(), &shape) {
-            return Err(Error::Bounds(format!(
+            return Err(Error::bounds(format!(
                 "cannot broadcast {self:?} into {shape:?}"
             )));
         }
@@ -731,7 +811,7 @@ where
             self.shape = shape;
             Ok(self)
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "cannot reshape an array with shape {:?} into {shape:?}",
                 self.shape
             )))
@@ -744,7 +824,7 @@ where
                 AxisRange::At(i) if i < dim => Ok(()),
                 AxisRange::In(start, stop, _step) if start < dim && stop <= dim => Ok(()),
                 AxisRange::Of(indices) if indices.iter().all(|i| i < dim) => Ok(()),
-                range => Err(Error::Bounds(format!(
+                range => Err(Error::bounds(format!(
                     "invalid range {range:?} for dimension {dim}"
                 ))),
             }?;
@@ -767,28 +847,26 @@ where
     }
 
     fn squeeze(mut self, mut axes: Axes) -> Result<Self, Error> {
-        if axes.iter().copied().any(|x| x >= self.ndim()) {
-            return Err(Error::Bounds(format!("invalid contraction axes: {axes:?}")));
-        }
-
         axes.sort();
 
         for x in axes.into_iter().rev() {
-            self.shape.remove(x);
+            if x < self.shape.len() {
+                self.shape.remove(x);
+            } else {
+                return Err(Error::bounds(format!("axis out of bounds: {x}")));
+            }
         }
 
         Ok(self)
     }
 
-    fn unsqueeze(mut self, mut axes: Axes) -> Result<Self, Error> {
-        if axes.iter().copied().any(|x| x > self.ndim()) {
-            return Err(Error::Bounds(format!("invalid expansion axes: {axes:?}")));
-        }
-
-        axes.sort();
-
-        for x in axes.into_iter().rev() {
-            self.shape.insert(x, 1);
+    fn unsqueeze(mut self, axes: Axes) -> Result<Self, Error> {
+        for x in axes {
+            if x <= self.shape.len() {
+                self.shape.insert(x, 1);
+            } else {
+                return Err(Error::bounds(format!("axis out of bounds: {x}")));
+            }
         }
 
         Ok(self)
@@ -807,7 +885,7 @@ where
             {
                 Ok(axes)
             } else {
-                Err(Error::Bounds(format!(
+                Err(Error::bounds(format!(
                     "invalid permutation for shape {:?}: {:?}",
                     self.shape, axes
                 )))
@@ -834,9 +912,6 @@ pub trait NDArrayUnary: NDArray + Sized {
     /// The return type of a unary operation.
     type Output: Access<Self::DType>;
 
-    /// Construct an absolute value operation.
-    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
-
     /// Construct an exponentiation operation.
     fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
@@ -844,20 +919,18 @@ pub trait NDArrayUnary: NDArray + Sized {
     fn ln(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct an integer rounding operation.
-    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 }
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseUnary<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
-
-    fn abs(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        self.apply(|platform, access| platform.abs(access))
-    }
 
     fn exp(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.exp(access))
@@ -870,7 +943,10 @@ where
         self.apply(|platform, access| platform.ln(access))
     }
 
-    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    fn round(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.round(access))
     }
 }
@@ -886,7 +962,7 @@ pub trait NDArrayUnaryBoolean: NDArray + Sized {
 
 impl<T, A, P> NDArrayUnaryBoolean for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseUnaryBoolean<A, T>,
 {
@@ -916,7 +992,7 @@ where
 
 impl<T, L, R, P> NDArrayBoolean<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseBoolean<L, R, T>,
@@ -964,7 +1040,7 @@ pub trait NDArrayBooleanScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayBooleanScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseBooleanScalar<A, T>,
 {
@@ -1000,16 +1076,24 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn eq(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Elementwise greater-than-or-equal comparison
-    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn ge(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Elementwise greater-than comparison
-    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn gt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Elementwise less-than-or-equal comparison
-    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn le(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Elementwise less-than comparison
-    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    fn lt(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Elementwise not-equal comparison
     fn ne(self, other: O) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
@@ -1017,7 +1101,7 @@ pub trait NDArrayCompare<O: NDArray<DType = Self::DType>>: NDArray + Sized {
 
 impl<T, L, R, P> NDArrayCompare<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseCompare<L, R, T>,
@@ -1029,22 +1113,34 @@ where
         self.apply_dual(other, |platform, left, right| platform.eq(left, right))
     }
 
-    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn ge(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.ge(left, right))
     }
 
-    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn gt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.gt(left, right))
     }
 
-    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn le(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.le(left, right))
     }
 
-    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn lt(self, other: Array<T, R, P>) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("compare", self.shape(), other.shape())?;
         self.apply_dual(other, |platform, left, right| platform.lt(left, right))
     }
@@ -1069,25 +1165,33 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
     fn gt_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct an equal-or-greater-than comparison with the `other` value.
     fn ge_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a less-than comparison with the `other` value.
     fn lt_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct an equal-or-less-than comparison with the `other` value.
     fn le_scalar(
         self,
         other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct an not-equal comparison with the `other` value.
     fn ne_scalar(
@@ -1098,9 +1202,9 @@ pub trait NDArrayCompareScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayCompareScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
-    P: ElementwiseScalarCompare<A, T>,
+    P: ElementwiseCompareScalar<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
 
@@ -1111,31 +1215,31 @@ where
         self.apply(|platform, access| platform.eq_scalar(access, other))
     }
 
-    fn gt_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn gt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.gt_scalar(access, other))
     }
 
-    fn ge_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn ge_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.ge_scalar(access, other))
     }
 
-    fn lt_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn lt_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.lt_scalar(access, other))
     }
 
-    fn le_scalar(
-        self,
-        other: Self::DType,
-    ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
+    fn le_scalar(self, other: Self::DType) -> Result<Array<u8, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         self.apply(|platform, access| platform.le_scalar(access, other))
     }
 
@@ -1144,6 +1248,100 @@ where
         other: Self::DType,
     ) -> Result<Array<u8, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.ne_scalar(access, other))
+    }
+}
+
+#[cfg(feature = "complex")]
+/// Complex array properties
+pub trait NDArrayComplex: NDArray + Sized
+where
+    Self::DType: Complex,
+{
+    type Real: Access<<Self::DType as Complex>::Real>;
+    type Complex: Access<Self::DType>;
+
+    /// Calculate the angle in the complex plane elementwise.
+    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
+
+    /// Calculate the angle in the complex plane elementwise.
+    fn conj(self) -> Result<Array<Self::DType, Self::Complex, Self::Platform>, Error>;
+
+    /// Return the real part of this array elementwise.
+    fn re(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
+
+    /// Return the imaginary part of this array elementwise.
+    fn im(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
+}
+
+#[cfg(feature = "complex")]
+impl<T, A, P> NDArrayComplex for Array<T, A, P>
+where
+    T: Complex,
+    A: Access<T>,
+    P: complex::ElementwiseUnaryComplex<A, T>,
+{
+    type Real = AccessOp<P::Real, P>;
+    type Complex = AccessOp<P::Complex, P>;
+
+    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.angle(access))
+    }
+
+    fn conj(self) -> Result<Array<Self::DType, Self::Complex, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.conj(access))
+    }
+
+    fn re(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.re(access))
+    }
+
+    fn im(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
+        self.apply(|platform, access| platform.im(access))
+    }
+}
+
+#[cfg(feature = "complex")]
+/// Fourier transforms
+pub trait NDArrayFourier: NDArray + Sized
+where
+    Self::DType: Complex,
+{
+    type Output: Access<Self::DType>;
+
+    /// Calculate the Fourier transform of the last dimension of this array.
+    fn fft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+
+    /// Calculate the Fourier transform of the last dimension of this array.
+    fn ifft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+}
+
+#[cfg(feature = "complex")]
+impl<A, T, P> NDArrayFourier for Array<num_complex::Complex<T>, A, P>
+where
+    A: Access<num_complex::Complex<T>>,
+    num_complex::Complex<T>: Complex,
+    P: complex::Fourier<A, num_complex::Complex<T>>,
+{
+    type Output = AccessOp<P::Op, P>;
+
+    fn fft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        let dim = self
+            .shape
+            .last()
+            .copied()
+            .ok_or_else(|| Error::bounds("a scalar value has no Fourier transform".into()))?;
+
+        self.apply(|platform, access| platform.fft(access, dim))
+    }
+
+    fn ifft(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+        let dim = self
+            .shape
+            .last()
+            .copied()
+            .ok_or_else(|| Error::bounds("a scalar value has no Fourier transform".into()))?;
+
+        self.apply(|platform, access| platform.ifft(access, dim))
     }
 }
 
@@ -1170,12 +1368,14 @@ pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn sub(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a modulo operation with the given `rhs`.
-    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn rem(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 }
 
 impl<T, L, R, P> NDArrayMath<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: ElementwiseDual<L, R, T>,
@@ -1233,7 +1433,10 @@ where
     fn rem(
         self,
         rhs: Array<T, R, P>,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Real,
+    {
         same_shape("rem", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.rem(left, right))
     }
@@ -1277,7 +1480,9 @@ pub trait NDArrayMathScalar: NDArray + Sized {
     fn rem_scalar(
         self,
         rhs: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real;
 
     /// Construct a scalar subtraction operation.
     fn sub_scalar(
@@ -1288,7 +1493,7 @@ pub trait NDArrayMathScalar: NDArray + Sized {
 
 impl<T, A, P> NDArrayMathScalar for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseScalar<A, T>,
 {
@@ -1305,12 +1510,12 @@ where
         self,
         rhs: Self::DType,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        if rhs != T::ZERO {
-            self.apply(|platform, left| platform.div_scalar(left, rhs))
-        } else {
-            Err(Error::Unsupported(format!(
+        if rhs == T::ZERO {
+            Err(Error::unsupported(format!(
                 "cannot divide {self:?} by {rhs}"
             )))
+        } else {
+            self.apply(|platform, left| platform.div_scalar(left, rhs))
         }
     }
 
@@ -1338,7 +1543,10 @@ where
     fn rem_scalar(
         self,
         rhs: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Real,
+    {
         self.apply(|platform, left| platform.rem_scalar(left, rhs))
     }
 
@@ -1392,7 +1600,7 @@ pub trait NDArrayReduceBoolean: NDArrayRead {
 
 impl<T, A, P> NDArrayReduceBoolean for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
@@ -1408,10 +1616,14 @@ where
 /// Array reduce operations
 pub trait NDArrayReduceAll: NDArrayRead {
     /// Return the maximum of all elements in this array.
-    fn max_all(self) -> Result<Self::DType, Error>;
+    fn max_all(self) -> Result<Self::DType, Error>
+    where
+        Self::DType: Real;
 
     /// Return the minimum of all elements in this array.
-    fn min_all(self) -> Result<Self::DType, Error>;
+    fn min_all(self) -> Result<Self::DType, Error>
+    where
+        Self::DType: Real;
 
     /// Return the product of all elements in this array.
     fn product_all(self) -> Result<Self::DType, Error>;
@@ -1422,15 +1634,21 @@ pub trait NDArrayReduceAll: NDArrayRead {
 
 impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ReduceAll<A, T>,
 {
-    fn max_all(self) -> Result<Self::DType, Error> {
+    fn max_all(self) -> Result<Self::DType, Error>
+    where
+        T: Real,
+    {
         self.platform.max(self.access)
     }
 
-    fn min_all(self) -> Result<Self::DType, Error> {
+    fn min_all(self) -> Result<Self::DType, Error>
+    where
+        T: Real,
+    {
         self.platform.min(self.access)
     }
 
@@ -1456,57 +1674,57 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
 
 /// Array trigonometry methods
 pub trait NDArrayTrig: NDArray + Sized {
-    type Output: Access<<Self::DType as CType>::Float>;
+    type Output: Access<<Self::DType as Number>::Float>;
 
     /// Construct a new sine operation.
     fn sin(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arcsine operation.
     fn asin(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic sine operation.
     fn sinh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new cos operation.
     fn cos(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arccosine operation.
     fn acos(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic cosine operation.
     fn cosh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new tangent operation.
     fn tan(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arctangent operation.
     fn atan(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic tangent operation.
     fn tanh(
         self,
-    ) -> Result<Array<<Self::DType as CType>::Float, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTrig for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: ElementwiseTrig<A, T>,
 {
@@ -1552,7 +1770,7 @@ where
 /// Conditional selection (boolean logic) methods
 pub trait NDArrayWhere<T, L, R>: NDArray<DType = u8> + fmt::Debug
 where
-    T: CType,
+    T: Number,
 {
     type Output: Access<T>;
 
@@ -1564,7 +1782,7 @@ where
 
 impl<T, A, L, R, P> NDArrayWhere<T, Array<T, L, P>, Array<T, R, P>> for Array<u8, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<u8>,
     L: Access<T>,
     R: Access<T>,
@@ -1606,7 +1824,7 @@ where
 
 impl<T, L, R, P> MatrixDual<Array<T, R, P>> for Array<T, L, P>
 where
-    T: CType,
+    T: Number,
     L: Access<T>,
     R: Access<T>,
     P: LinAlgDual<L, R, T>,
@@ -1618,7 +1836,7 @@ where
         other: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
         let dims = matmul_dims(&self.shape, &other.shape).ok_or_else(|| {
-            Error::Bounds(format!(
+            Error::bounds(format!(
                 "invalid dimensions for matrix multiply: {:?} and {:?}",
                 self.shape, other.shape
             ))
@@ -1653,7 +1871,7 @@ pub trait MatrixUnary: NDArray + fmt::Debug {
 
 impl<T, A, P> MatrixUnary for Array<T, A, P>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: LinAlgUnary<A, T>,
 {
@@ -1675,7 +1893,7 @@ where
                 dtype: PhantomData,
             })
         } else {
-            Err(Error::Bounds(format!(
+            Err(Error::bounds(format!(
                 "invalid shape for diagonal: {:?}",
                 self.shape
             )))
@@ -1735,7 +1953,7 @@ fn permute_for_reduce<T, A, P>(
     axes: Axes,
 ) -> Result<Accessor<T>, Error>
 where
-    T: CType,
+    T: Number,
     A: Access<T>,
     P: Transform<A, T>,
     Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
@@ -1759,7 +1977,7 @@ fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape,
 
     for x in axes.iter().copied().rev() {
         if x >= shape.len() {
-            return Err(Error::Bounds(format!(
+            return Err(Error::bounds(format!(
                 "axis {x} is out of bounds for {shape:?}"
             )));
         } else if keepdims {
@@ -1781,11 +1999,11 @@ fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<
     if left == right {
         Ok(())
     } else if can_broadcast(left, right) {
-        Err(Error::Bounds(format!(
+        Err(Error::bounds(format!(
             "cannot {op_name} arrays with shapes {left:?} and {right:?} (consider broadcasting)"
         )))
     } else {
-        Err(Error::Bounds(format!(
+        Err(Error::bounds(format!(
             "cannot {op_name} arrays with shapes {left:?} and {right:?}"
         )))
     }
@@ -1799,7 +2017,7 @@ fn valid_coord(coord: &[usize], shape: &[usize]) -> Result<(), Error> {
         }
     }
 
-    Err(Error::Bounds(format!(
+    Err(Error::bounds(format!(
         "invalid coordinate {coord:?} for shape {shape:?}"
     )))
 }

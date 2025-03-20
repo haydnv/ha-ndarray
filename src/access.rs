@@ -6,10 +6,10 @@ use std::sync::Arc;
 use crate::buffer::{BufferConverter, BufferInstance, BufferMut};
 use crate::ops::{ReadOp, Write};
 use crate::platform::PlatformInstance;
-use crate::{Buffer, CType, Error, Platform};
+use crate::{Buffer, Error, Number, Platform};
 
 /// A type which allows accessing array data
-pub trait Access<T: CType>: Send + Sync {
+pub trait Access<T: Number>: Send + Sync {
     /// Read the data of this accessor as a [`BufferConverter`].
     fn read(&self) -> Result<BufferConverter<T>, Error>;
 
@@ -21,11 +21,11 @@ pub trait Access<T: CType>: Send + Sync {
 }
 
 /// A type which allows accessing array data mutably
-pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
+pub trait AccessMut<T: Number>: Access<T> + fmt::Debug {
     #[cfg(feature = "opencl")]
     /// Borrow the array data as an [`ocl::Buffer`], or return an error if this not an OpenCL buffer.
     fn cl_buffer(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
-        Err(Error::Unsupported(format!(
+        Err(Error::unsupported(format!(
             "not an OpenCL buffer: {self:?}"
         )))
     }
@@ -43,7 +43,7 @@ pub trait AccessMut<T: CType>: Access<T> + fmt::Debug {
 /// Borrow an accessor immutably
 pub trait AccessBorrow<'a, T, B>: Access<T>
 where
-    T: CType,
+    T: Number,
     B: Access<T> + 'a,
 {
     fn borrow(&'a self) -> B;
@@ -52,7 +52,7 @@ where
 /// Borrow an accessor mutably
 pub trait AccessBorrowMut<'a, T, B>: Access<T>
 where
-    T: CType,
+    T: Number,
     B: AccessMut<T> + 'a,
 {
     fn borrow_mut(&'a mut self) -> B;
@@ -90,7 +90,7 @@ impl<B> AccessBuf<B> {
 
 impl<'a, T, B, RB> AccessBorrow<'a, T, AccessBuf<&'a RB>> for AccessBuf<B>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T> + Borrow<RB>,
     &'a RB: BufferInstance<T>,
 {
@@ -103,7 +103,7 @@ where
 
 impl<'a, T, B, RB> AccessBorrowMut<'a, T, AccessBuf<&'a mut RB>> for AccessBuf<B>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T> + BorrowMut<RB>,
     &'a mut RB: BufferMut<T>,
 {
@@ -122,7 +122,7 @@ impl<B> From<B> for AccessBuf<B> {
 
 impl<T, B> Access<T> for AccessBuf<B>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T>,
 {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
@@ -140,7 +140,7 @@ where
 
 impl<T, B> AccessMut<T> for AccessBuf<B>
 where
-    T: CType,
+    T: Number,
     B: BufferMut<T>,
 {
     #[cfg(feature = "opencl")]
@@ -175,7 +175,7 @@ pub struct AccessOp<O, P> {
 
 impl<'a, T, O, P> AccessBorrow<'a, T, &'a Self> for AccessOp<O, P>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<P, T>,
     P: PlatformInstance,
     Self: Access<T>,
@@ -188,7 +188,7 @@ where
 
 impl<'a, T, O, P> AccessBorrowMut<'a, T, &'a mut Self> for AccessOp<O, P>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<P, T> + Write<P, T>,
     P: PlatformInstance,
     Self: AccessMut<T>,
@@ -224,7 +224,7 @@ impl<O, P> From<O> for AccessOp<O, P> {
 
 impl<O, P, T> Access<T> for AccessOp<O, P>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<P, T>,
     P: PlatformInstance,
 {
@@ -243,7 +243,7 @@ where
 
 impl<'a, O, P, T> Access<T> for &'a AccessOp<O, P>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
@@ -263,7 +263,7 @@ where
 
 impl<O, P, T> AccessMut<T> for AccessOp<O, P>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<P, T> + Write<P, T>,
     P: PlatformInstance,
     BufferConverter<'static, T>: From<O::Buffer>,
@@ -295,12 +295,12 @@ impl<O, P: fmt::Debug> fmt::Debug for AccessOp<O, P> {
 /// A general-purpose implementor of [`Access`] used to elide recursive types.
 /// Uses an [`Arc`] so that cloning does not allocate.
 #[derive(Clone)]
-pub enum Accessor<T: CType> {
+pub enum Accessor<T: Number> {
     Buffer(Arc<dyn BufferInstance<T>>),
     Op(Arc<dyn ReadOp<Platform, T, Buffer = Buffer<T>>>),
 }
 
-impl<T: CType> Access<T> for Accessor<T> {
+impl<T: Number> Access<T> for Accessor<T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         match self {
             Self::Buffer(buf) => Ok(buf.read()),
@@ -325,7 +325,7 @@ impl<T: CType> Access<T> for Accessor<T> {
 
 impl<T, B> From<AccessBuf<B>> for Accessor<T>
 where
-    T: CType,
+    T: Number,
     B: BufferInstance<T> + 'static,
 {
     fn from(access: AccessBuf<B>) -> Self {
@@ -335,7 +335,7 @@ where
 
 impl<T, O, P> From<AccessOp<O, P>> for Accessor<T>
 where
-    T: CType,
+    T: Number,
     O: ReadOp<Platform, T, Buffer = Buffer<T>> + 'static,
     P: PlatformInstance + Into<Platform>,
 {
