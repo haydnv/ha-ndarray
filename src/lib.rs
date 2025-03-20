@@ -389,7 +389,8 @@ pub trait Real: Number + PartialOrd {
 
 #[cfg(feature = "opencl")]
 /// A real-valued [`Number`]
-pub trait Real: Number + PartialOrd + opencl::CLElementReal {
+// TODO: move the CLElementTrig boundary to Number after implementing complex trigonometry
+pub trait Real: Number + PartialOrd + opencl::CLElementReal + opencl::CLElementTrig {
     /// The maximum value of this data type.
     const MAX: Self;
 
