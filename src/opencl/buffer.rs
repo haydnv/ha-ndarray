@@ -16,7 +16,7 @@ impl<T: Number> BufferInstance<T> for Buffer<T> {
             let slice = self.map().offset(offset).len(1).read();
             let value = unsafe { slice.enq()? };
             let value = value.get(0).copied().expect("value");
-            Ok(T::from_cl(value))
+            Ok(value)
         } else {
             Err(Error::bounds(format!(
                 "invalid offset {offset} for a buffer of length {}",
@@ -52,7 +52,7 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
         let buf = Buffer::builder()
             .context(OpenCL::context())
             .len(Buffer::len(self))
-            .fill_val(value.to_cl())
+            .fill_val(value)
             .build()?;
 
         *self = buf;
@@ -63,7 +63,7 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
         if offset < Buffer::len(self) {
             let slice = self.map().offset(offset).len(1).read();
             let mut slice = unsafe { slice.enq()? };
-            slice.as_mut()[0] = value.to_cl();
+            slice.as_mut()[0] = value;
             Ok(())
         } else {
             Err(Error::bounds(format!(

@@ -6,9 +6,6 @@ use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
 use smallvec::SmallVec;
 
-use super::ops::*;
-use super::{programs, CLElementTrig};
-use super::{CL_PLATFORM, WG_SIZE};
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::opencl::programs::ElementDual;
@@ -21,6 +18,10 @@ use crate::ops::{
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
+
+use super::ops::*;
+use super::{programs, CLElementTrig};
+use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
 pub const GPU_MIN_SIZE: usize = 128;
@@ -250,7 +251,7 @@ impl<T: Number> Constant<T> for OpenCL {
 
         ocl::builders::BufferBuilder::new()
             .len(size)
-            .fill_val(value.to_cl())
+            .fill_val(value)
             .queue(queue)
             .build()
             .map_err(Error::from)
@@ -672,14 +673,14 @@ impl Random for OpenCL {
 impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
     fn all(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_and(), T::ONE.to_cl())?;
-        Ok(result.into_par_iter().map(T::from_cl).all(|n| n != T::ZERO))
+        let result = reduce_all::<T>(&*input, T::cl_and(), T::ONE)?;
+        Ok(result.into_par_iter().all(|n| n != T::ZERO))
     }
 
     fn any(self, access: A) -> Result<bool, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_or(), T::ZERO.to_cl())?;
-        Ok(result.into_par_iter().map(T::from_cl).any(|n| n != T::ZERO))
+        let result = reduce_all::<T>(&*input, T::cl_or(), T::ZERO)?;
+        Ok(result.into_par_iter().any(|n| n != T::ZERO))
     }
 
     fn max(self, access: A) -> Result<T, Error>
@@ -687,11 +688,8 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         T: Real,
     {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_max(), T::MIN.to_cl())?;
-        Ok(result
-            .into_par_iter()
-            .map(T::from_cl)
-            .reduce(|| T::MIN, T::max))
+        let result = reduce_all::<T>(&*input, T::cl_max(), T::MIN)?;
+        Ok(result.into_par_iter().reduce(|| T::MIN, T::max))
     }
 
     fn min(self, access: A) -> Result<T, Error>
@@ -699,29 +697,20 @@ impl<A: Access<T>, T: Number> ReduceAll<A, T> for OpenCL {
         T: Real,
     {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_min(), T::MAX.to_cl())?;
-        Ok(result
-            .into_par_iter()
-            .map(T::from_cl)
-            .reduce(|| T::MAX, T::min))
+        let result = reduce_all::<T>(&*input, T::cl_min(), T::MAX)?;
+        Ok(result.into_par_iter().reduce(|| T::MAX, T::min))
     }
 
     fn product(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_mul(), T::ONE.to_cl())?;
-        Ok(result
-            .into_par_iter()
-            .map(T::from_cl)
-            .reduce(|| T::ONE, T::mul))
+        let result = reduce_all::<T>(&*input, T::cl_mul(), T::ONE)?;
+        Ok(result.into_par_iter().reduce(|| T::ONE, T::mul))
     }
 
     fn sum(self, access: A) -> Result<T, Error> {
         let input = access.read()?.to_cl()?;
-        let result = reduce_all::<T>(&*input, T::cl_add(), T::ZERO.to_cl())?;
-        Ok(result
-            .into_par_iter()
-            .map(T::from_cl)
-            .reduce(|| T::ZERO, T::add))
+        let result = reduce_all::<T>(&*input, T::cl_add(), T::ZERO)?;
+        Ok(result.into_par_iter().reduce(|| T::ZERO, T::add))
     }
 }
 

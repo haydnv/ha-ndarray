@@ -89,10 +89,6 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     // constructors
 
-    /// Construct an instance of this type from its OpenCL type
-    #[cfg(feature = "opencl")]
-    fn from_cl(value: Self) -> Self;
-
     /// Construct an instance of this type from an instance of its floating-point type.
     fn from_float(float: Self::Float) -> Self;
 
@@ -118,10 +114,6 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     // conversions
 
-    /// Return this value as an instance of its OpenCL type.
-    #[cfg(feature = "opencl")]
-    fn to_cl(&self) -> Self;
-
     /// Convert this value to a floating-point value.
     fn to_float(self) -> Self::Float;
 }
@@ -140,11 +132,6 @@ macro_rules! number {
             type Abs = $abs_t;
 
             type Float = $float;
-
-            #[cfg(feature = "opencl")]
-            fn from_cl(value: Self) -> Self {
-                value
-            }
 
             fn from_float(float: $float) -> Self {
                 float as $t
@@ -172,11 +159,6 @@ macro_rules! number {
 
             fn pow(self, exp: Self) -> Self {
                 ($pow)(self, exp)
-            }
-
-            #[cfg(feature = "opencl")]
-            fn to_cl(&self) -> Self {
-                *self
             }
 
             fn to_float(self) -> $float {

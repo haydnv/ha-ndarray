@@ -273,8 +273,6 @@ impl<'a, T: Number> BufferConverter<'a, T> {
         match self {
             Self::CL(buffer) => Ok(buffer),
             Self::Host(buffer) => {
-                // TODO: is there a more efficient way to do this?
-                let buffer = buffer.into_iter().map(T::to_cl).collect::<Vec<T>>();
                 opencl::OpenCL::copy_into_buffer::<T>(&buffer).map(opencl::CLConverter::Owned)
             }
         }
@@ -286,10 +284,10 @@ impl<'a, T: Number> BufferConverter<'a, T> {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(buffer) => {
-                let mut copy = vec![T::default().to_cl(); buffer.len()];
+                let mut copy = vec![T::default(); buffer.len()];
                 buffer.read(&mut copy[..]).enq()?;
 
-                let copy = copy.into_iter().map(T::from_cl).collect::<Vec<T>>();
+                let copy = copy.into_iter().collect::<Vec<T>>();
                 Ok(host::SliceConverter::from(copy))
             }
             Self::Host(buffer) => Ok(buffer),

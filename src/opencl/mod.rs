@@ -61,6 +61,7 @@ fn complex_cmp(cmp: &'static str, cond: &'static str) -> String {
     format!("return (lhs.x {cmp} rhs.x) {cond} (lhs.y {cmp} rhs.y);")
 }
 
+// TODO: can the `format!(...)` implementations be made static using const_format?
 pub trait CLElement: OclPrm {
     const REAL: bool;
     const TYPE: &'static str;
@@ -518,6 +519,15 @@ macro_rules! cl_complex {
 
             fn cl_ne() -> ElementDual {
                 ElementDual::new::<Self, u8, _>("ne", complex_cmp("!=", "||"))
+            }
+
+            // special cases
+            fn cl_inf() -> ElementUnary {
+                ElementUnary::new::<Self, u8, _>("_isinf", "return isinf(n.x) || isinf(n.y);")
+            }
+
+            fn cl_nan() -> ElementUnary {
+                ElementUnary::new::<Self, u8, _>("_isnan", "return isnan(n.x) || isnan(n.y);")
             }
         }
 

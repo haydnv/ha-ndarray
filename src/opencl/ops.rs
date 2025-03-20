@@ -615,7 +615,7 @@ where
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(self.batch_size * a * c)
-            .fill_val(T::ZERO.to_cl())
+            .fill_val(T::ZERO)
             .build()?;
 
         let dim4 = [a as u64, b as u64, c as u64, self.batch_size as u64];
@@ -658,7 +658,7 @@ where
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(self.batch_size * dims_out[0] * dims_out[1])
-            .fill_val(T::ZERO.to_cl())
+            .fill_val(T::ZERO)
             .build()?;
 
         let gws = if dims_in.iter().product::<usize>() <= dims_out.iter().product::<usize>() {
@@ -789,8 +789,8 @@ impl<T: Number> Enqueue<OpenCL, T> for Linear<T> {
             .queue(queue)
             .program(&self.program)
             .global_work_size(self.size)
-            .arg(self.start.to_cl())
-            .arg(self.step.to_cl())
+            .arg(self.start)
+            .arg(self.step)
             .arg(&buffer)
             .build()?;
 
@@ -980,7 +980,7 @@ impl<A, T: Number> Reduce<A, T> {
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(output_size)
-            .fill_val(T::ZERO.to_cl())
+            .fill_val(T::ZERO)
             .build()?;
 
         let kernel = Kernel::builder()
@@ -990,7 +990,7 @@ impl<A, T: Number> Reduce<A, T> {
             .global_work_size(output_size)
             .arg(reduce_dim as u64)
             .arg(target_dim as u64)
-            .arg(self.id.to_cl())
+            .arg(self.id)
             .arg(input)
             .arg(&output)
             .build()?;
@@ -1012,7 +1012,7 @@ impl<A, T: Number> Reduce<A, T> {
         let output = Buffer::builder()
             .queue(queue.clone())
             .len(input.len() / stride)
-            .fill_val(T::ZERO.to_cl())
+            .fill_val(T::ZERO)
             .build()?;
 
         let kernel = Kernel::builder()
@@ -1021,7 +1021,7 @@ impl<A, T: Number> Reduce<A, T> {
             .queue(queue.clone())
             .local_work_size(wg_size)
             .global_work_size(input.len())
-            .arg(self.id.to_cl())
+            .arg(self.id)
             .arg(input)
             .arg(&output)
             .arg_local::<T>(wg_size)
@@ -1322,7 +1322,7 @@ where
             .queue(queue)
             .global_work_size(input.len())
             .arg(&*input)
-            .arg(self.scalar.to_cl())
+            .arg(self.scalar)
             .arg(&output)
             .build()?;
 
@@ -1458,7 +1458,7 @@ where
             .queue(queue)
             .global_work_size(source.len())
             .arg(source)
-            .arg(value.to_cl())
+            .arg(value)
             .build()?;
 
         unsafe { kernel.enq()? }
@@ -1730,7 +1730,7 @@ fn pad_dim(dim: usize, size: usize) -> usize {
 
 #[allow(unused)]
 fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
-    let mut inspect = vec![T::ZERO.to_cl(); buffer.len()];
+    let mut inspect = vec![T::ZERO; buffer.len()];
     buffer.read(inspect.as_mut_slice()).enq()?;
     Ok(())
 }
