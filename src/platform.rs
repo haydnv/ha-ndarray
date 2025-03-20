@@ -668,7 +668,7 @@ where
         // TODO: support FFT on OpenCL
         let host = match self {
             #[cfg(feature = "opencl")]
-            Self::CL(_cl) => crate::host::Host::select(access.size()),
+            Self::CL(_cl) => host::Host::select(access.size()),
             Self::Host(host) => host,
         };
 
@@ -679,7 +679,7 @@ where
         // TODO: support IFFT on OpenCL
         let host = match self {
             #[cfg(feature = "opencl")]
-            Self::CL(_cl) => crate::host::Host::select(access.size()),
+            Self::CL(_cl) => host::Host::select(access.size()),
             Self::Host(host) => host,
         };
 

@@ -46,7 +46,7 @@ impl<T, A, P> Array<T, A, P> {
         })
     }
 
-    fn reduce_axes<Op>(
+    fn reduce_axes<'a, Op>(
         self,
         mut axes: Axes,
         keepdims: bool,
@@ -55,9 +55,9 @@ impl<T, A, P> Array<T, A, P> {
     where
         T: Number,
         A: Access<T>,
-        P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
-        Op: Fn(P, Accessor<T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
-        Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+        P: Transform<A, T> + ReduceAxes<Accessor<'a, T>, T>,
+        Op: Fn(P, Accessor<'a, T>, usize) -> Result<AccessOp<P::Op, P>, Error>,
+        Accessor<'a, T>: From<A> + From<AccessOp<P::Transpose, P>>,
     {
         axes.sort();
         axes.dedup();
@@ -108,10 +108,10 @@ impl<T, L, P> Array<T, L, P> {
 }
 
 // constructors
-impl<T: Number> Array<T, Accessor<T>, Platform> {
+impl<'a, T: Number> Array<T, Accessor<'a, T>, Platform> {
     pub fn from<A, P>(array: Array<T, A, P>) -> Self
     where
-        A: Into<Accessor<T>>,
+        A: Into<Accessor<'a, T>>,
         Platform: From<P>,
     {
         Self {
@@ -399,8 +399,11 @@ where
 
 // helper methods
 
-impl<T: Number> ArrayAccess<T> {
-    pub fn unstack(self, axis: usize) -> Result<Vec<Array<T, impl Access<T>, Platform>>, Error> {
+impl<'a, T: Number> ArrayAccess<'a, T> {
+    pub fn unstack(
+        self,
+        axis: usize,
+    ) -> Result<Vec<Array<T, impl Access<T> + 'a, Platform>>, Error> {
         let dim = self
             .shape()
             .get(axis)
@@ -629,8 +632,8 @@ where
 }
 
 /// Axis-wise array reduce operations
-pub trait NDArrayReduce: NDArray + fmt::Debug {
-    type Output: Access<Self::DType>;
+pub trait NDArrayReduce<'a>: NDArray + fmt::Debug {
+    type Output: Access<Self::DType> + 'a;
 
     /// Construct a max-reduce operation over the given `axes`.
     fn max(
@@ -665,12 +668,12 @@ pub trait NDArrayReduce: NDArray + fmt::Debug {
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
-impl<T, A, P> NDArrayReduce for Array<T, A, P>
+impl<'a, T, A, P> NDArrayReduce<'a> for Array<T, A, P>
 where
-    T: Number,
-    A: Access<T>,
-    P: Transform<A, T> + ReduceAxes<Accessor<T>, T>,
-    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+    T: Number + 'a,
+    A: Access<T> + 'a,
+    P: Transform<A, T> + ReduceAxes<Accessor<'a, T>, T> + 'a,
+    Accessor<'a, T>: From<A> + From<AccessOp<P::Transpose, P>> + 'a,
 {
     type Output = AccessOp<P::Op, P>;
 
@@ -1946,17 +1949,17 @@ fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
 }
 
 #[inline]
-fn permute_for_reduce<T, A, P>(
+fn permute_for_reduce<'a, T, A, P>(
     platform: P,
     access: A,
     shape: Shape,
     axes: Axes,
-) -> Result<Accessor<T>, Error>
+) -> Result<Accessor<'a, T>, Error>
 where
     T: Number,
     A: Access<T>,
     P: Transform<A, T>,
-    Accessor<T>: From<A> + From<AccessOp<P::Transpose, P>>,
+    Accessor<'a, T>: From<A> + From<AccessOp<P::Transpose, P>>,
 {
     let mut permutation = Axes::with_capacity(shape.len());
     permutation.extend((0..shape.len()).into_iter().filter(|x| !axes.contains(x)));

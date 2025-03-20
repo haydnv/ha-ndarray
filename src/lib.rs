@@ -733,7 +733,7 @@ pub type ArrayBuf<T, B> = array::Array<T, AccessBuf<B>, Platform>;
 pub type ArrayOp<T, Op> = array::Array<T, AccessOp<Op>, Platform>;
 
 /// A general type of n-dimensional array used to elide recursive types
-pub type ArrayAccess<T> = array::Array<T, Accessor<T>, Platform>;
+pub type ArrayAccess<'a, T> = array::Array<T, Accessor<'a, T>, Platform>;
 
 /// An accessor for the result of an n-dimensional array operation on the top-level [`Platform`]
 pub type AccessOp<Op> = access::AccessOp<Op, Platform>;

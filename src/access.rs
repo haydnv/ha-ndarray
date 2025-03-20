@@ -295,12 +295,12 @@ impl<O, P: fmt::Debug> fmt::Debug for AccessOp<O, P> {
 /// A general-purpose implementor of [`Access`] used to elide recursive types.
 /// Uses an [`Arc`] so that cloning does not allocate.
 #[derive(Clone)]
-pub enum Accessor<T: Number> {
-    Buffer(Arc<dyn BufferInstance<T>>),
-    Op(Arc<dyn ReadOp<Platform, T, Buffer = Buffer<T>>>),
+pub enum Accessor<'a, T: Number> {
+    Buffer(Arc<dyn BufferInstance<T> + 'a>),
+    Op(Arc<dyn ReadOp<Platform, T, Buffer = Buffer<T>> + 'a>),
 }
 
-impl<T: Number> Access<T> for Accessor<T> {
+impl<'a, T: Number> Access<T> for Accessor<'a, T> {
     fn read(&self) -> Result<BufferConverter<T>, Error> {
         match self {
             Self::Buffer(buf) => Ok(buf.read()),
@@ -323,20 +323,20 @@ impl<T: Number> Access<T> for Accessor<T> {
     }
 }
 
-impl<T, B> From<AccessBuf<B>> for Accessor<T>
+impl<'a, T, B> From<AccessBuf<B>> for Accessor<'a, T>
 where
     T: Number,
-    B: BufferInstance<T> + 'static,
+    B: BufferInstance<T> + 'a,
 {
     fn from(access: AccessBuf<B>) -> Self {
         Self::Buffer(Arc::new(access.buffer))
     }
 }
 
-impl<T, O, P> From<AccessOp<O, P>> for Accessor<T>
+impl<'a, T, O, P> From<AccessOp<O, P>> for Accessor<'a, T>
 where
     T: Number,
-    O: ReadOp<Platform, T, Buffer = Buffer<T>> + 'static,
+    O: ReadOp<Platform, T, Buffer = Buffer<T>> + 'a,
     P: PlatformInstance + Into<Platform>,
 {
     fn from(access: AccessOp<O, P>) -> Self {

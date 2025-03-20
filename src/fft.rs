@@ -81,7 +81,7 @@ where
 
 /// Shift the primary frequency component to the center of the given axis, or invert a shift.
 pub fn shift<'a, T, X>(
-    data: ArrayAccess<T>,
+    data: ArrayAccess<'a, T>,
     axis: X,
 ) -> Result<Array<T, impl Access<T> + 'a>, Error>
 where
