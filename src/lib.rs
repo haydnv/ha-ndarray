@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 
 pub use access::*;
 pub use array::{
-    MatrixDual, MatrixUnary, NDArray, NDArrayAbs, NDArrayBoolean, NDArrayBooleanScalar,
+    same_shape, MatrixDual, MatrixUnary, NDArray, NDArrayAbs, NDArrayBoolean, NDArrayBooleanScalar,
     NDArrayCast, NDArrayCompare, NDArrayCompareScalar, NDArrayMath, NDArrayMathScalar,
     NDArrayNumeric, NDArrayRead, NDArrayReduce, NDArrayReduceAll, NDArrayReduceBoolean,
     NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
@@ -75,22 +75,8 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
     /// The one value of this data type.
     const ONE: Self;
 
-    /// Whether this is a floating-point data type.
-    const IS_FLOAT: bool;
-
-    /// Whether this is a read-valued data type.
-    const IS_REAL: bool;
-
     /// The absolute value type of this [`Number`].
     type Abs: Number;
-
-    /// The floating-point type used to represent this type in floating-point-only operations.
-    type Float: Float;
-
-    // constructors
-
-    /// Construct an instance of this type from an instance of its floating-point type.
-    fn from_float(float: Self::Float) -> Self;
 
     // arithmetic
 
@@ -111,31 +97,16 @@ pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
 
     /// Raise this value to the power of the given `exp`onent.
     fn pow(self, exp: Self) -> Self;
-
-    // conversions
-
-    /// Convert this value to a floating-point value.
-    fn to_float(self) -> Self::Float;
 }
 
 macro_rules! number {
-    ($t:ty, $is_float:expr, $is_real:expr, $abs_t:ty, $one:expr, $zero:expr, $float:ty, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
+    ($t:ty, $abs_t:ty, $one:expr, $zero:expr, $abs:expr, $add:expr, $div:expr, $mul:expr, $sub:expr, $pow:expr) => {
         impl Number for $t {
             const ONE: Self = $one;
 
             const ZERO: Self = $zero;
 
-            const IS_FLOAT: bool = $is_float;
-
-            const IS_REAL: bool = $is_float;
-
             type Abs = $abs_t;
-
-            type Float = $float;
-
-            fn from_float(float: $float) -> Self {
-                float as $t
-            }
 
             fn abs(self) -> Self::Abs {
                 $abs(self)
@@ -160,10 +131,6 @@ macro_rules! number {
             fn pow(self, exp: Self) -> Self {
                 ($pow)(self, exp)
             }
-
-            fn to_float(self) -> $float {
-                self as $float
-            }
         }
     };
 }
@@ -171,12 +138,9 @@ macro_rules! number {
 #[cfg(feature = "complex")]
 number!(
     Complex32,
-    true,
-    false,
     f32,
     Complex32::new(1., 0.),
     Complex32::new(0., 0.),
-    Self,
     Complex32::norm,
     Add::add,
     Div::div,
@@ -188,12 +152,9 @@ number!(
 #[cfg(feature = "complex")]
 number!(
     Complex64,
-    true,
-    false,
     f64,
     Complex64::new(1., 0.),
     Complex64::new(0., 0.),
-    Self,
     Complex64::norm,
     Add::add,
     Div::div,
@@ -204,12 +165,9 @@ number!(
 
 number!(
     f32,
-    true,
-    true,
     Self,
     1.,
     0.,
-    Self,
     f32::abs,
     Add::add,
     Div::div,
@@ -220,12 +178,9 @@ number!(
 
 number!(
     f64,
-    true,
-    true,
     Self,
     1.,
     0.,
-    Self,
     f64::abs,
     Add::add,
     Div::div,
@@ -236,12 +191,9 @@ number!(
 
 number!(
     i8,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     Self::wrapping_abs,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -252,12 +204,9 @@ number!(
 
 number!(
     i16,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     Self::wrapping_abs,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -268,12 +217,9 @@ number!(
 
 number!(
     i32,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     Self::wrapping_abs,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -284,12 +230,9 @@ number!(
 
 number!(
     i64,
-    false,
-    true,
     Self,
     1,
     0,
-    f64,
     Self::wrapping_abs,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -303,12 +246,9 @@ number!(
 
 number!(
     u8,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     id,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -319,12 +259,9 @@ number!(
 
 number!(
     u16,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     id,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -335,12 +272,9 @@ number!(
 
 number!(
     u32,
-    false,
-    true,
     Self,
     1,
     0,
-    f32,
     id,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -351,12 +285,9 @@ number!(
 
 number!(
     u64,
-    false,
-    true,
     Self,
     1,
     0,
-    f64,
     id,
     Self::wrapping_add,
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
@@ -389,8 +320,7 @@ pub trait Real: Number + PartialOrd {
 
 #[cfg(feature = "opencl")]
 /// A real-valued [`Number`]
-// TODO: move the CLElementTrig boundary to Number after implementing complex trigonometry
-pub trait Real: Number + PartialOrd + opencl::CLElementReal + opencl::CLElementTrig {
+pub trait Real: Number + PartialOrd + opencl::CLElementReal {
     /// The maximum value of this data type.
     const MAX: Self;
 
@@ -453,8 +383,58 @@ real!(u16, Self::wrapping_rem, Ord::cmp, id);
 real!(u32, Self::wrapping_rem, Ord::cmp, id);
 real!(u64, Self::wrapping_rem, Ord::cmp, id);
 
+#[cfg(not(feature = "opencl"))]
 /// A floating-point [`Number`]
-pub trait Float: Number<Float = Self> {
+pub trait Float: Number {
+    // numeric methods
+    /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
+    fn is_inf(self) -> bool;
+
+    /// Return `true` if this [`Float`] is not a number (e.g. a float representation of `1.0 / 0.0`).
+    fn is_nan(self) -> bool;
+
+    // logarithms
+    /// Exponentiate this number (equivalent to `consts::E.pow(self)`).
+    fn exp(self) -> Self;
+
+    /// Return the natural logarithm of this [`Float`].
+    fn ln(self) -> Self;
+
+    /// Calculate the logarithm of this [`Float`] w/r/t the given `base`.
+    fn log(self, base: Self) -> Self;
+
+    // trigonometry
+    /// Return the sine of this [`Float`] (in radians).
+    fn sin(self) -> Self;
+
+    /// Return the arcsine of this [`Float`] (in radians).
+    fn asin(self) -> Self;
+
+    /// Return the hyperbolic sine of this [`Float`] (in radians).
+    fn sinh(self) -> Self;
+
+    /// Return the cosine of this [`Float`] (in radians).
+    fn cos(self) -> Self;
+
+    /// Return the arcsine of this [`Float`] (in radians).
+    fn acos(self) -> Self;
+
+    /// Return the hyperbolic cosine of this [`Float`] (in radians).
+    fn cosh(self) -> Self;
+
+    /// Return the tangent of this [`Float`] (in radians).
+    fn tan(self) -> Self;
+
+    /// Return the arctangent of this [`Float`] (in radians).
+    fn atan(self) -> Self;
+
+    /// Return the hyperbolic tangent of this [`Float`] (in radians).
+    fn tanh(self) -> Self;
+}
+
+#[cfg(feature = "opencl")]
+/// A floating-point [`Number`]
+pub trait Float: Number + opencl::CLElementTrig {
     // numeric methods
     /// Return `true` if this [`Float`] is infinite (positive or negative infinity).
     fn is_inf(self) -> bool;
@@ -631,15 +611,13 @@ complex_type!(Complex64, f64);
 /// An array math error
 pub enum Error {
     Bounds(String),
-    #[cfg(feature = "opencl")]
-    Format(String),
     Unsupported(String),
     #[cfg(feature = "opencl")]
     OCL(std::sync::Arc<ocl::Error>),
 }
 
 impl Error {
-    fn bounds(msg: String) -> Self {
+    pub fn bounds(msg: String) -> Self {
         #[cfg(feature = "debug_crash")]
         panic!("{}", msg);
 
@@ -647,8 +625,7 @@ impl Error {
         Self::Bounds(msg)
     }
 
-    #[allow(dead_code)]
-    fn unsupported(msg: String) -> Self {
+    pub fn unsupported(msg: String) -> Self {
         #[cfg(feature = "debug_crash")]
         panic!("{}", msg);
 
@@ -663,8 +640,6 @@ impl Clone for Error {
     fn clone(&self) -> Self {
         match self {
             Self::Bounds(msg) => Self::Bounds(msg.clone()),
-            #[cfg(feature = "opencl")]
-            Self::Format(msg) => Self::Format(msg.clone()),
             Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => Self::OCL(cause.clone()),
@@ -687,8 +662,6 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            #[cfg(feature = "opencl")]
-            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),
@@ -700,8 +673,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bounds(cause) => f.write_str(cause),
-            #[cfg(feature = "opencl")]
-            Self::Format(cause) => cause.fmt(f),
             Self::Unsupported(cause) => f.write_str(cause),
             #[cfg(feature = "opencl")]
             Self::OCL(cause) => cause.fmt(f),

@@ -463,7 +463,10 @@ where
         Dual::div(left, right).map(AccessOp::from)
     }
 
-    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         Dual::log(arg, base).map(AccessOp::from)
     }
 
@@ -498,7 +501,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for OpenCL {
         Scalar::div(left, right).map(AccessOp::from)
     }
 
-    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         Scalar::log(arg, base).map(AccessOp::from)
     }
 
@@ -535,8 +541,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
 }
 
 // TODO: implement this trait separately per-type and remote the CLElementTrig boundary
-impl<A: Access<T>, T: Number + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
-    type Op = Unary<A, T, T::Float>;
+impl<A: Access<T>, T: Float + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
+    type Op = Unary<A, T, T>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Unary::sin(access).map(AccessOp::from)
@@ -575,7 +581,7 @@ impl<A: Access<T>, T: Number + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for OpenCL {
+impl<A: Access<T>, T: Float> ElementwiseUnary<A, T> for OpenCL {
     type Op = Unary<A, T, T>;
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {

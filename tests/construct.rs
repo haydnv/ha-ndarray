@@ -1,6 +1,38 @@
 use ha_ndarray::*;
 
 #[test]
+fn test_concat() -> Result<(), Error> {
+    let first = ArrayBuf::new(vec![1, 2, 3], shape![1, 3])?;
+    let second = ArrayBuf::new(vec![4, 5, 6], shape![1, 3])?;
+
+    let concatenated = Array::concat(vec![first, second])?;
+    assert_eq!(
+        concatenated.buffer()?.to_slice()?.into_vec(),
+        vec![1, 2, 3, 4, 5, 6]
+    );
+
+    assert_eq!(concatenated.shape(), &[2, 3]);
+
+    Ok(())
+}
+
+#[test]
+fn test_transpose_concat() -> Result<(), Error> {
+    let first = ArrayBuf::new(vec![1, 2, 3, 4, 5, 6], shape![2, 3])?;
+    let second = ArrayBuf::new(vec![7, 8, 9, 10, 11, 12], shape![2, 3])?;
+    let concatenated = Array::transpose_concat(vec![first, second], 1)?;
+
+    assert_eq!(concatenated.shape(), &[2, 6]);
+
+    assert_eq!(
+        concatenated.buffer()?.to_slice()?.into_vec(),
+        vec![1, 2, 3, 7, 8, 9, 4, 5, 6, 10, 11, 12],
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_range() -> Result<(), Error> {
     use rayon::prelude::*;
 
