@@ -309,14 +309,6 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
         }
     }
 
-    pub fn log(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            zip: |a, b| T::from_float(a.to_float().log(b.to_float())),
-        }
-    }
-
     pub fn mul(left: L, right: R) -> Self {
         Self {
             left,
@@ -349,6 +341,17 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
             left,
             right,
             zip: T::sub,
+        }
+    }
+}
+
+// floating-point arithmetic
+impl<L, R, T: Float> Dual<L, R, T, T> {
+    pub fn log(left: L, right: R) -> Self {
+        Self {
+            left,
+            right,
+            zip: T::log,
         }
     }
 }
@@ -928,12 +931,6 @@ impl<A, T: Number> Scalar<A, T, T> {
         Self::new(access, scalar, T::div)
     }
 
-    pub fn log(access: A, scalar: T) -> Self {
-        Self::new(access, scalar, |a, b| {
-            T::from_float(a.to_float().log(b.to_float()))
-        })
-    }
-
     pub fn mul(access: A, scalar: T) -> Self {
         Self::new(access, scalar, T::mul)
     }
@@ -951,6 +948,12 @@ impl<A, T: Number> Scalar<A, T, T> {
 
     pub fn sub(access: A, scalar: T) -> Self {
         Self::new(access, scalar, T::sub)
+    }
+}
+
+impl<A, T: Float> Scalar<A, T, T> {
+    pub fn log(access: A, scalar: T) -> Self {
+        Self::new(access, scalar, T::log)
     }
 }
 
@@ -1550,19 +1553,13 @@ pub struct Unary<A, IT, OT> {
     op: fn(IT) -> OT,
 }
 
-impl<A: Access<T>, T: Number> Unary<A, T, T> {
+impl<A: Access<T>, T: Float> Unary<A, T, T> {
     pub fn exp(access: A) -> Self {
-        Self {
-            access,
-            op: |n| T::from_float(n.to_float().exp()),
-        }
+        Self { access, op: T::exp }
     }
 
     pub fn ln(access: A) -> Self {
-        Self {
-            access,
-            op: |n| T::from_float(n.to_float().ln()),
-        }
+        Self { access, op: T::ln }
     }
 }
 
@@ -1584,67 +1581,67 @@ impl<A: Access<T>, T: Real> Unary<A, T, T> {
     }
 }
 
-impl<A: Access<T>, T: Number> Unary<A, T, T::Float> {
+impl<A: Access<T>, T: Float> Unary<A, T, T> {
     pub fn sin(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().sin(),
+            op: |n| n.sin(),
         }
     }
 
     pub fn asin(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().asin(),
+            op: |n| n.asin(),
         }
     }
 
     pub fn sinh(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().sinh(),
+            op: |n| n.sinh(),
         }
     }
 
     pub fn cos(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().cos(),
+            op: |n| n.cos(),
         }
     }
 
     pub fn acos(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().acos(),
+            op: |n| n.acos(),
         }
     }
 
     pub fn cosh(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().cosh(),
+            op: |n| n.cosh(),
         }
     }
 
     pub fn tan(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().tan(),
+            op: |n| n.tan(),
         }
     }
 
     pub fn atan(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().atan(),
+            op: |n| n.atan(),
         }
     }
 
     pub fn tanh(access: A) -> Self {
         Self {
             access,
-            op: |n| n.to_float().tanh(),
+            op: |n| n.tanh(),
         }
     }
 }

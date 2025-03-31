@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::platform::OpenCL;
-use super::{programs, CLElementTrig, TILE_SIZE, WG_SIZE};
+use super::{programs, TILE_SIZE, WG_SIZE};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -141,13 +141,6 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
         Self::new(left, right, program, T::div)
     }
 
-    pub fn log(arg: L, exp: R) -> Result<Self, Error> {
-        let program = programs::elementwise::dual(T::cl_log())?;
-        Self::new(arg, exp, program, |a, e| {
-            T::from_float(a.to_float().log(e.to_float()))
-        })
-    }
-
     pub fn mul(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::cl_mul())?;
         Self::new(left, right, program, T::mul)
@@ -161,6 +154,14 @@ impl<L, R, T: Number> Dual<L, R, T, T> {
     pub fn sub(left: L, right: R) -> Result<Self, Error> {
         let program = programs::elementwise::dual(T::cl_sub())?;
         Self::new(left, right, program, T::sub)
+    }
+}
+
+// floating-point arithmetic
+impl<L, R, T: Float> Dual<L, R, T, T> {
+    pub fn log(arg: L, exp: R) -> Result<Self, Error> {
+        let program = programs::elementwise::dual(T::cl_log())?;
+        Self::new(arg, exp, program, T::log)
     }
 }
 
@@ -1144,12 +1145,6 @@ impl<A, T: Number> Scalar<A, T, T> {
         Self::new(access, scalar, T::cl_div(), T::div)
     }
 
-    pub fn log(access: A, scalar: T) -> Result<Self, Error> {
-        Self::new(access, scalar, T::cl_log(), |a, e| {
-            T::from_float(a.to_float().log(e.to_float()))
-        })
-    }
-
     pub fn mul(access: A, scalar: T) -> Result<Self, Error> {
         Self::new(access, scalar, T::cl_mul(), T::mul)
     }
@@ -1160,6 +1155,12 @@ impl<A, T: Number> Scalar<A, T, T> {
 
     pub fn sub(access: A, scalar: T) -> Result<Self, Error> {
         Self::new(access, scalar, T::cl_sub(), T::sub)
+    }
+}
+
+impl<A, T: Float> Scalar<A, T, T> {
+    pub fn log(access: A, scalar: T) -> Result<Self, Error> {
+        Self::new(access, scalar, T::cl_log(), T::log)
     }
 }
 
@@ -1493,19 +1494,20 @@ impl<A, IT: Number, OT: Number> Unary<A, IT, OT> {
     }
 }
 
-impl<A, T: Number> Unary<A, T, T> {
+impl<A, T: Float> Unary<A, T, T> {
     pub fn exp(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_exp(), |n| T::from_float(n.to_float().ln()))
+        Self::new(access, T::cl_exp(), T::ln)
     }
 
     pub fn ln(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_ln(), |n| T::from_float(n.to_float().ln()))
+        Self::new(access, T::cl_ln(), T::ln)
     }
-}
 
-impl<A, T: Real> Unary<A, T, T> {
-    pub fn round(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_round(), |n| T::from_float(n.to_float().ln()))
+    pub fn round(access: A) -> Result<Self, Error>
+    where
+        T: Real,
+    {
+        Self::new(access, T::cl_round(), T::round)
     }
 }
 
@@ -1515,40 +1517,41 @@ impl<A, T: Number> Unary<A, T, T::Abs> {
     }
 }
 
-impl<A, T: Number + CLElementTrig> Unary<A, T, T::Float> {
+impl<A, T: Float> Unary<A, T, T> {
     pub fn sin(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_sin(), |n| n.to_float().sin())
+        Self::new(access, T::cl_sin(), T::sin)
     }
 
     pub fn sinh(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_sinh(), |n| n.to_float().sinh())
+        Self::new(access, T::cl_sinh(), T::sinh)
     }
 
     pub fn asin(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_asin(), |n| n.to_float().asin())
+        Self::new(access, T::cl_asin(), T::asin)
     }
 
     pub fn cos(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_cos(), |n| n.to_float().cos())
+        Self::new(access, T::cl_cos(), T::cos)
     }
 
     pub fn cosh(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_cosh(), |n| n.to_float().cosh())
+        Self::new(access, T::cl_cosh(), T::cosh)
     }
 
     pub fn acos(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_acos(), |n| n.to_float().acos())
+        Self::new(access, T::cl_acos(), T::acos)
     }
+
     pub fn tan(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_tan(), |n| n.to_float().tan())
+        Self::new(access, T::cl_tan(), T::tan)
     }
 
     pub fn tanh(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_tanh(), |n| n.to_float().tanh())
+        Self::new(access, T::cl_tanh(), T::tanh)
     }
 
     pub fn atan(access: A) -> Result<Self, Error> {
-        Self::new(access, T::cl_atan(), |n| n.to_float().atan())
+        Self::new(access, T::cl_atan(), T::atan)
     }
 }
 

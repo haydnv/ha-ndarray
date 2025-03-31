@@ -8,8 +8,8 @@ use crate::buffer::Buffer;
 use crate::opencl;
 use crate::platform::{Platform, PlatformInstance};
 use crate::{
-    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Number, Range, Real,
-    Shape, Strides,
+    host, range_shape, strides_for, Axes, AxisRange, BufferConverter, Error, Float, Number, Range,
+    Real, Shape, Strides,
 };
 
 #[cfg(feature = "complex")]
@@ -189,7 +189,9 @@ where
 
     fn div(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float;
 
     fn mul(self, left: L, right: R) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -213,7 +215,9 @@ where
 
     fn div_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
-    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>;
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float;
 
     fn mul_scalar(self, left: A, right: T) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -241,9 +245,9 @@ where
 pub trait ElementwiseTrig<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: Number,
+    T: Float,
 {
-    type Op: ReadOp<Self, T::Float>;
+    type Op: ReadOp<Self, T>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error>;
 
@@ -267,7 +271,7 @@ where
 pub trait ElementwiseUnary<A, T>: PlatformInstance
 where
     A: Access<T>,
-    T: Number,
+    T: Float,
 {
     type Op: ReadOp<Self, T>;
 

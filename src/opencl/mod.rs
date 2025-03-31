@@ -5,7 +5,7 @@ use ocl::OclPrm;
 
 use crate::access::{AccessBuf, AccessOp};
 use crate::host::VEC_MIN_SIZE;
-use crate::Number;
+use crate::Float;
 
 use programs::{ElementDual, ElementUnary};
 
@@ -37,9 +37,9 @@ fn real_cmp(op: &'static str) -> String {
     format!("return lhs {op} rhs;")
 }
 
-fn real_trig<T: Number>(name: &'static str) -> ElementUnary {
+fn real_trig<T: Float>(name: &'static str) -> ElementUnary {
     debug_assert!(name.starts_with('_'));
-    ElementUnary::new::<T, T::Float, _>(name, format!("return {}(n);", &name[1..]))
+    ElementUnary::new::<T, T, _>(name, format!("return {}(n);", &name[1..]))
 }
 
 #[cfg(feature = "complex")]
@@ -322,16 +322,12 @@ impl CLElement for i8 {
 
 impl CLElementReal for i8 {}
 
-cl_trig_real!(i8);
-
 impl CLElement for i16 {
     const REAL: bool = true;
     const TYPE: &'static str = "short";
 }
 
 impl CLElementReal for i16 {}
-
-cl_trig_real!(i16);
 
 impl CLElement for i32 {
     const REAL: bool = true;
@@ -340,16 +336,12 @@ impl CLElement for i32 {
 
 impl CLElementReal for i32 {}
 
-cl_trig_real!(i32);
-
 impl CLElement for i64 {
     const REAL: bool = true;
     const TYPE: &'static str = "long";
 }
 
 impl CLElementReal for i64 {}
-
-cl_trig_real!(i64);
 
 impl CLElement for u8 {
     const REAL: bool = true;
@@ -358,16 +350,12 @@ impl CLElement for u8 {
 
 impl CLElementReal for u8 {}
 
-cl_trig_real!(u8);
-
 impl CLElement for u16 {
     const REAL: bool = true;
     const TYPE: &'static str = "ushort";
 }
 
 impl CLElementReal for u16 {}
-
-cl_trig_real!(u16);
 
 impl CLElement for u32 {
     const REAL: bool = true;
@@ -376,16 +364,12 @@ impl CLElement for u32 {
 
 impl CLElementReal for u32 {}
 
-cl_trig_real!(u32);
-
 impl CLElement for u64 {
     const REAL: bool = true;
     const TYPE: &'static str = "ulong";
 }
 
 impl CLElementReal for u64 {}
-
-cl_trig_real!(u64);
 
 #[cfg(feature = "complex")]
 macro_rules! cl_complex {
@@ -539,6 +523,54 @@ macro_rules! cl_complex {
 cl_complex!(f32, "float2");
 #[cfg(feature = "complex")]
 cl_complex!(f64, "double2");
+
+#[cfg(feature = "complex")]
+macro_rules! cl_trig_complex {
+    ($t:ty) => {
+        impl CLElementTrig for $t {
+            fn cl_sin() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_asin() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_sinh() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_cos() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_acos() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_cosh() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_tan() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_atan() -> ElementUnary {
+                todo!()
+            }
+
+            fn cl_tanh() -> ElementUnary {
+                todo!()
+            }
+        }
+    };
+}
+
+#[cfg(feature = "complex")]
+cl_trig_complex!(num_complex::Complex<f32>);
+#[cfg(feature = "complex")]
+cl_trig_complex!(num_complex::Complex<f64>);
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform = {

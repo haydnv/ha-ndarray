@@ -409,7 +409,10 @@ where
         }
     }
 
-    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.log(arg, base).map(AccessOp::wrap),
@@ -472,7 +475,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Platform {
         }
     }
 
-    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         match self {
             #[cfg(feature = "opencl")]
             Self::CL(cl) => cl.log_scalar(arg, base).map(AccessOp::wrap),
@@ -536,8 +542,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Platform {
     }
 }
 
-impl<A: Access<T>, T: Real> ElementwiseTrig<A, T> for Platform {
-    type Op = Unary<A, T, T::Float>;
+impl<A: Access<T>, T: Float> ElementwiseTrig<A, T> for Platform {
+    type Op = Unary<A, T, T>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         match self {
@@ -612,7 +618,7 @@ impl<A: Access<T>, T: Real> ElementwiseTrig<A, T> for Platform {
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Platform {
+impl<A: Access<T>, T: Float> ElementwiseUnary<A, T> for Platform {
     type Op = Unary<A, T, T>;
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {

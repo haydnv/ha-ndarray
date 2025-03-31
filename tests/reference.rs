@@ -1,6 +1,6 @@
 use ha_ndarray::{
-    shape, Access, AccessBuf, Array, ArrayBuf, Buffer, Error, NDArrayMath, NDArrayMathScalar,
-    NDArrayUnary, Number,
+    shape, Access, AccessBuf, Array, ArrayBuf, Buffer, Error, Float, NDArrayMath,
+    NDArrayMathScalar, NDArrayUnary,
 };
 
 // the accuracy of these operations is covered by the other test modules
@@ -9,7 +9,7 @@ use ha_ndarray::{
 fn logit<A, T>(p: Array<T, A>) -> Result<Array<T, impl Access<T>>, Error>
 where
     A: Access<T> + Clone,
-    T: Number + std::ops::Neg<Output = T>,
+    T: Float + std::ops::Neg<Output = T>,
 {
     p.clone().div(p.add_scalar(-T::ONE)?)?.ln()
 }

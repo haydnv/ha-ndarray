@@ -929,7 +929,7 @@ pub trait NDArrayUnary: NDArray + Sized {
 
 impl<T, A, P> NDArrayUnary for Array<T, A, P>
 where
-    T: Number,
+    T: Float,
     A: Access<T>,
     P: ElementwiseUnary<A, T>,
 {
@@ -1359,7 +1359,9 @@ pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     fn div(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a logarithm operation with the given `base`.
-    fn log(self, base: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    fn log(self, base: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Float;
 
     /// Construct a multiplication operation with the given `rhs`.
     fn mul(self, rhs: O) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
@@ -1397,14 +1399,17 @@ where
         self,
         rhs: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        same_shape("div", self.shape(), rhs.shape())?;
+        same_shape("divide", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.div(left, right))
     }
 
     fn log(
         self,
         base: Array<T, R, P>,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        T: Float,
+    {
         same_shape("log", self.shape(), base.shape())?;
         self.apply_dual(base, |platform, left, right| platform.log(left, right))
     }
@@ -1413,7 +1418,7 @@ where
         self,
         rhs: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        same_shape("mul", self.shape(), rhs.shape())?;
+        same_shape("multiply", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.mul(left, right))
     }
 
@@ -1421,7 +1426,7 @@ where
         self,
         exp: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        same_shape("pow", self.shape(), exp.shape())?;
+        same_shape("exponentiate", self.shape(), exp.shape())?;
         self.apply_dual(exp, |platform, left, right| platform.pow(left, right))
     }
 
@@ -1429,7 +1434,7 @@ where
         self,
         rhs: Array<T, R, P>,
     ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
-        same_shape("sub", self.shape(), rhs.shape())?;
+        same_shape("subtract", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.sub(left, right))
     }
 
@@ -1440,7 +1445,7 @@ where
     where
         T: Real,
     {
-        same_shape("rem", self.shape(), rhs.shape())?;
+        same_shape("remainder", self.shape(), rhs.shape())?;
         self.apply_dual(rhs, |platform, left, right| platform.rem(left, right))
     }
 }
@@ -1465,7 +1470,9 @@ pub trait NDArrayMathScalar: NDArray + Sized {
     fn log_scalar(
         self,
         base: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Float;
 
     /// Construct a scalar multiplication operation.
     fn mul_scalar(
@@ -1525,7 +1532,10 @@ where
     fn log_scalar(
         self,
         base: Self::DType,
-    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error> {
+    ) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>
+    where
+        Self::DType: Float,
+    {
         self.apply(|platform, arg| platform.log_scalar(arg, base))
     }
 
@@ -1677,95 +1687,77 @@ impl<T, A, P> fmt::Debug for Array<T, A, P> {
 
 /// Array trigonometry methods
 pub trait NDArrayTrig: NDArray + Sized {
-    type Output: Access<<Self::DType as Number>::Float>;
+    type Output: Access<Self::DType>;
 
     /// Construct a new sine operation.
-    fn sin(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn sin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arcsine operation.
-    fn asin(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn asin(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic sine operation.
-    fn sinh(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn sinh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new cos operation.
-    fn cos(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn cos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arccosine operation.
-    fn acos(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn acos(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic cosine operation.
-    fn cosh(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn cosh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new tangent operation.
-    fn tan(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn tan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new arctangent operation.
-    fn atan(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn atan(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 
     /// Construct a new hyperbolic tangent operation.
-    fn tanh(
-        self,
-    ) -> Result<Array<<Self::DType as Number>::Float, Self::Output, Self::Platform>, Error>;
+    fn tanh(self) -> Result<Array<Self::DType, Self::Output, Self::Platform>, Error>;
 }
 
 impl<T, A, P> NDArrayTrig for Array<T, A, P>
 where
-    T: Number,
+    T: Float,
     A: Access<T>,
     P: ElementwiseTrig<A, T>,
 {
     type Output = AccessOp<P::Op, P>;
 
-    fn sin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn sin(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sin(access))
     }
 
-    fn asin(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn asin(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.asin(access))
     }
 
-    fn sinh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn sinh(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.sinh(access))
     }
 
-    fn cos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn cos(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cos(access))
     }
 
-    fn acos(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn acos(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.acos(access))
     }
 
-    fn cosh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn cosh(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.cosh(access))
     }
 
-    fn tan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn tan(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tan(access))
     }
 
-    fn atan(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn atan(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.atan(access))
     }
 
-    fn tanh(self) -> Result<Array<T::Float, Self::Output, Self::Platform>, Error> {
+    fn tanh(self) -> Result<Array<T, Self::Output, Self::Platform>, Error> {
         self.apply(|platform, access| platform.tanh(access))
     }
 }
@@ -1998,7 +1990,7 @@ fn reduce_axes(shape: &[usize], axes: &[usize], keepdims: bool) -> Result<Shape,
 }
 
 #[inline]
-fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<(), Error> {
+pub fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Result<(), Error> {
     if left == right {
         Ok(())
     } else if can_broadcast(left, right) {

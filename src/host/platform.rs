@@ -458,7 +458,10 @@ where
         Ok(Dual::div(left, right).into())
     }
 
-    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log(self, arg: L, base: R) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         Ok(Dual::log(arg, base).into())
     }
 
@@ -493,7 +496,10 @@ impl<A: Access<T>, T: Number> ElementwiseScalar<A, T> for Host {
         Ok(Scalar::div(left, right).into())
     }
 
-    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error> {
+    fn log_scalar(self, arg: A, base: T) -> Result<AccessOp<Self::Op, Self>, Error>
+    where
+        T: Float,
+    {
         Ok(Scalar::log(arg, base).into())
     }
 
@@ -529,8 +535,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Host {
-    type Op = Unary<A, T, T::Float>;
+impl<A: Access<T>, T: Float> ElementwiseTrig<A, T> for Host {
+    type Op = Unary<A, T, T>;
 
     fn sin(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
         Ok(Unary::sin(access).into())
@@ -569,7 +575,7 @@ impl<A: Access<T>, T: Number> ElementwiseTrig<A, T> for Host {
     }
 }
 
-impl<A: Access<T>, T: Number> ElementwiseUnary<A, T> for Host {
+impl<A: Access<T>, T: Float> ElementwiseUnary<A, T> for Host {
     type Op = Unary<A, T, T>;
 
     fn exp(self, access: A) -> Result<AccessOp<Self::Op, Self>, Error> {
