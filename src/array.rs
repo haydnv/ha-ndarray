@@ -1858,6 +1858,10 @@ where
 /// Matrix unary operations
 pub trait MatrixUnary: NDArray + fmt::Debug {
     type Diag: Access<Self::DType>;
+    type Transpose: Access<Self::DType>;
+
+    /// Transpose a matrix or batch of matrices (i.e., transpose the last two dimensions).
+    fn mt(self) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error>;
 
     /// Construct an operation to read the diagonal(s) of this matrix or batch of matrices.
     /// This will return an error if the last two dimensions of the batch are unequal.
@@ -1868,9 +1872,19 @@ impl<T, A, P> MatrixUnary for Array<T, A, P>
 where
     T: Number,
     A: Access<T>,
-    P: LinAlgUnary<A, T>,
+    P: LinAlgUnary<A, T> + Transform<A, T>,
 {
-    type Diag = AccessOp<P::Op, P>;
+    type Diag = AccessOp<<P as LinAlgUnary<A, T>>::Op, P>;
+    type Transpose = AccessOp<<P as Transform<A, T>>::Transpose, P>;
+
+    fn mt(self) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error> {
+        let ndim = self.ndim();
+        let mut permutation = Axes::with_capacity(ndim);
+        permutation.extend((0..self.ndim() - 2).into_iter());
+        permutation.push(ndim - 1);
+        permutation.push(ndim - 2);
+        self.transpose(permutation)
+    }
 
     fn diag(self) -> Result<Array<T, AccessOp<P::Op, P>, P>, Error> {
         if self.ndim() >= 2 && self.shape.last() == self.shape.iter().nth_back(1) {
@@ -1893,6 +1907,32 @@ where
                 self.shape
             )))
         }
+    }
+}
+
+#[cfg(feature = "complex")]
+/// Complex matrix unary operations
+pub trait MatrixUnaryComplex: MatrixUnary
+where
+    Self::DType: Complex,
+{
+    type Hermitian: Access<Self::DType>;
+
+    /// Construct the conjugate transpose of a matrix or batch of matrices.
+    fn mh(self) -> Result<Array<Self::DType, Self::Hermitian, Self::Platform>, Error>;
+}
+
+#[cfg(feature = "complex")]
+impl<T, A, P> MatrixUnaryComplex for Array<T, A, P>
+where
+    T: Complex,
+    A: Access<T>,
+    P: complex::ElementwiseUnaryComplex<Self::Transpose, T> + LinAlgUnary<A, T> + Transform<A, T>,
+{
+    type Hermitian = AccessOp<P::Complex, P>;
+
+    fn mh(self) -> Result<Array<Self::DType, Self::Hermitian, Self::Platform>, Error> {
+        self.mt().and_then(|array| array.conj())
     }
 }
 
