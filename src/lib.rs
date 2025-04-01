@@ -23,7 +23,7 @@ pub use array::{
     NDArrayTransform, NDArrayTrig, NDArrayUnary, NDArrayUnaryBoolean, NDArrayWhere, NDArrayWrite,
 };
 #[cfg(feature = "complex")]
-pub use array::{NDArrayComplex, NDArrayFourier};
+pub use array::{MatrixUnaryComplex, NDArrayComplex, NDArrayFourier};
 pub use buffer::{Buffer, BufferConverter, BufferInstance, BufferMut};
 pub use host::StackVec;
 pub use platform::*;

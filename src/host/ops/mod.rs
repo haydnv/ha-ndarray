@@ -791,14 +791,17 @@ where
 
         let mut product = StackVec::with_capacity(self.batch_size * a * c);
 
-        for _batch in 0..self.batch_size {
+        for batch in 0..self.batch_size {
+            let l_start = batch * a * b;
+            let r_start = batch * b * c;
+
             for x in 0..a {
                 for z in 0..c {
                     let mut sum = T::ZERO;
 
                     for y in 0..b {
-                        let l_offset = (x * b) + y;
-                        let r_offset = (y * c) + z;
+                        let l_offset = l_start + (x * b) + y;
+                        let r_offset = r_start + (y * c) + z;
                         sum = T::add(sum, T::mul(left[l_offset], right[r_offset]));
                     }
 
