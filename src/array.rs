@@ -237,19 +237,40 @@ where
         arrays: Vec<Self>,
         axis: usize,
     ) -> Result<Array<T, impl Access<T>, P>, Error> {
-        let permutation = if let Some(array) = arrays.first() {
-            if axis < array.ndim() {
-                let mut permutation: Axes = (0..array.ndim()).into_iter().collect();
-                permutation.swap(0, axis);
-                Ok(permutation)
-            } else {
-                Err(Error::bounds(format!("{array:?} has no axis {axis}")))
-            }
+        let shape = if let Some(first) = arrays.first() {
+            Ok(first.shape())
         } else {
             Err(Error::bounds(
-                "cannot concatenate an empty list of arrays".into(),
+                "cannot concatenate an empty list of arrays".to_string(),
             ))
         }?;
+
+        for array in arrays.iter().skip(1) {
+            if array.ndim() == shape.len() {
+                for (x, (dim, a_dim)) in shape.iter().zip(array.shape()).enumerate() {
+                    if x == axis {
+                        // pass
+                    } else if dim == a_dim {
+                        // pass
+                    } else {
+                        return Err(Error::bounds(format!(
+                            "cannot concatenate {:?} with {:?} at axis {axis}",
+                            shape,
+                            array.shape()
+                        )));
+                    }
+                }
+            } else {
+                return Err(Error::bounds(format!(
+                    "cannot concatenate {:?} with {:?}",
+                    shape,
+                    array.shape()
+                )));
+            }
+        }
+
+        let mut permutation = (0..shape.len()).into_iter().collect::<Shape>();
+        permutation.swap(0, axis);
 
         let arrays = arrays
             .into_iter()
@@ -274,6 +295,12 @@ where
             let mut shape = Shape::from_slice(first.shape());
             while let Some(next) = array_iter.next() {
                 if next.ndim() != shape.len() {
+                    return Err(Error::bounds(format!(
+                        "cannot concatenate shapes {:?} and {:?}",
+                        shape,
+                        next.shape()
+                    )));
+                } else if shape.len() > 1 && shape[1..] != next.shape()[1..] {
                     return Err(Error::bounds(format!(
                         "cannot concatenate shapes {:?} and {:?}",
                         shape,
