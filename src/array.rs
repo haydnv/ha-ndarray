@@ -1291,7 +1291,9 @@ where
     type Complex: Access<Self::DType>;
 
     /// Calculate the angle in the complex plane elementwise.
-    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error>;
+    fn angle(
+        self,
+    ) -> Result<Array<<Self::DType as Complex>::Real, Self::Real, Self::Platform>, Error>;
 
     /// Calculate the angle in the complex plane elementwise.
     fn conj(self) -> Result<Array<Self::DType, Self::Complex, Self::Platform>, Error>;
@@ -1313,7 +1315,7 @@ where
     type Real = AccessOp<P::Real, P>;
     type Complex = AccessOp<P::Complex, P>;
 
-    fn angle(self) -> Result<Array<Self::DType, Self::Real, Self::Platform>, Error> {
+    fn angle(self) -> Result<Array<T::Real, Self::Real, Self::Platform>, Error> {
         self.apply(|platform, access| platform.angle(access))
     }
 
@@ -1375,6 +1377,7 @@ where
     }
 }
 
+// TODO: it should be possible to implement this with a different other DType, e.g. C32 * f32
 /// Array arithmetic operations
 pub trait NDArrayMath<O: NDArray<DType = Self::DType>>: NDArray + Sized {
     type Output: Access<Self::DType>;
