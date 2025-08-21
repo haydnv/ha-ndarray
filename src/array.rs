@@ -525,7 +525,7 @@ where
 /// Access methods for an [`NDArray`]
 pub trait NDArrayRead: NDArray + fmt::Debug + Sized {
     /// Read the value of this [`NDArray`] into a [`BufferConverter`].
-    fn buffer(&self) -> Result<BufferConverter<Self::DType>, Error>;
+    fn buffer(&self) -> Result<BufferConverter<'_, Self::DType>, Error>;
 
     /// Buffer this [`NDArray`] into a new, owned array, allocating only if needed.
     fn into_read(
@@ -551,7 +551,7 @@ where
     A: Access<T>,
     P: PlatformInstance,
 {
-    fn buffer(&self) -> Result<BufferConverter<T>, Error> {
+    fn buffer(&self) -> Result<BufferConverter<'_, T>, Error> {
         self.access.read()
     }
 

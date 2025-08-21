@@ -11,7 +11,7 @@ use crate::{Buffer, Error, Number, Platform};
 /// A type which allows accessing array data
 pub trait Access<T: Number>: Send + Sync {
     /// Read the data of this accessor as a [`BufferConverter`].
-    fn read(&self) -> Result<BufferConverter<T>, Error>;
+    fn read(&self) -> Result<BufferConverter<'_, T>, Error>;
 
     /// Access a single value.
     fn read_value(&self, offset: usize) -> Result<T, Error>;
@@ -125,7 +125,7 @@ where
     T: Number,
     B: BufferInstance<T>,
 {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
+    fn read(&self) -> Result<BufferConverter<'_, T>, Error> {
         Ok(self.buffer.read())
     }
 
@@ -301,7 +301,7 @@ pub enum Accessor<'a, T: Number> {
 }
 
 impl<'a, T: Number> Access<T> for Accessor<'a, T> {
-    fn read(&self) -> Result<BufferConverter<T>, Error> {
+    fn read(&self) -> Result<BufferConverter<'_, T>, Error> {
         match self {
             Self::Buffer(buf) => Ok(buf.read()),
             Self::Op(op) => op.enqueue().map(BufferConverter::from),

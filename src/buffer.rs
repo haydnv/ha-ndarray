@@ -11,7 +11,7 @@ use crate::{host, Error, Number};
 /// A data buffer
 pub trait BufferInstance<T: Number>: Send + Sync {
     /// Borrow this buffer as a [`BufferConverter`].
-    fn read(&self) -> BufferConverter<T>;
+    fn read(&self) -> BufferConverter<'_, T>;
 
     /// Read a single value in this buffer.
     fn read_value(&self, offset: usize) -> Result<T, Error>;
@@ -62,7 +62,7 @@ impl<T: Number> GetSize for Buffer<T> {
 }
 
 impl<T: Number> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::from(self)
     }
 
@@ -119,7 +119,7 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
 }
 
 impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::from(*self)
     }
 
@@ -133,7 +133,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
 }
 
 impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::from(&**self)
     }
 
