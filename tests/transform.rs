@@ -25,13 +25,6 @@ fn test_flip() -> Result<(), Error> {
 
     let flip0_expected = ArrayBuf::new(vec![3, 4, 5, 0, 1, 2], shape.clone())?;
     let flip0_actual = source.clone().flip(0)?;
-
-    for x in 0..shape[0] {
-        for y in 0..shape[1] {
-            println!("{x}, {y}: {}", flip0_actual.read_value(&[x, y])?);
-        }
-    }
-
     assert!(flip0_expected.eq(flip0_actual)?.all()?);
 
     let flip1_expected = ArrayBuf::new(vec![2, 1, 0, 5, 4, 3], shape)?;
