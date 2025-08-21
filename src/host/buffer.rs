@@ -13,7 +13,7 @@ use super::VEC_MIN_SIZE;
 pub type StackVec<T> = SmallVec<[T; VEC_MIN_SIZE]>;
 
 impl<T: Number> BufferInstance<T> for StackVec<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         self.as_slice().into()
     }
 
@@ -41,7 +41,7 @@ impl<T: Number> BufferMut<T> for StackVec<T> {
 }
 
 impl<T: Number> BufferInstance<T> for Vec<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         self.as_slice().into()
     }
 
@@ -69,7 +69,7 @@ impl<T: Number> BufferMut<T> for Vec<T> {
 }
 
 impl<'a, T: Number> BufferInstance<T> for &'a [T] {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         (*self).into()
     }
 
@@ -88,7 +88,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a [T] {
 }
 
 impl<'a, T: Number> BufferInstance<T> for &'a mut [T] {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         (&**self).into()
     }
 
@@ -175,7 +175,7 @@ impl<T> AsMut<[T]> for Buffer<T> {
 }
 
 impl<T: Number> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::Host(self.into())
     }
 
