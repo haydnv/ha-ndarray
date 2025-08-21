@@ -2,11 +2,11 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-#[cfg(feature = "complex")]
-use num_complex::{Complex32, Complex64};
 use number_general as ng;
 use safecast::CastFrom;
 
+#[cfg(feature = "complex")]
+pub use num_complex as complex;
 pub use smallvec::smallvec as axes;
 pub use smallvec::smallvec as coord;
 pub use smallvec::smallvec as range;
@@ -63,9 +63,9 @@ impl CLType for u16 {}
 impl CLType for u32 {}
 impl CLType for u64 {}
 #[cfg(feature = "complex")]
-impl CLType for num_complex::Complex<f32> {}
+impl CLType for complex::Complex<f32> {}
 #[cfg(feature = "complex")]
-impl CLType for num_complex::Complex<f64> {}
+impl CLType for complex::Complex<f64> {}
 
 /// A numeric type supported by ha-ndarray
 pub trait Number: CLType + Into<ng::Number> + CastFrom<ng::Number> + Default {
@@ -137,30 +137,30 @@ macro_rules! number {
 
 #[cfg(feature = "complex")]
 number!(
-    Complex32,
+    complex::Complex32,
     f32,
-    Complex32::new(1., 0.),
-    Complex32::new(0., 0.),
-    Complex32::norm,
+    complex::Complex32::ONE,
+    complex::Complex32::ZERO,
+    complex::Complex32::norm,
     Add::add,
     Div::div,
     Mul::mul,
     Sub::sub,
-    Complex32::powc
+    complex::Complex32::powc
 );
 
 #[cfg(feature = "complex")]
 number!(
-    Complex64,
+    complex::Complex64,
     f64,
-    Complex64::new(1., 0.),
-    Complex64::new(0., 0.),
-    Complex64::norm,
+    complex::Complex64::ONE,
+    complex::Complex64::ZERO,
+    complex::Complex64::norm,
     Add::add,
     Div::div,
     Mul::mul,
     Sub::sub,
-    Complex64::powc
+    complex::Complex64::powc
 );
 
 number!(
@@ -544,9 +544,9 @@ macro_rules! float_type {
 }
 
 #[cfg(feature = "complex")]
-float_type!(Complex32, |_| false, |_| false);
+float_type!(complex::Complex32, |_| false, |_| false);
 #[cfg(feature = "complex")]
-float_type!(Complex64, |_| false, |_| false);
+float_type!(complex::Complex64, |_| false, |_| false);
 float_type!(f32, f32::is_infinite, f32::is_nan);
 float_type!(f64, f64::is_infinite, f64::is_nan);
 
@@ -589,7 +589,7 @@ macro_rules! complex_type {
             }
 
             fn conj(self) -> Self {
-                num_complex::Complex::<$r>::conj(&self)
+                complex::Complex::<$r>::conj(&self)
             }
 
             fn im(self) -> $r {
@@ -604,9 +604,9 @@ macro_rules! complex_type {
 }
 
 #[cfg(feature = "complex")]
-complex_type!(Complex32, f32);
+complex_type!(complex::Complex32, f32);
 #[cfg(feature = "complex")]
-complex_type!(Complex64, f64);
+complex_type!(complex::Complex64, f64);
 
 /// An array math error
 pub enum Error {
