@@ -1,0 +1,21 @@
+{
+  "name": "ha-ndarray",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "RUST_BACKTRACE": "1"
+  },
+  "postCreateCommand": "rustup component add clippy rustfmt && sudo apt-get update && sudo apt-get install -y ocl-icd-opencl-dev clinfo && cargo fetch",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}
+
