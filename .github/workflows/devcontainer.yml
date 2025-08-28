@@ -1,0 +1,19 @@
+name: Dev Container
+
+on:
+  pull_request:
+  push:
+    branches: [ devcontainer-codespaces ]
+
+jobs:
+  build-devcontainer:
+    name: Build .devcontainer/Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build dev container image
+        run: |
+          docker build -f .devcontainer/Dockerfile -t ha-ndarray-devcontainer:ci .
+
