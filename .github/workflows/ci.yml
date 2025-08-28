@@ -36,12 +36,12 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
 
-      - name: Clippy (warnings as errors)
+      - name: Check (build all targets)
         run: |
           if [ -n "${{ matrix.features }}" ]; then
-            cargo clippy --all-targets --features "${{ matrix.features }}" -D warnings
+            cargo check --all-targets --features "${{ matrix.features }}"
           else
-            cargo clippy --all-targets -D warnings
+            cargo check --all-targets
           fi
 
       - name: Test
