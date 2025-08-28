@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  rust:
+    name: Lint and Test (stable, ${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""
+          - complex
+          - stream
+          - complex,stream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (warnings as errors)
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo clippy --all-targets --features "${{ matrix.features }}" -D warnings
+          else
+            cargo clippy --all-targets -D warnings
+          fi
+
+      - name: Test
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo test --features "${{ matrix.features }}"
+          else
+            cargo test
+          fi
+
+# Note: OpenCL-related tests are not run in CI by default.
+# They require GPU drivers and an OpenCL ICD on the runner.
