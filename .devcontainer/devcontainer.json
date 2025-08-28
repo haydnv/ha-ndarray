@@ -1,14 +1,13 @@
 {
   "name": "ha-ndarray",
-  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+  "build": {
+    "dockerfile": "Dockerfile"
   },
-  "remoteUser": "vscode",
+  "remoteUser": "root",
   "containerEnv": {
     "RUST_BACKTRACE": "1"
   },
-  "postCreateCommand": "rustup component add clippy rustfmt && sudo apt-get update && sudo apt-get install -y ocl-icd-opencl-dev clinfo && cargo fetch",
+  "postCreateCommand": "rustup component add clippy rustfmt && cargo fetch",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -18,4 +17,3 @@
     }
   }
 }
-
