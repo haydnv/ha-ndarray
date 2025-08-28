@@ -1,0 +1,19 @@
+{
+  "name": "ha-ndarray",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "root",
+  "containerEnv": {
+    "RUST_BACKTRACE": "1"
+  },
+  "postCreateCommand": "rustup component add clippy rustfmt && cargo fetch",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}

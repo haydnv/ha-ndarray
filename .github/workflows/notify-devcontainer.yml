@@ -1,0 +1,52 @@
+name: Notify Devcontainer Status
+
+on:
+  workflow_run:
+    workflows: ["Dev Container"]
+    types: [completed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Comment PR with results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { data } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+              per_page: 100,
+            });
+
+            const lines = (data.jobs || []).map(j => `- ${j.name}: ${j.conclusion}`);
+            const body = [
+              `Dev Container workflow completed: ${run.conclusion}`,
+              ``,
+              `Jobs:`,
+              ...lines,
+              ``,
+              `Run: ${run.html_url}`,
+            ].join('\n');
+
+            const prs = run.pull_requests || [];
+            if (prs.length === 0) {
+              core.info('No associated PRs to notify.');
+              return;
+            }
+
+            for (const pr of prs) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body,
+              });
+            }
+

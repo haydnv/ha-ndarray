@@ -1,0 +1,35 @@
+name: Dev Container
+
+on:
+  pull_request:
+  push:
+    branches: [ devcontainer-codespaces ]
+
+jobs:
+  build-devcontainer:
+    name: Build .devcontainer/Dockerfile (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ linux/amd64, linux/arm64 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (emulation for non-native arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (cache-enabled)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
