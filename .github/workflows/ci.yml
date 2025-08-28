@@ -21,10 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Ensure components present
+        run: |
+          rustup component add clippy rustfmt || true
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
