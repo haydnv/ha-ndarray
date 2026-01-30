@@ -526,51 +526,244 @@ cl_complex!(f64, "double2");
 
 #[cfg(feature = "complex")]
 macro_rules! cl_trig_complex {
-    ($t:ty) => {
+    ($t:ty, $r:ty) => {
         impl CLElementTrig for $t {
             fn cl_sin() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_sin",
+                    format!(
+                        "
+                        {r_type} re = (sin(n.x) * cosh(n.y));
+                        {r_type} im = (cos(n.x) * sinh(n.y));
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_asin() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_asin",
+                    format!(
+                        "
+                        // asin(z) = -i * log(i z + sqrt(1 - z^2))
+                        {r_type} a = n.x;
+                        {r_type} b = n.y;
+
+                        // z^2
+                        {r_type} z2_re = (a * a) - (b * b);
+                        {r_type} z2_im = ({r_type})2.0f * a * b;
+
+                        // w = 1 - z^2
+                        {r_type} w_re = ({r_type})1.0f - z2_re;
+                        {r_type} w_im = -z2_im;
+
+                        // sqrt(w)
+                        {r_type} w_norm = sqrt((w_re * w_re) + (w_im * w_im));
+                        {r_type} sqrt_re = sqrt((w_norm + w_re) * ({r_type})0.5f);
+                        {r_type} sqrt_im = sqrt(fmax((w_norm - w_re) * ({r_type})0.5f, ({r_type})0.0f));
+                        sqrt_im = (w_im < ({r_type})0.0f) ? -sqrt_im : sqrt_im;
+
+                        // i z
+                        {r_type} iz_re = -b;
+                        {r_type} iz_im = a;
+
+                        // i z + sqrt(1 - z^2)
+                        {r_type} s_re = iz_re + sqrt_re;
+                        {r_type} s_im = iz_im + sqrt_im;
+
+                        // log(s)
+                        {r_type} s_norm = sqrt((s_re * s_re) + (s_im * s_im));
+                        {r_type} log_re = log(s_norm);
+                        {r_type} log_im = atan2(s_im, s_re);
+
+                        // -i * log(s)
+                        return ({c_type})(log_im, -log_re);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_sinh() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_sinh",
+                    format!(
+                        "
+                        {r_type} re = (sinh(n.x) * cos(n.y));
+                        {r_type} im = (cosh(n.x) * sin(n.y));
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_cos() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_cos",
+                    format!(
+                        "
+                        {r_type} re = (cos(n.x) * cosh(n.y));
+                        {r_type} im = -(sin(n.x) * sinh(n.y));
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_acos() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_acos",
+                    format!(
+                        "
+                        // acos(z) = -i * log(z + i * sqrt(1 - z^2))
+                        {r_type} a = n.x;
+                        {r_type} b = n.y;
+
+                        // z^2
+                        {r_type} z2_re = (a * a) - (b * b);
+                        {r_type} z2_im = ({r_type})2.0f * a * b;
+
+                        // w = 1 - z^2
+                        {r_type} w_re = ({r_type})1.0f - z2_re;
+                        {r_type} w_im = -z2_im;
+
+                        // sqrt(w)
+                        {r_type} w_norm = sqrt((w_re * w_re) + (w_im * w_im));
+                        {r_type} sqrt_re = sqrt((w_norm + w_re) * ({r_type})0.5f);
+                        {r_type} sqrt_im = sqrt(fmax((w_norm - w_re) * ({r_type})0.5f, ({r_type})0.0f));
+                        sqrt_im = (w_im < ({r_type})0.0f) ? -sqrt_im : sqrt_im;
+
+                        // i * sqrt(w) = (-sqrt_im) + i * sqrt_re
+                        {r_type} iz_re = -sqrt_im;
+                        {r_type} iz_im = sqrt_re;
+
+                        // z + i * sqrt(1 - z^2)
+                        {r_type} s_re = a + iz_re;
+                        {r_type} s_im = b + iz_im;
+
+                        // log(s)
+                        {r_type} s_norm = sqrt((s_re * s_re) + (s_im * s_im));
+                        {r_type} log_re = log(s_norm);
+                        {r_type} log_im = atan2(s_im, s_re);
+
+                        // -i * log(s)
+                        return ({c_type})(log_im, -log_re);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_cosh() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_cosh",
+                    format!(
+                        "
+                        {r_type} re = (cosh(n.x) * cos(n.y));
+                        {r_type} im = (sinh(n.x) * sin(n.y));
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_tan() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_tan",
+                    format!(
+                        "
+                        // tan(a + i b) = (sin(2a) + i sinh(2b)) / (cos(2a) + cosh(2b))
+                        {r_type} r2 = ({r_type})2.0f * n.x;
+                        {r_type} i2 = ({r_type})2.0f * n.y;
+                        {r_type} denom = cos(r2) + cosh(i2);
+
+                        {r_type} re = sin(r2) / denom;
+                        {r_type} im = sinh(i2) / denom;
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_atan() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_atan",
+                    format!(
+                        "
+                        // atan(z) = (i / 2) * (log(1 - i z) - log(1 + i z))
+                        {r_type} a = n.x;
+                        {r_type} b = n.y;
+
+                        // 1 - i z = (1 + b) - i a
+                        {r_type} w1_re = ({r_type})1.0f + b;
+                        {r_type} w1_im = -a;
+
+                        // 1 + i z = (1 - b) + i a
+                        {r_type} w2_re = ({r_type})1.0f - b;
+                        {r_type} w2_im = a;
+
+                        {r_type} w1_norm = sqrt((w1_re * w1_re) + (w1_im * w1_im));
+                        {r_type} u1 = log(w1_norm);
+                        {r_type} v1 = atan2(w1_im, w1_re);
+
+                        {r_type} w2_norm = sqrt((w2_re * w2_re) + (w2_im * w2_im));
+                        {r_type} u2 = log(w2_norm);
+                        {r_type} v2 = atan2(w2_im, w2_re);
+
+                        // diff = (u1 - u2) + i (v1 - v2)
+                        {r_type} p = u1 - u2;
+
+                        // (i / 2) * (p + i q) = (-q / 2) + i (p / 2)
+                        {r_type} re = (v2 - v1) * ({r_type})0.5f;
+                        {r_type} im = p * ({r_type})0.5f;
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
 
             fn cl_tanh() -> ElementUnary {
-                todo!()
+                ElementUnary::new::<Self, Self, _>(
+                    "_tanh",
+                    format!(
+                        "
+                        // tanh(a + i b) = (sinh(2a) + i sin(2b)) / (cosh(2a) + cos(2b))
+                        {r_type} r2 = ({r_type})2.0f * n.x;
+                        {r_type} i2 = ({r_type})2.0f * n.y;
+                        {r_type} denom = cosh(r2) + cos(i2);
+
+                        {r_type} re = sinh(r2) / denom;
+                        {r_type} im = sin(i2) / denom;
+                        return ({c_type})(re, im);
+                        ",
+                        c_type = Self::TYPE,
+                        r_type = <$r>::TYPE,
+                    ),
+                )
             }
         }
     };
 }
 
 #[cfg(feature = "complex")]
-cl_trig_complex!(num_complex::Complex<f32>);
+cl_trig_complex!(num_complex::Complex<f32>, f32);
 #[cfg(feature = "complex")]
-cl_trig_complex!(num_complex::Complex<f64>);
+cl_trig_complex!(num_complex::Complex<f64>, f64);
 
 lazy_static! {
     pub static ref CL_PLATFORM: platform::CLPlatform =
@@ -589,10 +782,34 @@ const _: () = {
 mod tests {
     use crate::{
         shape, slice, AxisRange, Error, MatrixDual, NDArray, NDArrayCompare, NDArrayMath,
-        NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite, Shape,
+        NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayTrig, NDArrayWrite, Shape,
     };
 
     use super::*;
+
+    #[cfg(feature = "complex")]
+    fn assert_complex32_close(
+        actual: &[num_complex::Complex32],
+        expected: &[num_complex::Complex32],
+    ) {
+        const EPS: f32 = 1e-4;
+        assert_eq!(actual.len(), expected.len());
+
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!(
+                (actual.re - expected.re).abs() <= EPS,
+                "expected re={}, got re={}",
+                expected.re,
+                actual.re
+            );
+            assert!(
+                (actual.im - expected.im).abs() <= EPS,
+                "expected im={}, got im={}",
+                expected.im,
+                actual.im
+            );
+        }
+    }
 
     #[test]
     fn test_add() -> Result<(), Error> {
@@ -606,6 +823,93 @@ mod tests {
         let eq = actual.eq(expected)?;
 
         assert!(eq.all()?);
+
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
+    fn test_trig_complex32_basic() -> Result<(), Error> {
+        let input: Vec<num_complex::Complex32> = vec![
+            num_complex::Complex32::new(0.0, 0.0),
+            num_complex::Complex32::new(0.125, -0.25),
+            num_complex::Complex32::new(-0.5, 1.5),
+            num_complex::Complex32::new(2.0, 0.75),
+        ];
+
+        let shape = shape![input.len()];
+        let buf = OpenCL::copy_into_buffer::<num_complex::Complex32>(&input)?;
+        let arr = ArrayBuf::new(buf, shape)?;
+
+        let sin_expected = input.iter().map(|z| z.sin()).collect::<Vec<_>>();
+        let sin_actual = arr.clone().sin()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&sin_actual, &sin_expected);
+
+        let cos_expected = input.iter().map(|z| z.cos()).collect::<Vec<_>>();
+        let cos_actual = arr.clone().cos()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&cos_actual, &cos_expected);
+
+        let tan_expected = input.iter().map(|z| z.tan()).collect::<Vec<_>>();
+        let tan_actual = arr.tan()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&tan_actual, &tan_expected);
+
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
+    fn test_trig_complex32_hyperbolic() -> Result<(), Error> {
+        let input: Vec<num_complex::Complex32> = vec![
+            num_complex::Complex32::new(0.0, 0.0),
+            num_complex::Complex32::new(0.25, 0.125),
+            num_complex::Complex32::new(-1.0, 0.75),
+            num_complex::Complex32::new(1.25, -0.5),
+        ];
+
+        let shape = shape![input.len()];
+        let buf = OpenCL::copy_into_buffer::<num_complex::Complex32>(&input)?;
+        let arr = ArrayBuf::new(buf, shape)?;
+
+        let sinh_expected = input.iter().map(|z| z.sinh()).collect::<Vec<_>>();
+        let sinh_actual = arr.clone().sinh()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&sinh_actual, &sinh_expected);
+
+        let cosh_expected = input.iter().map(|z| z.cosh()).collect::<Vec<_>>();
+        let cosh_actual = arr.clone().cosh()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&cosh_actual, &cosh_expected);
+
+        let tanh_expected = input.iter().map(|z| z.tanh()).collect::<Vec<_>>();
+        let tanh_actual = arr.tanh()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&tanh_actual, &tanh_expected);
+
+        Ok(())
+    }
+
+    #[cfg(feature = "complex")]
+    #[test]
+    fn test_trig_complex32_inverse() -> Result<(), Error> {
+        let input: Vec<num_complex::Complex32> = vec![
+            num_complex::Complex32::new(0.0, 0.0),
+            num_complex::Complex32::new(0.25, 0.125),
+            num_complex::Complex32::new(-0.5, 0.25),
+            num_complex::Complex32::new(0.9, -0.1),
+        ];
+
+        let shape = shape![input.len()];
+        let buf = OpenCL::copy_into_buffer::<num_complex::Complex32>(&input)?;
+        let arr = ArrayBuf::new(buf, shape)?;
+
+        let asin_expected = input.iter().map(|z| z.asin()).collect::<Vec<_>>();
+        let asin_actual = arr.clone().asin()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&asin_actual, &asin_expected);
+
+        let acos_expected = input.iter().map(|z| z.acos()).collect::<Vec<_>>();
+        let acos_actual = arr.clone().acos()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&acos_actual, &acos_expected);
+
+        let atan_expected = input.iter().map(|z| z.atan()).collect::<Vec<_>>();
+        let atan_actual = arr.atan()?.buffer()?.to_slice()?.to_vec();
+        assert_complex32_close(&atan_actual, &atan_expected);
 
         Ok(())
     }

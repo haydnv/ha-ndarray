@@ -1727,6 +1727,7 @@ fn pad_dim(dim: usize, size: usize) -> usize {
 }
 
 #[allow(unused)]
+// Convenience helper when debugging kernels (e.g. manual spot checks of intermediate buffers).
 fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
     let mut inspect = vec![T::ZERO; buffer.len()];
     buffer.read(inspect.as_mut_slice()).enq()?;
