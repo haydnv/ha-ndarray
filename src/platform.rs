@@ -343,7 +343,7 @@ impl<A: Access<T>, T: Number> ElementwiseCompareScalar<A, T> for Platform {
     }
 }
 
-#[cfg(all(feature = "complex"))]
+#[cfg(feature = "complex")]
 impl<A, T> complex::ElementwiseUnaryComplex<A, T> for Platform
 where
     A: Access<T>,
@@ -661,7 +661,7 @@ impl<A: Access<T>, T: Number> ElementwiseUnaryBoolean<A, T> for Platform {
     }
 }
 
-#[cfg(all(feature = "complex"))]
+#[cfg(feature = "complex")]
 impl<A, T> complex::Fourier<A, num_complex::Complex<T>> for Platform
 where
     A: Access<num_complex::Complex<T>>,

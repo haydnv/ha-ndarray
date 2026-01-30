@@ -41,7 +41,7 @@ where
     Complex<T>: crate::Complex,
 {
     if data.ndim() >= 2 {
-        let mut permutation = (0..data.ndim()).into_iter().collect::<Axes>();
+        let mut permutation = (0..data.ndim()).collect::<Axes>();
         permutation.swap(data.ndim() - 1, data.ndim() - 2);
 
         data.fft()?
@@ -65,7 +65,7 @@ where
     Complex<T>: crate::Complex,
 {
     if data.ndim() >= 2 {
-        let mut permutation = (0..data.ndim()).into_iter().collect::<Axes>();
+        let mut permutation = (0..data.ndim()).collect::<Axes>();
         permutation.swap(data.ndim() - 1, data.ndim() - 2);
 
         data.transpose(permutation.clone())?
@@ -109,7 +109,7 @@ where
 #[inline]
 fn slice_range(shape: &[usize], axis: usize, range: std::ops::Range<usize>) -> Range {
     shape[..axis]
-        .into_iter()
+        .iter()
         .copied()
         .map(|dim| 0..dim)
         .map(AxisRange::from)

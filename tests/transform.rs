@@ -1,5 +1,4 @@
 use ha_ndarray::*;
-use std::iter;
 
 #[test]
 fn test_broadcast_small() -> Result<(), Error> {
@@ -72,10 +71,9 @@ fn test_slice_and_write() -> Result<(), Error> {
     let mut slice = input.as_mut().slice(range![(128..256).into()])?;
     slice.write_value(1)?;
 
-    let expected = iter::repeat(0)
-        .take(128)
-        .chain(iter::repeat(1).take(128))
-        .chain(iter::repeat(0).take(256))
+    let expected = std::iter::repeat_n(0, 128)
+        .chain(std::iter::repeat_n(1, 128))
+        .chain(std::iter::repeat_n(0, 256))
         .collect::<Vec<_>>();
 
     let actual = input.buffer()?.to_slice()?;

@@ -240,7 +240,7 @@ number!(
     Self::wrapping_sub,
     |a, e| f64::powi(
         a as f64,
-        i32::try_from(e).unwrap_or_else(|_| if e >= 0 { i32::MAX } else { i32::MIN })
+        i32::try_from(e).unwrap_or(if e >= 0 { i32::MAX } else { i32::MIN })
     ) as i64
 );
 
@@ -280,7 +280,7 @@ number!(
     |l, r| if r == 0 { 0 } else { Self::wrapping_div(l, r) },
     Self::wrapping_mul,
     Self::wrapping_sub,
-    |a, e| u32::pow(a, e)
+    u32::pow
 );
 
 number!(
@@ -720,10 +720,7 @@ pub enum AxisRange {
 impl AxisRange {
     /// Return `true` if this is an index bound (i.e. not a slice)
     pub fn is_index(&self) -> bool {
-        match self {
-            Self::At(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::At(_))
     }
 
     /// Return the number of elements contained within this bound.
@@ -772,15 +769,11 @@ pub fn broadcast_shape(left: &[usize], right: &[usize]) -> Result<Shape, Error> 
     let ndim = usize::max(left.len(), right.len());
     let mut shape = Shape::with_capacity(ndim);
 
-    let mut left = left.into_iter().rev().copied();
-    let mut right = right.into_iter().rev().copied();
+    let mut left = left.iter().rev().copied();
+    let mut right = right.iter().rev().copied();
 
-    loop {
-        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
-            shape.push(dim)
-        } else {
-            break;
-        }
+    while let Some(dim) = broadcast_dim(left.next(), right.next())? {
+        shape.push(dim)
     }
 
     shape.reverse();
@@ -794,15 +787,15 @@ pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape,
     let (left_ndim, right_ndim) = (left.len(), right.len());
     let ndim = usize::max(left_ndim, right_ndim);
 
-    let mut left = left.into_iter().rev().copied();
-    let mut right = right.into_iter().rev().copied();
+    let mut left = left.iter().rev().copied();
+    let mut right = right.iter().rev().copied();
 
     let k = right.next().unwrap_or(1);
     let j = match (left.next(), right.next()) {
         (Some(jl), Some(jr)) => match (jl, jr) {
             (jl, jr) if jl == jr => Ok(jl),
-            (jl, jr) if jl == 1 => Ok(jr),
-            (jl, jr) if jr == 1 => Ok(jl),
+            (1, jr) => Ok(jr),
+            (jl, 1) => Ok(jl),
             _ => Err(Error::bounds(format!(
                 "cannot matrix-multiply shapes {left:?} and {right:?}"
             ))),
@@ -814,12 +807,8 @@ pub fn broadcast_matmul_shape(left: &[usize], right: &[usize]) -> Result<(Shape,
     let i = left.next().unwrap_or(1);
 
     let mut broadcast_shape = Shape::with_capacity(ndim);
-    loop {
-        if let Some(dim) = broadcast_dim(left.next(), right.next())? {
-            broadcast_shape.push(dim);
-        } else {
-            break;
-        }
+    while let Some(dim) = broadcast_dim(left.next(), right.next())? {
+        broadcast_shape.push(dim);
     }
 
     broadcast_shape.reverse();
@@ -855,7 +844,7 @@ fn range_shape(source_shape: &[usize], range: &[AxisRange]) -> Shape {
 pub fn strides_for<'a>(shape: &'a [usize], ndim: usize) -> impl Iterator<Item = usize> + 'a {
     debug_assert!(ndim >= shape.len());
 
-    let zeros = std::iter::repeat(0).take(ndim - shape.len());
+    let zeros = std::iter::repeat_n(0, ndim - shape.len());
 
     let strides = shape.iter().copied().enumerate().map(|(x, dim)| {
         if dim == 1 {

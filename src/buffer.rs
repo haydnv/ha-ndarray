@@ -18,6 +18,10 @@ pub trait BufferInstance<T: Number>: Send + Sync {
 
     /// Return the length of this buffer.
     fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// A mutable data buffer
@@ -118,7 +122,7 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
+impl<T: Number> BufferInstance<T> for &Buffer<T> {
     fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::from(*self)
     }
@@ -132,7 +136,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
+impl<T: Number> BufferInstance<T> for &mut Buffer<T> {
     fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::from(&**self)
     }
@@ -146,7 +150,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
+impl<T: Number> BufferMut<T> for &mut Buffer<T> {
     #[cfg(feature = "opencl")]
     fn cl(&mut self) -> Result<&mut ocl::Buffer<T>, Error> {
         Buffer::<T>::cl(&mut **self)
@@ -167,7 +171,7 @@ impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
 
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: Number> BufferInstance<T> for freqfs::FileReadGuardOwned<FE, Buffer<T>> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferInstance::read(&**self)
     }
 
@@ -182,7 +186,7 @@ impl<FE: Send + Sync, T: Number> BufferInstance<T> for freqfs::FileReadGuardOwne
 
 #[cfg(feature = "freqfs")]
 impl<FE: Send + Sync, T: Number> BufferInstance<T> for freqfs::FileWriteGuardOwned<FE, Buffer<T>> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferInstance::read(&**self)
     }
 
@@ -265,6 +269,10 @@ impl<'a, T: Number> BufferConverter<'a, T> {
             Self::CL(buffer) => buffer.len(),
             Self::Host(buffer) => buffer.len(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[cfg(feature = "opencl")]

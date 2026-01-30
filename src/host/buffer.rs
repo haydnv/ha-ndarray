@@ -68,7 +68,7 @@ impl<T: Number> BufferMut<T> for Vec<T> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a [T] {
+impl<T: Number> BufferInstance<T> for &[T] {
     fn read(&self) -> BufferConverter<'_, T> {
         (*self).into()
     }
@@ -87,7 +87,7 @@ impl<'a, T: Number> BufferInstance<T> for &'a [T] {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a mut [T] {
+impl<T: Number> BufferInstance<T> for &mut [T] {
     fn read(&self) -> BufferConverter<'_, T> {
         (&**self).into()
     }
@@ -101,11 +101,11 @@ impl<'a, T: Number> BufferInstance<T> for &'a mut [T] {
     }
 }
 
-impl<'a, T: Number> BufferMut<T> for &'a mut [T] {
+impl<T: Number> BufferMut<T> for &mut [T] {
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
         if data.len() == self.len() {
             let data = data.to_slice()?;
-            self.copy_from_slice(&*data);
+            self.copy_from_slice(&data);
             Ok(())
         } else {
             Err(Error::bounds(format!(
@@ -245,6 +245,10 @@ impl<'a, T> SliceConverter<'a, T> {
             Self::Stack(vec) => vec.len(),
             Self::Slice(slice) => slice.len(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

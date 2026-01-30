@@ -5,7 +5,6 @@ fn test_cond() -> Result<(), Error> {
     let size = 2048;
 
     let cond = (0..size)
-        .into_iter()
         .map(|n| if n % 2 == 0 { 1u8 } else { 0u8 })
         .collect::<Vec<_>>();
 

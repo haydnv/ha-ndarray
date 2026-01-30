@@ -573,16 +573,17 @@ cl_trig_complex!(num_complex::Complex<f32>);
 cl_trig_complex!(num_complex::Complex<f64>);
 
 lazy_static! {
-    pub static ref CL_PLATFORM: platform::CLPlatform = {
-        assert!(VEC_MIN_SIZE < GPU_MIN_SIZE);
-        assert!(GPU_MIN_SIZE < ACC_MIN_SIZE);
-
-        platform::CLPlatform::default().expect("OpenCL platform")
-    };
+    pub static ref CL_PLATFORM: platform::CLPlatform =
+        platform::CLPlatform::default().expect("OpenCL platform");
 }
 
 pub type ArrayBuf<T> = crate::array::Array<T, AccessBuf<ocl::Buffer<T>>, OpenCL>;
 pub type ArrayOp<T, O> = crate::array::Array<T, AccessOp<O, OpenCL>, OpenCL>;
+
+const _: () = {
+    assert!(VEC_MIN_SIZE < GPU_MIN_SIZE);
+    assert!(GPU_MIN_SIZE < ACC_MIN_SIZE);
+};
 
 #[cfg(test)]
 mod tests {
@@ -625,10 +626,10 @@ mod tests {
 
     #[test]
     fn test_matmul_12x20() -> Result<(), Error> {
-        let buf = OpenCL::copy_into_buffer::<i32>(&(0..12).into_iter().collect::<Vec<_>>())?;
+        let buf = OpenCL::copy_into_buffer::<i32>(&(0..12).collect::<Vec<_>>())?;
         let l = ArrayBuf::new(buf, shape![3, 4])?;
 
-        let buf = OpenCL::copy_into_buffer::<i32>(&(0..20).into_iter().collect::<Vec<_>>())?;
+        let buf = OpenCL::copy_into_buffer::<i32>(&(0..20).collect::<Vec<_>>())?;
         let r = ArrayBuf::new(buf, shape![4, 5])?;
 
         let actual = l.matmul(r)?;

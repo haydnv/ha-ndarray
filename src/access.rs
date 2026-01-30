@@ -241,7 +241,7 @@ where
     }
 }
 
-impl<'a, O, P, T> Access<T> for &'a AccessOp<O, P>
+impl<O, P, T> Access<T> for &AccessOp<O, P>
 where
     T: Number,
     O: ReadOp<P, T>,

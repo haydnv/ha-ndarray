@@ -35,7 +35,7 @@ pub fn flip(c_type: &'static str, spec: FlipSpec) -> Result<Program, Error> {
                 if (stride == 0) {{
                     i = 0;
                 }} else {{
-                    i = (offset_out / stride) % dims[x_out];
+                    i = (offset_out / stride) % dims[x];
                 }}
 
                 if (x == {axis}) {{

@@ -5,7 +5,7 @@ fn test_add() -> Result<(), Error> {
     let shape = shape![5, 2];
 
     let left = ArrayOp::range(0, 10, shape.clone())?;
-    let right = ArrayBuf::new((0..10).into_iter().rev().collect::<Vec<_>>(), shape.clone())?;
+    let right = ArrayBuf::new((0..10).rev().collect::<Vec<_>>(), shape.clone())?;
 
     let actual = left.add(right)?;
     let expected = ArrayBuf::constant(9, shape)?;

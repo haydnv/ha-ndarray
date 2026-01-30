@@ -1,3 +1,7 @@
+#![allow(clippy::type_complexity)]
+// The public API is intentionally generic over access/platform types; explicit type aliases here
+// tend to obscure the actual bounds without meaningfully improving readability.
+
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -238,7 +242,12 @@ where
         axis: usize,
     ) -> Result<Array<T, impl Access<T>, P>, Error> {
         let shape = if let Some(first) = arrays.first() {
-            Ok(first.shape())
+            let shape = first.shape();
+            if axis < shape.len() {
+                Ok(shape)
+            } else {
+                Err(Error::bounds(format!("{first:?} has no axis {axis}")))
+            }
         } else {
             Err(Error::bounds(
                 "cannot concatenate an empty list of arrays".to_string(),
@@ -248,11 +257,7 @@ where
         for array in arrays.iter().skip(1) {
             if array.ndim() == shape.len() {
                 for (x, (dim, a_dim)) in shape.iter().zip(array.shape()).enumerate() {
-                    if x == axis {
-                        // pass
-                    } else if dim == a_dim {
-                        // pass
-                    } else {
+                    if x != axis && dim != a_dim {
                         return Err(Error::bounds(format!(
                             "cannot concatenate {:?} with {:?} at axis {axis}",
                             shape,
@@ -269,7 +274,7 @@ where
             }
         }
 
-        let mut permutation = (0..shape.len()).into_iter().collect::<Shape>();
+        let mut permutation: Axes = (0..shape.len()).collect();
         permutation.swap(0, axis);
 
         let arrays = arrays
@@ -293,14 +298,10 @@ where
 
         if let Some(first) = first {
             let mut shape = Shape::from_slice(first.shape());
-            while let Some(next) = array_iter.next() {
-                if next.ndim() != shape.len() {
-                    return Err(Error::bounds(format!(
-                        "cannot concatenate shapes {:?} and {:?}",
-                        shape,
-                        next.shape()
-                    )));
-                } else if shape.len() > 1 && shape[1..] != next.shape()[1..] {
+            for next in array_iter {
+                if next.ndim() != shape.len()
+                    || (shape.len() > 1 && shape[1..] != next.shape()[1..])
+                {
                     return Err(Error::bounds(format!(
                         "cannot concatenate shapes {:?} and {:?}",
                         shape,
@@ -449,7 +450,6 @@ impl<'a, T: Number> ArrayAccess<'a, T> {
         };
 
         (0..dim)
-            .into_iter()
             .map(|r| {
                 let mut range = prefix.clone();
                 range.push(AxisRange::At(r));
@@ -909,9 +909,7 @@ where
         let permutation = if let Some(axes) = permutation.into() {
             if axes.len() == self.ndim()
                 && axes.iter().copied().all(|x| x < self.ndim())
-                && !(1..axes.len())
-                    .into_iter()
-                    .any(|i| axes[i..].contains(&axes[i - 1]))
+                && !(1..axes.len()).any(|i| axes[i..].contains(&axes[i - 1]))
             {
                 Ok(axes)
             } else {
@@ -921,7 +919,7 @@ where
                 )))
             }
         } else {
-            Ok((0..self.ndim()).into_iter().rev().collect())
+            Ok((0..self.ndim()).rev().collect())
         }?;
 
         let shape = permutation.iter().copied().map(|x| self.shape[x]).collect();
@@ -1609,9 +1607,13 @@ where
     type Output: Access<u8>;
 
     /// Test which elements of this array are infinite.
+    #[allow(clippy::wrong_self_convention)]
+    // This consumes `self` to allow in-place graph construction, consistent with other ndarray ops.
     fn is_inf(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 
     /// Test which elements of this array are not-a-number.
+    #[allow(clippy::wrong_self_convention)]
+    // This consumes `self` to allow in-place graph construction, consistent with other ndarray ops.
     fn is_nan(self) -> Result<Array<u8, Self::Output, Self::Platform>, Error>;
 }
 
@@ -1675,7 +1677,7 @@ pub trait NDArrayReduceAll: NDArrayRead {
     fn sum_all(self) -> Result<Self::DType, Error>;
 }
 
-impl<'a, T, A, P> NDArrayReduceAll for Array<T, A, P>
+impl<T, A, P> NDArrayReduceAll for Array<T, A, P>
 where
     T: Number,
     A: Access<T>,
@@ -1910,7 +1912,7 @@ where
     fn mt(self) -> Result<Array<Self::DType, Self::Transpose, Self::Platform>, Error> {
         let ndim = self.ndim();
         let mut permutation = Axes::with_capacity(ndim);
-        permutation.extend((0..self.ndim() - 2).into_iter());
+        permutation.extend(0..self.ndim() - 2);
         permutation.push(ndim - 1);
         permutation.push(ndim - 2);
         self.transpose(permutation)
@@ -1985,8 +1987,8 @@ fn can_broadcast(left: &[usize], right: &[usize]) -> bool {
 
 #[inline]
 fn matmul_dims(left: &[usize], right: &[usize]) -> Option<[usize; 4]> {
-    let mut left = left.into_iter().copied().rev();
-    let mut right = right.into_iter().copied().rev();
+    let mut left = left.iter().copied().rev();
+    let mut right = right.iter().copied().rev();
 
     let b = left.next()?;
     let a = left.next()?;
@@ -2024,7 +2026,7 @@ where
     Accessor<'a, T>: From<A> + From<AccessOp<P::Transpose, P>>,
 {
     let mut permutation = Axes::with_capacity(shape.len());
-    permutation.extend((0..shape.len()).into_iter().filter(|x| !axes.contains(x)));
+    permutation.extend((0..shape.len()).filter(|x| !axes.contains(x)));
     permutation.extend(axes);
 
     if permutation.iter().copied().enumerate().all(|(i, x)| i == x) {
@@ -2076,10 +2078,8 @@ pub fn same_shape(op_name: &'static str, left: &[usize], right: &[usize]) -> Res
 
 #[inline]
 fn valid_coord(coord: &[usize], shape: &[usize]) -> Result<(), Error> {
-    if coord.len() == shape.len() {
-        if coord.iter().zip(shape).all(|(i, dim)| i < dim) {
-            return Ok(());
-        }
+    if coord.len() == shape.len() && coord.iter().zip(shape).all(|(i, dim)| i < dim) {
+        return Ok(());
     }
 
     Err(Error::bounds(format!(

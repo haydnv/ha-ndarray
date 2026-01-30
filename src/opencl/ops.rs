@@ -84,7 +84,7 @@ where
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let queue = OpenCL::queue(self.size(), &[])?;
 
-        let mut buffer = Buffer::builder()
+        let buffer = Buffer::builder()
             .queue(queue.clone())
             .len(self.size())
             .build()?;
@@ -92,8 +92,7 @@ where
         let mut offset = 0;
         for access in self.data() {
             let data = access.read()?.to_cl()?;
-            data.copy(&mut buffer, Some(offset), Some(data.len()))
-                .enq()?;
+            data.copy(&buffer, Some(offset), Some(data.len())).enq()?;
             offset += data.len();
         }
 
@@ -642,7 +641,7 @@ where
         Ok(output)
     }
 
-    fn pad_matrices<'a>(
+    fn pad_matrices(
         &self,
         batch: &Buffer<T>,
         dims_in: [usize; 2],
@@ -685,7 +684,7 @@ where
 
         unsafe { kernel.enq()? }
 
-        Ok(output.into())
+        Ok(output)
     }
 }
 
@@ -842,7 +841,7 @@ impl Enqueue<OpenCL, f32> for RandomNormal {
             .program(&self.program)
             .global_work_size(buffer.len())
             .local_work_size(WG_SIZE)
-            .arg(u64::try_from(seed).expect("seed"))
+            .arg(u64::from(seed))
             .arg(&buffer)
             .arg_local::<f32>(WG_SIZE)
             .build()?;
@@ -1127,14 +1126,12 @@ impl<A, T: Number> Scalar<A, T, T> {
         cl_op: ElementDual,
         scalar_op: fn(T, T) -> T,
     ) -> Result<Self, Error> {
-        programs::elementwise::dual_scalar(cl_op)
-            .map(|program| Self {
-                access,
-                scalar,
-                program,
-                op: scalar_op,
-            })
-            .map_err(Error::from)
+        programs::elementwise::dual_scalar(cl_op).map(|program| Self {
+            access,
+            scalar,
+            program,
+            op: scalar_op,
+        })
     }
 
     pub fn add(access: A, scalar: T) -> Result<Self, Error> {
@@ -1184,14 +1181,12 @@ where
         cl_op: ElementDual,
         scalar_op: fn(T, T) -> u8,
     ) -> Result<Self, Error> {
-        programs::elementwise::dual_scalar(cl_op)
-            .map(|program| Self {
-                access,
-                scalar,
-                program,
-                op: scalar_op,
-            })
-            .map_err(Error::from)
+        programs::elementwise::dual_scalar(cl_op).map(|program| Self {
+            access,
+            scalar,
+            program,
+            op: scalar_op,
+        })
     }
 
     pub fn and(access: A, scalar: T) -> Result<Self, Error> {

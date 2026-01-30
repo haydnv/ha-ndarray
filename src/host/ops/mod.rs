@@ -80,7 +80,7 @@ impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<Stack, OT> for Cast<A, IT, O
             .and_then(|buf| buf.to_slice())
             .map(|slice| {
                 slice
-                    .into_iter()
+                    .iter()
                     .copied()
                     .map(|n| n.into())
                     .map(OT::cast_from)
@@ -153,19 +153,10 @@ where
         let or_else = self.or_else.read()?.to_slice()?;
 
         let output = cond
-            .into_iter()
+            .iter()
             .copied()
-            .zip(then.into_iter().zip(or_else.into_iter()))
-            .map(
-                |(cond, (then, or_else))| {
-                    if cond != 0 {
-                        then
-                    } else {
-                        or_else
-                    }
-                },
-            )
-            .copied()
+            .zip(then.iter().copied().zip(or_else.iter().copied()))
+            .map(|(cond, (then, or_else))| if cond != 0 { then } else { or_else })
             .collect();
 
         Ok(output)
@@ -561,7 +552,6 @@ where
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         (0..self.size())
-            .into_iter()
             .map(|offset| self.read_value(offset))
             .collect()
     }
@@ -622,10 +612,7 @@ impl<T: Number> Enqueue<Stack, T> for Linear<T> {
     type Buffer = StackVec<T>;
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
-        let buffer = (0..self.size)
-            .into_iter()
-            .map(|offset| self.value_at(offset))
-            .collect();
+        let buffer = (0..self.size).map(|offset| self.value_at(offset)).collect();
 
         Ok(buffer)
     }
@@ -691,13 +678,12 @@ impl<A: Access<T>, T: Number> Enqueue<Heap, T> for MatDiag<A, T> {
 
         let diagonals = input
             .par_chunks_exact(self.dim * self.dim)
-            .map(|matrix| {
+            .flat_map(|matrix| {
                 matrix
                     .par_chunks_exact(self.dim)
                     .enumerate()
                     .map(|(i, row)| row[i])
             })
-            .flatten()
             .collect();
 
         Ok(diagonals)
@@ -712,13 +698,12 @@ impl<A: Access<T>, T: Number> Enqueue<Stack, T> for MatDiag<A, T> {
 
         let diagonals = input
             .chunks_exact(self.dim * self.dim)
-            .map(|matrix| {
+            .flat_map(|matrix| {
                 matrix
                     .chunks_exact(self.dim)
                     .enumerate()
                     .map(|(i, row)| row[i])
             })
-            .flatten()
             .collect();
 
         Ok(diagonals)
@@ -852,12 +837,12 @@ where
                     .map(|row| {
                         rm.par_chunks_exact(b).map(move |col| {
                             // chunk the dot product to encourage the compiler to vectorize
-                            let col = col.par_chunks(8).map(|cc| cc.into_iter().copied());
+                            let col = col.par_chunks(8).map(|cc| cc.iter().copied());
 
                             row.par_chunks(8)
                                 .zip(col)
                                 .map(|(rc, cc)| {
-                                    rc.into_iter()
+                                    rc.iter()
                                         .copied()
                                         .zip(cc)
                                         .map(|(r, c)| T::mul(r, c))
@@ -1080,7 +1065,7 @@ where
             .map(|slice| {
                 slice
                     .as_ref()
-                    .into_iter()
+                    .iter()
                     .copied()
                     .map(|l| (self.op)(l, self.scalar))
                     .collect()
@@ -1143,10 +1128,8 @@ impl Enqueue<Heap, f32> for RandomNormal {
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let mut rng = Rand::new();
 
-        let mut output = (0..(self.size + 1) / 2)
-            .into_iter()
-            .map(|_| Self::box_muller([rng.gen(), rng.gen()]))
-            .flatten()
+        let mut output = (0..self.size.div_ceil(2))
+            .flat_map(|_| Self::box_muller([rng.gen(), rng.gen()]))
             .collect::<Vec<f32>>();
 
         if output.len() > self.size {
@@ -1167,8 +1150,7 @@ impl Enqueue<Stack, f32> for RandomNormal {
 
         let mut output = iter::repeat_with(|| [rng.gen(), rng.gen()])
             .take(self.size.div_ceil(2))
-            .map(Self::box_muller)
-            .flatten()
+            .flat_map(Self::box_muller)
             .collect::<StackVec<f32>>();
 
         if output.len() > self.size {
@@ -1218,7 +1200,7 @@ impl Enqueue<Heap, f32> for RandomUniform {
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let mut rng = Rand::new();
-        Ok((0..self.size).into_iter().map(|_| rng.gen()).collect())
+        Ok((0..self.size).map(|_| rng.gen()).collect())
     }
 }
 
@@ -1227,7 +1209,7 @@ impl Enqueue<Stack, f32> for RandomUniform {
 
     fn enqueue(&self) -> Result<Self::Buffer, Error> {
         let mut rng = Rand::new();
-        Ok((0..self.size).into_iter().map(|_| rng.gen()).collect())
+        Ok((0..self.size).map(|_| rng.gen()).collect())
     }
 }
 
@@ -1396,7 +1378,6 @@ impl<A, T> Slice<A, T> {
 impl<A: Send + Sync, T: Copy + Send + Sync> Slice<A, T> {
     fn read(&self, source: &[T]) -> Result<StackVec<T>, Error> {
         let output = (0..self.size())
-            .into_iter()
             .map(|offset_out| self.spec.source_offset(offset_out))
             .map(|offset_in| source[offset_in])
             .collect();
@@ -1424,7 +1405,7 @@ where
         if data.len() == self.size() {
             let data = data.to_slice()?;
 
-            for (offset, value) in data.into_iter().copied().enumerate() {
+            for (offset, value) in data.iter().copied().enumerate() {
                 let source_offset = self.spec.source_offset(offset);
                 self.access.write_value_at(source_offset, value)?;
             }
@@ -1467,7 +1448,7 @@ impl<A: Access<T>, T: Number> Enqueue<Heap, T> for Slice<A, T> {
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .and_then(|buf| self.read_parallel(&*buf))
+            .and_then(|buf| self.read_parallel(&buf))
     }
 }
 
@@ -1478,7 +1459,7 @@ impl<A: Access<T>, T: Number> Enqueue<Stack, T> for Slice<A, T> {
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .and_then(|buf| self.read(&*buf))
+            .and_then(|buf| self.read(&buf))
     }
 }
 
@@ -1755,7 +1736,7 @@ where
         self.access
             .read()
             .and_then(|buf| buf.to_slice())
-            .map(|input| input.into_iter().copied().map(self.op).collect())
+            .map(|input| input.iter().copied().map(self.op).collect())
     }
 }
 
@@ -1826,7 +1807,6 @@ impl<A: Access<T>, T: Number> Enqueue<Stack, T> for View<A, T> {
         let source = self.access.read().and_then(|source| source.to_slice())?;
 
         let buffer = (0..self.spec.size())
-            .into_iter()
             .map(|offset| self.spec.source_offset(offset))
             .map(|source_offset| source[source_offset])
             .collect();
@@ -1871,9 +1851,9 @@ fn exec_dual<IT: Number, OT: Number>(
     right: SliceConverter<IT>,
 ) -> Result<StackVec<OT>, Error> {
     let output = left
-        .into_iter()
+        .iter()
         .copied()
-        .zip(right.into_iter().copied())
+        .zip(right.iter().copied())
         .map(|(l, r)| (zip)(l, r))
         .collect();
 

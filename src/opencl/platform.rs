@@ -202,7 +202,7 @@ impl OpenCL {
             Ok(None)
         }
 
-        for option in options.into_iter().filter_map(|q| q.as_ref()) {
+        for option in options.iter().filter_map(|q| q.as_ref()) {
             if let Some(q) = clone_if_match(option, device_type)? {
                 queue = Some(q);
             } else {
@@ -818,7 +818,7 @@ fn reduce_all<T: Number>(input: &Buffer<T>, reduce: ElementDual, id: T) -> Resul
             .local_work_size(WG_SIZE)
             .global_work_size(WG_SIZE * output.len())
             .arg(input.len() as u64)
-            .arg(&*input)
+            .arg(input)
             .arg(&output)
             .arg_local::<T>(WG_SIZE)
             .build()?;

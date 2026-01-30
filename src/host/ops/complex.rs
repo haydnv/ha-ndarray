@@ -31,12 +31,16 @@ impl<A: Access<T>, T: Number> FFT<A, T> {
         }
     }
 
+    #[allow(clippy::self_named_constructors)]
+    // This mirrors the public NDArray API (`fft`, `ifft`) and reads clearly at callsites.
     pub fn fft(access: A, dim: usize) -> Result<Self, Error> {
         Self::new(access, dim, FftDirection::Forward)
     }
 
+    #[allow(clippy::self_named_constructors)]
+    // This mirrors the public NDArray API (`fft`, `ifft`) and reads clearly at callsites.
     pub fn ifft(access: A, dim: usize) -> Result<Self, Error> {
-        Self::new(access, dim, FftDirection::Forward)
+        Self::new(access, dim, FftDirection::Inverse)
     }
 }
 

@@ -740,7 +740,7 @@ impl<A: Access<T>, T: Number> ReduceAxes<A, T> for Host {
     }
 }
 
-impl<'a, A, T> Transform<A, T> for Host
+impl<A, T> Transform<A, T> for Host
 where
     A: Access<T>,
     T: Number,

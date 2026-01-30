@@ -5,7 +5,7 @@ use crate::Error;
 
 use super::build;
 
-const LIB: &'static str = r#"
+const LIB: &str = r#"
 const float pi = 3.14159;
 const float resolution = 1.0 / ((float) UINT_MAX);
 

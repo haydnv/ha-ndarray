@@ -10,8 +10,8 @@ fn test_diag() -> Result<(), Error> {
 
 #[test]
 fn test_matmul_12x20() -> Result<(), Error> {
-    let l = ArrayBuf::new((0..12).into_iter().collect::<Vec<_>>(), shape![3, 4])?;
-    let r = ArrayBuf::new((0..20).into_iter().collect::<Vec<_>>(), shape![4, 5])?;
+    let l = ArrayBuf::new((0..12).collect::<Vec<_>>(), shape![3, 4])?;
+    let r = ArrayBuf::new((0..20).collect::<Vec<_>>(), shape![4, 5])?;
 
     let actual = l.matmul(r)?;
 
@@ -32,7 +32,7 @@ fn test_matmul_12x20() -> Result<(), Error> {
 
 #[test]
 fn test_dot_product() -> Result<(), Error> {
-    let buffer = (0..16).into_iter().collect::<Vec<_>>();
+    let buffer = (0..16).collect::<Vec<_>>();
     let vectors = ArrayBuf::<i32, Buffer<i32>>::new(buffer.to_vec().into(), shape![4, 1, 4])?;
 
     let l: ArrayBuf<i32, &Buffer<i32>> = vectors.as_ref();

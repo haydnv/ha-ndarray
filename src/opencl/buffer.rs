@@ -7,7 +7,7 @@ use crate::opencl::OpenCL;
 use crate::{Error, Number};
 
 impl<T: Number> BufferInstance<T> for Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::CL(self.into())
     }
 
@@ -15,7 +15,7 @@ impl<T: Number> BufferInstance<T> for Buffer<T> {
         if offset < self.len() {
             let slice = self.map().offset(offset).len(1).read();
             let value = unsafe { slice.enq()? };
-            let value = value.get(0).copied().expect("value");
+            let value = value.first().copied().expect("value");
             Ok(value)
         } else {
             Err(Error::bounds(format!(
@@ -74,8 +74,8 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+impl<T: Number> BufferInstance<T> for &Buffer<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::CL((*self).into())
     }
 
@@ -88,8 +88,8 @@ impl<'a, T: Number> BufferInstance<T> for &'a Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
-    fn read(&self) -> BufferConverter<T> {
+impl<T: Number> BufferInstance<T> for &mut Buffer<T> {
+    fn read(&self) -> BufferConverter<'_, T> {
         BufferConverter::CL((&**self).into())
     }
 
@@ -102,13 +102,13 @@ impl<'a, T: Number> BufferInstance<T> for &'a mut Buffer<T> {
     }
 }
 
-impl<'a, T: Number> BufferMut<T> for &'a mut Buffer<T> {
+impl<T: Number> BufferMut<T> for &mut Buffer<T> {
     fn cl(&mut self) -> Result<&mut Buffer<T>, Error> {
         Ok(*self)
     }
 
     fn write<'b>(&mut self, data: BufferConverter<'b, T>) -> Result<(), Error> {
-        BufferMut::write(&mut **self, data.into())
+        BufferMut::write(&mut **self, data)
     }
 
     fn write_value(&mut self, value: T) -> Result<(), Error> {
@@ -136,12 +136,12 @@ impl<'a, T: Number> CLConverter<'a, T> {
             Self::Owned(buffer) => Ok(buffer),
             Self::Borrowed(buffer) => {
                 let cl_queue = buffer.default_queue().expect("OpenCL queue");
-                let mut copy = Buffer::builder()
+                let copy = Buffer::builder()
                     .queue(cl_queue.clone())
                     .len(buffer.len())
                     .build()?;
 
-                buffer.copy(&mut copy, None, None).enq()?;
+                buffer.copy(&copy, None, None).enq()?;
 
                 Ok(copy)
             }
@@ -155,6 +155,10 @@ impl<'a, T: Number> CLConverter<'a, T> {
             Self::Borrowed(buffer) => Buffer::len(buffer),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[cfg(feature = "opencl")]
@@ -163,7 +167,7 @@ impl<'a, T: Number> Deref for CLConverter<'a, T> {
 
     fn deref(&self) -> &Buffer<T> {
         match self {
-            Self::Owned(buffer) => &buffer,
+            Self::Owned(buffer) => buffer,
             Self::Borrowed(buffer) => buffer,
         }
     }
