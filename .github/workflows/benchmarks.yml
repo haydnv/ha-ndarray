@@ -1,0 +1,25 @@
+name: benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  bench-compile:
+    name: Compile host benchmarks (no-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Host-only tests
+        run: cargo test --no-default-features
+      # Compile the benchmark suite without running it. Timing-sensitive
+      # benchmarks are intentionally not executed on shared CI runners; see
+      # docs/benchmarking/README.md for how to run the suite locally.
+      - name: Compile benchmarks (no-run, no-default-features)
+        run: cargo bench --no-run --no-default-features
