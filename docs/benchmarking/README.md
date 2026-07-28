@@ -97,7 +97,7 @@ The large cases are bounded to remain safe in the documented Tembo environment
 
 ## How to run locally
 
-Compile only (the CI path; safe on shared runners):
+Compile only (safe to verify the suite builds without running timings):
 
 ```
 cargo bench --no-run --no-default-features
