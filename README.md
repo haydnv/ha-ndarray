@@ -12,4 +12,7 @@ OpenCL is a trademark of Apple Inc. used by permission by the Khronos Group. For
 
  - This excellent overview of OpenCL kernel programming & optimization: https://www.nersc.gov/assets/pubs_presos/MattsonTutorialSC14.pdf
 
- - A benchmarking tool available for comparing numpy, ndarray and ha-ndarray is available in the `benchmark` branch and can be built with `cargo run --bin benchmark --features benchmark` see [README.md](./benchmark/README.md) for more information.
+ - A reproducible Criterion benchmark baseline for the host/Rayon platform lives in the `benches/`
+   directory and can be run with `cargo bench --no-default-features`. See
+   [docs/benchmarking/README.md](./docs/benchmarking/README.md) for the benchmark inventory, local
+   execution instructions, and how future CubeCL/OpenCL groups should reuse this baseline.
