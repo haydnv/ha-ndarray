@@ -946,11 +946,9 @@ impl SliceSpec {
             .copied()
             .zip(&self.shape)
             .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
+                offset
+                    .checked_div(stride)
+                    .map_or(0, |quotient| quotient % dim)
             });
 
         let mut offset = 0;
@@ -1186,11 +1184,9 @@ impl FlipSpec {
             .copied()
             .zip(self.shape.iter().copied())
             .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
+                offset
+                    .checked_div(stride)
+                    .map_or(0, |quotient| quotient % dim)
             }) // coord
             .zip(self.strides.iter().copied())
             .enumerate()
@@ -1236,11 +1232,9 @@ impl ViewSpec {
             .rev()
             .take(self.source_strides.len())
             .map(|(stride, dim)| {
-                if stride == 0 {
-                    0
-                } else {
-                    (offset / stride) % dim
-                }
+                offset
+                    .checked_div(stride)
+                    .map_or(0, |quotient| quotient % dim)
             }) // coord
             .zip(self.source_strides.iter().rev().copied())
             .map(|(i, source_stride)| i * source_stride)
