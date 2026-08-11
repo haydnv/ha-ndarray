@@ -10,14 +10,26 @@
 ## Build, Test, and Development Commands
 - Build (CPU/host only): `cargo build`.
 - Enable features (e.g., OpenCL): `cargo build --features opencl` or all: `cargo build --features all`.
-- Run tests: `cargo test` (host) or `cargo test --features opencl`.
+- Run tests: `cargo test` (host) or explicitly select the installed OpenCL
+  device class, for example
+  `HA_NDARRAY_OPENCL_DEVICE=GPU cargo test --features opencl`.
 - Docs: `cargo doc --no-deps` (add `--open` locally to view).
 - Format and lint: `cargo fmt --all` and `cargo clippy --all-targets --all-features -D warnings`.
 
 ## Coding Style & Naming Conventions
 - Rust 2021 edition; 4-space indentation; keep lines reasonably short.
 - Modules/files: `snake_case` (e.g., `array.rs`); types/traits: `PascalCase` (e.g., `ArrayBuf`); functions/fields: `snake_case`.
-- Prefer explicit types and small, focused modules; keep unsafe blocks minimal and well-justified.
+- Handwritten `unsafe` is prohibited outside the OpenCL enqueue boundary. The
+  allowlisted enqueue calls may only submit fully configured kernels or buffer
+  commands whose arguments, dimensions, and lifetimes have already been
+  validated by the surrounding safe API; no domain logic belongs in those blocks.
+- CPU and OpenCL execution must use explicit finite in-flight limits. Acquire
+  device capacity before allocating buffers or enqueueing commands, keep
+  transfers bounded, and propagate saturation to the caller; do not hide it with
+  unbounded host queues or an implicit CPU/GPU fallback.
+- Device class selection is fixed before admission. If the selected class is
+  absent, fail unless bootstrap explicitly configured a fallback; never search
+  other classes opportunistically, and never reroute because a device is busy.
 - Run `cargo fmt` and `cargo clippy` before pushing.
 
 ## Testing Guidelines

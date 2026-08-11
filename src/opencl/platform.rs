@@ -6,6 +6,8 @@ use ocl::{Buffer, Context, Device, DeviceType, Event, Kernel, Platform, Queue};
 use rayon::prelude::*;
 use smallvec::SmallVec;
 
+use super::ops::*;
+use super::{programs, CLElementTrig, CL_PLATFORM, WG_SIZE};
 use crate::access::{Access, AccessOp};
 use crate::buffer::BufferConverter;
 use crate::opencl::programs::ElementDual;
@@ -18,10 +20,6 @@ use crate::ops::{
 };
 use crate::platform::{Convert, PlatformInstance};
 use crate::{Axes, Constant, Error, Float, Number, Range, Real, Shape};
-
-use super::ops::*;
-use super::{programs, CLElementTrig};
-use super::{CL_PLATFORM, WG_SIZE};
 
 #[cfg(debug_assertions)]
 pub const GPU_MIN_SIZE: usize = 128;
@@ -85,6 +83,7 @@ pub struct CLPlatform {
     cl_cpus: DeviceList,
     cl_gpus: DeviceList,
     cl_accs: DeviceList,
+    configured_device_type: Option<DeviceType>,
 }
 
 impl CLPlatform {
@@ -93,19 +92,11 @@ impl CLPlatform {
         Self::try_from(cl_platform).map_err(Error::from)
     }
 
-    fn next_cpu(&self) -> Option<Device> {
-        self.cl_cpus.next()
-    }
-
-    fn next_gpu(&self) -> Option<Device> {
-        self.cl_gpus.next()
-    }
-
-    fn next_acc(&self) -> Option<Device> {
-        self.cl_accs.next()
-    }
-
     fn select_device_type(&self, size_hint: usize) -> DeviceType {
+        if let Some(device_type) = self.configured_device_type {
+            return device_type;
+        }
+
         if size_hint < GPU_MIN_SIZE {
             DeviceType::CPU
         } else if size_hint < ACC_MIN_SIZE {
@@ -117,21 +108,9 @@ impl CLPlatform {
 
     fn select_device(&self, device_type: DeviceType) -> Option<Device> {
         match device_type {
-            DeviceType::CPU => self
-                .next_cpu()
-                .or_else(|| self.next_gpu())
-                .or_else(|| self.next_acc()),
-
-            DeviceType::GPU => self
-                .next_gpu()
-                .or_else(|| self.next_acc())
-                .or_else(|| self.next_cpu()),
-
-            DeviceType::ACCELERATOR => self
-                .next_acc()
-                .or_else(|| self.next_gpu())
-                .or_else(|| self.next_cpu()),
-
+            DeviceType::CPU => self.cl_cpus.next(),
+            DeviceType::GPU => self.cl_gpus.next(),
+            DeviceType::ACCELERATOR => self.cl_accs.next(),
             other => panic!("unsupported OpenCL device type: {other:?}"),
         }
     }
@@ -150,12 +129,27 @@ impl TryFrom<Platform> for CLPlatform {
         let cl_cpus = Device::list(cl_platform, Some(DeviceType::CPU))?;
         let cl_gpus = Device::list(cl_platform, Some(DeviceType::GPU))?;
         let cl_accs = Device::list(cl_platform, Some(DeviceType::ACCELERATOR))?;
+        let configured_device_type = match std::env::var("HA_NDARRAY_OPENCL_DEVICE") {
+            Ok(value) => match value.to_ascii_lowercase().as_str() {
+                "cpu" => Some(DeviceType::CPU),
+                "gpu" => Some(DeviceType::GPU),
+                "accelerator" => Some(DeviceType::ACCELERATOR),
+                _ => {
+                    return Err(ocl::Error::from(format!(
+                        "invalid HA_NDARRAY_OPENCL_DEVICE {value:?}; expected CPU, GPU, or ACCELERATOR"
+                    )));
+                }
+            },
+            Err(std::env::VarError::NotPresent) => None,
+            Err(err) => return Err(ocl::Error::from(err.to_string())),
+        };
 
         Ok(Self {
             cl_cpus: cl_cpus.into(),
             cl_gpus: cl_gpus.into(),
             cl_accs: cl_accs.into(),
             cl_context,
+            configured_device_type,
         })
     }
 }
@@ -215,7 +209,7 @@ impl OpenCL {
         } else {
             let device = CL_PLATFORM
                 .select_device(device_type)
-                .expect("OpenCL device");
+                .ok_or_else(|| ocl::Error::from(format!("no {device_type:?} device configured")))?;
 
             Queue::new(&CL_PLATFORM.cl_context, device, None)?
         };
@@ -540,7 +534,8 @@ impl<A: Access<T>, T: Float> ElementwiseNumeric<A, T> for OpenCL {
     }
 }
 
-// TODO: implement this trait separately per-type and remote the CLElementTrig boundary
+// TODO: implement this trait separately per-type and remote the CLElementTrig
+// boundary
 impl<A: Access<T>, T: Float + CLElementTrig> ElementwiseTrig<A, T> for OpenCL {
     type Op = Unary<A, T, T>;
 
@@ -823,6 +818,8 @@ fn reduce_all<T: Number>(input: &Buffer<T>, reduce: ElementDual, id: T) -> Resul
             .arg_local::<T>(WG_SIZE)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? };
 
         output
@@ -849,6 +846,8 @@ fn reduce_all<T: Number>(input: &Buffer<T>, reduce: ElementDual, id: T) -> Resul
             .arg_local::<T>(WG_SIZE)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         buffer = output;

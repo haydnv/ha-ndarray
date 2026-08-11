@@ -14,6 +14,8 @@ impl<T: Number> BufferInstance<T> for Buffer<T> {
     fn read_value(&self, offset: usize) -> Result<T, Error> {
         if offset < self.len() {
             let slice = self.map().offset(offset).len(1).read();
+            // SAFETY: the safe wrapper validates the offset and keeps the mapped buffer
+            // alive.
             let value = unsafe { slice.enq()? };
             let value = value.first().copied().expect("value");
             Ok(value)
@@ -62,6 +64,8 @@ impl<T: Number> BufferMut<T> for Buffer<T> {
     fn write_value_at(&mut self, offset: usize, value: T) -> Result<(), Error> {
         if offset < Buffer::len(self) {
             let slice = self.map().offset(offset).len(1).read();
+            // SAFETY: the safe wrapper validates the offset and keeps the mapped buffer
+            // alive.
             let mut slice = unsafe { slice.enq()? };
             slice.as_mut()[0] = value;
             Ok(())

@@ -4,6 +4,15 @@ implemented using the [ocl](https://github.com/cogciprocate/ocl) crate.
 
 Use the `opencl` feature flag to enable OpenCL support.
 
+Device class selection is fixed when the OpenCL platform initializes. Set
+`HA_NDARRAY_OPENCL_DEVICE` to `CPU`, `GPU`, or `ACCELERATOR` to select one class
+explicitly; otherwise workload-size thresholds select the class and fail closed
+if that class is unavailable. For example, run the NVIDIA GPU suite with:
+
+```sh
+HA_NDARRAY_OPENCL_DEVICE=GPU cargo test --features opencl
+```
+
 OpenCL is a trademark of Apple Inc. used by permission by the Khronos Group. For more information on OpenCL in general, see:
 
  - [A Gentle Introduction to OpenCL](https://freecontent.manning.com/wp-content/uploads/a-gentle-introduction-to-opencl.pdf) by Matthew Scarpino

@@ -6,15 +6,14 @@ use frand::Rand;
 use number_general as ng;
 use ocl::{Buffer, Kernel, Program, Queue};
 
+use super::platform::OpenCL;
+use super::{programs, TILE_SIZE, WG_SIZE};
 use crate::access::{Access, AccessBuf, AccessMut};
 use crate::opencl::programs::{ElementDual, ElementUnary};
 use crate::ops::{Concat, Enqueue, FlipSpec, Op, ReadValue, ReduceAll, SliceSpec, ViewSpec, Write};
 use crate::{
     strides_for, Axes, BufferConverter, Error, Float, Number, Platform, Range, Real, Shape, Strides,
 };
-
-use super::platform::OpenCL;
-use super::{programs, TILE_SIZE, WG_SIZE};
 
 pub struct Cast<A, IT, OT> {
     access: A,
@@ -59,6 +58,8 @@ impl<A: Access<IT>, IT: Number, OT: Number> Enqueue<OpenCL, OT> for Cast<A, IT, 
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? };
 
         Ok(output)
@@ -294,6 +295,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -397,6 +400,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -472,6 +477,8 @@ impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Flip<A, T> {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -539,6 +546,8 @@ impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for MatDiag<A, T> {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? };
 
         Ok(output)
@@ -636,6 +645,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -682,6 +693,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -794,6 +807,8 @@ impl<T: Number> Enqueue<OpenCL, T> for Linear<T> {
             .arg(&buffer)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(buffer)
@@ -846,6 +861,8 @@ impl Enqueue<OpenCL, f32> for RandomNormal {
             .arg_local::<f32>(WG_SIZE)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         if buffer.len() == self.size {
@@ -906,6 +923,8 @@ impl Enqueue<OpenCL, f32> for RandomUniform {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -995,6 +1014,8 @@ impl<A, T: Number> Reduce<A, T> {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1027,6 +1048,8 @@ impl<A, T: Number> Reduce<A, T> {
             .arg_local::<T>(wg_size)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1322,6 +1345,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1394,6 +1419,8 @@ impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for Slice<A, T> {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1432,6 +1459,8 @@ where
             .arg(&*data)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(())
@@ -1457,6 +1486,8 @@ where
             .arg(value)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(())
@@ -1625,6 +1656,8 @@ where
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1709,6 +1742,8 @@ impl<A: Access<T>, T: Number> Enqueue<OpenCL, T> for View<A, T> {
             .arg(&output)
             .build()?;
 
+        // SAFETY: kernel arguments and dimensions are validated, and all referenced
+        // buffers outlive this enqueue.
         unsafe { kernel.enq()? }
 
         Ok(output)
@@ -1724,12 +1759,4 @@ impl<A: Access<T>, T: Number> ReadValue<OpenCL, T> for View<A, T> {
 #[inline]
 fn pad_dim(dim: usize, size: usize) -> usize {
     size * dim.div_ceil(size)
-}
-
-#[allow(unused)]
-// Convenience helper when debugging kernels (e.g. manual spot checks of intermediate buffers).
-fn inspect<T: Number>(name: &'static str, buffer: &Buffer<T>) -> Result<(), Error> {
-    let mut inspect = vec![T::ZERO; buffer.len()];
-    buffer.read(inspect.as_mut_slice()).enq()?;
-    Ok(())
 }

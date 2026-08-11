@@ -780,9 +780,11 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "complex")]
+    use crate::NDArrayTrig;
     use crate::{
         shape, slice, AxisRange, Error, MatrixDual, NDArray, NDArrayCompare, NDArrayMath,
-        NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayTrig, NDArrayWrite, Shape,
+        NDArrayRead, NDArrayReduceBoolean, NDArrayTransform, NDArrayWrite, Shape,
     };
 
     use super::*;
